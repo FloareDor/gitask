@@ -31,6 +31,7 @@ export default function RepoPage({
 	const [isIndexed, setIsIndexed] = useState(false);
 	const [llmStatus, setLlmStatus] = useState<LLMStatus>("idle");
 	const [messages, setMessages] = useState<Message[]>([]);
+	const chatStorageKey = owner && repo ? `gitask-chat-${owner}/${repo}` : null;
 	const [input, setInput] = useState("");
 	const [isGenerating, setIsGenerating] = useState(false);
 	const [contextChunks, setContextChunks] = useState<ContextChunk[]>([]);
@@ -53,6 +54,33 @@ export default function RepoPage({
 	useEffect(() => {
 		return onStatusChange(setLlmStatus);
 	}, []);
+
+	// Load chat history from localStorage
+	useEffect(() => {
+		if (!chatStorageKey) return;
+		try {
+			const saved = localStorage.getItem(chatStorageKey);
+			if (saved) {
+				const parsed = JSON.parse(saved) as Message[];
+				if (Array.isArray(parsed) && parsed.length > 0) {
+					setMessages(parsed);
+				}
+			}
+		} catch {
+			// Ignore corrupted data
+		}
+	}, [chatStorageKey]);
+
+	// Save chat history to localStorage (capped at 50 messages)
+	useEffect(() => {
+		if (!chatStorageKey || messages.length === 0) return;
+		try {
+			const toSave = messages.slice(-50);
+			localStorage.setItem(chatStorageKey, JSON.stringify(toSave));
+		} catch {
+			// Storage full or unavailable — silently skip
+		}
+	}, [messages, chatStorageKey]);
 
 	// Auto-scroll chat
 	useEffect(() => {
@@ -86,6 +114,13 @@ export default function RepoPage({
 			}
 		})();
 	}, [owner, repo, token]);
+
+	const handleClearChat = useCallback(() => {
+		setMessages([]);
+		if (chatStorageKey) {
+			try { localStorage.removeItem(chatStorageKey); } catch { }
+		}
+	}, [chatStorageKey]);
 
 	const handleSend = useCallback(async () => {
 		if (!input.trim() || isGenerating || !isIndexed) return;
@@ -210,6 +245,15 @@ export default function RepoPage({
 					>
 						📋 Context
 					</button>
+					{messages.length > 0 && (
+						<button
+							className="btn btn-ghost"
+							style={{ fontSize: "12px", padding: "6px 12px" }}
+							onClick={handleClearChat}
+						>
+							🗑 Clear
+						</button>
+					)}
 				</div>
 			</header>
 
@@ -358,6 +402,8 @@ const styles: Record<string, React.CSSProperties> = {
 		padding: "12px 24px",
 		borderBottom: "1px solid var(--border)",
 		background: "var(--bg-secondary)",
+		position: "relative" as const,
+		zIndex: 10,
 	},
 	logo: {
 		fontWeight: 700,
