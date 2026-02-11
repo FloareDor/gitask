@@ -1,12 +1,13 @@
 "use client";
 
 import { useState, useEffect, useRef, useCallback } from "react";
-import { indexRepository, type IndexProgress } from "@/lib/indexer";
+import { indexRepository, type IndexProgress, type AstNode } from "@/lib/indexer";
 import { VectorStore } from "@/lib/vectorStore";
 import { hybridSearch, type SearchOptions } from "@/lib/search";
 import { embedText } from "@/lib/embedder";
 import { initLLM, generate, getLLMStatus, onStatusChange, type LLMStatus, type ChatMessage } from "@/lib/llm";
 import { verifyAndRefine } from "@/lib/cove";
+import AstTreeView from "@/components/AstTreeView";
 
 interface Message {
 	role: "user" | "assistant";
@@ -38,6 +39,8 @@ export default function RepoPage({
 	const [showContext, setShowContext] = useState(false);
 	const [token, setToken] = useState("");
 	const [showTokenInput, setShowTokenInput] = useState(false);
+	const [astNodes, setAstNodes] = useState<AstNode[]>([]);
+	const [textChunkCounts, setTextChunkCounts] = useState<Record<string, number>>({});
 
 	const storeRef = useRef(new VectorStore());
 	const chatEndRef = useRef<HTMLDivElement>(null);
@@ -92,7 +95,17 @@ export default function RepoPage({
 		if (!owner || !repo) return;
 		(async () => {
 			try {
-				await indexRepository(owner, repo, storeRef.current, setIndexProgress, token || undefined);
+				await indexRepository(
+					owner,
+					repo,
+					storeRef.current,
+					(progress) => {
+						setIndexProgress(progress);
+						if (progress.astNodes) setAstNodes(progress.astNodes);
+						if (progress.textChunkCounts) setTextChunkCounts(progress.textChunkCounts);
+					},
+					token || undefined,
+				);
 				setIsIndexed(true);
 
 				// Start loading LLM in background
@@ -286,8 +299,22 @@ export default function RepoPage({
 
 			{/* Main content */}
 			<div style={styles.content}>
+				{/* AST Tree visualization during indexing */}
+				{!isIndexed && astNodes.length > 0 && (
+					<div style={styles.astPanel}>
+						<AstTreeView
+							astNodes={astNodes}
+							textChunkCounts={textChunkCounts}
+							phase={indexProgress?.phase ?? "chunking"}
+						/>
+					</div>
+				)}
+
 				{/* Chat panel */}
-				<div style={styles.chatPanel}>
+				<div style={{
+					...styles.chatPanel,
+					display: !isIndexed && astNodes.length > 0 ? "none" : "flex",
+				}}>
 					<div style={styles.messageList}>
 						{messages.length === 0 && isIndexed && (
 							<div style={styles.emptyState}>
@@ -450,6 +477,11 @@ const styles: Record<string, React.CSSProperties> = {
 		display: "flex",
 		flex: 1,
 		overflow: "hidden",
+	},
+	astPanel: {
+		flex: 1,
+		overflow: "auto",
+		padding: "16px 24px",
 	},
 	chatPanel: {
 		flex: 1,

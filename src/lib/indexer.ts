@@ -12,14 +12,25 @@ import {
 	prioritiseFiles,
 } from "./github";
 import { chunkCode, type CodeChunk } from "./chunker";
+import { detectLanguage } from "./chunker";
 import { embedChunks, initEmbedder } from "./embedder";
 import { VectorStore } from "./vectorStore";
+import { extractSymbols } from "./symbols";
+
+export interface AstNode {
+	filePath: string;
+	name: string;
+	kind: string;
+	status: "pending" | "parsed" | "embedding" | "done";
+}
 
 export type IndexProgress = {
 	phase: "fetching" | "chunking" | "embedding" | "persisting" | "done" | "cached";
 	message: string;
 	current: number;
 	total: number;
+	astNodes?: AstNode[];
+	textChunkCounts?: Record<string, number>;
 };
 
 /**
@@ -71,15 +82,37 @@ export async function indexRepository(
 		total: totalFiles,
 	});
 
-	// 4. Fetch + chunk files
+	// 4. Fetch + chunk files, collecting AST data
 	const allChunks: CodeChunk[] = [];
+	const astNodes: AstNode[] = [];
+	const textChunkCounts: Record<string, number> = {};
+	const fileChunkRanges = new Map<string, { start: number; end: number }>();
 
 	for (let i = 0; i < indexableFiles.length; i++) {
 		const file = indexableFiles[i];
 		try {
 			const content = await fetchFileContent(owner, repo, file.path, token);
+			const lang = detectLanguage(file.path);
+
+			// Extract symbols for AST visualization
+			const symbols = extractSymbols(content, lang);
+			for (const sym of symbols) {
+				astNodes.push({
+					filePath: file.path,
+					name: sym.name,
+					kind: sym.kind,
+					status: "parsed",
+				});
+			}
+
+			// Chunk the file and track ranges
+			const chunkStart = allChunks.length;
 			const chunks = chunkCode(file.path, content);
 			allChunks.push(...chunks);
+			const chunkEnd = allChunks.length;
+
+			fileChunkRanges.set(file.path, { start: chunkStart, end: chunkEnd });
+			textChunkCounts[file.path] = chunks.length;
 		} catch {
 			// Skip files that fail to fetch
 			console.warn(`Skipped ${file.path}`);
@@ -91,6 +124,8 @@ export async function indexRepository(
 				message: `Chunked ${i + 1}/${totalFiles} files (${allChunks.length} chunks)`,
 				current: i + 1,
 				total: totalFiles,
+				astNodes: [...astNodes],
+				textChunkCounts: { ...textChunkCounts },
 			});
 		}
 	}
@@ -101,6 +136,8 @@ export async function indexRepository(
 		message: `Embedding ${allChunks.length} chunks…`,
 		current: 0,
 		total: allChunks.length,
+		astNodes: [...astNodes],
+		textChunkCounts: { ...textChunkCounts },
 	});
 
 	await initEmbedder((msg) =>
@@ -109,17 +146,37 @@ export async function indexRepository(
 			message: msg,
 			current: 0,
 			total: allChunks.length,
+			astNodes: [...astNodes],
+			textChunkCounts: { ...textChunkCounts },
 		})
 	);
 
-	const embedded = await embedChunks(allChunks, (done, total) =>
+	const embedded = await embedChunks(allChunks, (done, total) => {
+		// Update per-file AST node statuses based on embedding progress
+		const updatedNodes = astNodes.map((node) => {
+			const range = fileChunkRanges.get(node.filePath);
+			if (!range) return node;
+
+			let status: AstNode["status"];
+			if (done >= range.end) {
+				status = "done";
+			} else if (done > range.start) {
+				status = "embedding";
+			} else {
+				status = "parsed";
+			}
+			return { ...node, status };
+		});
+
 		onProgress?.({
 			phase: "embedding",
 			message: `Embedded ${done}/${total} chunks`,
 			current: done,
 			total,
-		})
-	);
+			astNodes: updatedNodes,
+			textChunkCounts: { ...textChunkCounts },
+		});
+	});
 
 	// 6. Store
 	store.insert(embedded);
