@@ -1,34 +1,17 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# GitAsk
 
-## Getting Started
+Just a simple, browser-based RAG engine.
 
-First, run the development server:
+It turns any GitHub repo into a local AI assistant. Everything runs right on your device (WebGPU) — no servers, no API keys, no costs.
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
-```
+Here's how it works:
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+![Architecture](https://mermaid.ink/img/Zmxvd2NoYXJ0IExSDQogICAgc3ViZ3JhcGggQnJvd3Nlcg0KICAgICAgICBBWyJVUkwgVHJpZ2dlcjxici8+KHByb3h5LnRzKSJdIC0tPiBCWyJHaXRIdWIgSW5nZXN0aW9uPGJyLz5TZXJ2aWNlIl0NCiAgICAgICAgQiAtLT4gQ1siQVNUIENodW5rZXI8YnIvPih0cmVlLXNpdHRlciBXQVNNKSJdDQogICAgICAgIEMgLS0+IERbIkVtYmVkZGluZyBQaXBlbGluZTxici8+KHRyYW5zZm9ybWVycy5qcyBXZWJHUFUpIl0NCiAgICAgICAgRCAtLT4gRVsiQmluYXJ5IFF1YW50aXNhdGlvbiJdDQogICAgICAgIEUgLS0+IEZbIkVudGl0eS1EQjxici8+KEluZGV4ZWREQikiXQ0KICAgICAgICBGIC0tPiBHWyJIeWJyaWQgU2VhcmNoPGJyLz4oSGFtbWluZyArIFJlZ2V4KSJdDQogICAgICAgIEcgLS0+IEhbIk1hdHJ5b3Noa2E8YnIvPlJlcmFua2VyIl0NCiAgICAgICAgSCAtLT4gSVsiV2ViTExNIFdvcmtlcjxici8+KFF3ZW4yLTAuNUIpIl0NCiAgICAgICAgSSAtLT4gSlsiQ2hhdCBVSSArPGJyLz5Db1ZlIExvb3AiXQ0KICAgIGVuZA0K)
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## How to run it
 
-## Learn More
+1. **Install**: `npm install`
+2. **Start**: `npm run dev`
+3. **Go**: Open `localhost:3000` and paste a GitHub URL.
 
-To learn more about Next.js, take a look at the following resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+that's it. hf.

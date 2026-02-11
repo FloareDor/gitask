@@ -1,0 +1,122 @@
+/**
+ * WebGPU Embedding Pipeline using Transformers.js
+ *
+ * Runs a quantised embedding model on the user's GPU via WebGPU,
+ * with automatic fallback to WASM if WebGPU is unavailable.
+ */
+
+import type { CodeChunk } from "./chunker";
+
+export interface EmbeddedChunk extends CodeChunk {
+	embedding: number[];
+}
+
+// Lazy-loaded pipeline
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let embedPipeline: any = null;
+let pipelinePromise: Promise<void> | null = null;
+
+/**
+ * Initialise the embedding model.
+ * Call once — subsequent calls are no-ops.
+ */
+export async function initEmbedder(
+	onProgress?: (msg: string) => void
+): Promise<void> {
+	if (embedPipeline) return;
+	if (pipelinePromise) return pipelinePromise;
+
+	pipelinePromise = (async () => {
+		onProgress?.("Loading embedding model…");
+
+		// Dynamic import so this doesn't break SSR
+		const { pipeline, env } = await import("@huggingface/transformers");
+
+		// Disable local model check (we always download from HF)
+		env.allowLocalModels = false;
+
+		// Suppress ONNX Runtime warnings about execution provider node assignments.
+		// logSeverityLevel: 0=verbose, 1=info, 2=warning, 3=error, 4=fatal
+		// eslint-disable-next-line @typescript-eslint/no-explicit-any
+		const onnxEnv = (env as any).backends?.onnx;
+		if (onnxEnv) {
+			onnxEnv.logSeverityLevel = 3;
+			onnxEnv.logLevel = "error";
+		}
+
+		// Detect WebGPU, fall back to WASM
+		const hasWebGPU =
+			typeof navigator !== "undefined" &&
+			"gpu" in navigator &&
+			(await (navigator as any).gpu?.requestAdapter?.()) != null;
+
+		const device = hasWebGPU ? "webgpu" : "wasm";
+		console.info(`🚀 Embedder using device: ${device.toUpperCase()}`);
+		onProgress?.(`Using device: ${device}`);
+
+		embedPipeline = await pipeline(
+			"feature-extraction",
+			"Xenova/all-MiniLM-L6-v2",
+			{
+				device: device as any,
+				session_options: {
+					log_severity_level: 3,
+				},
+			} as any
+		);
+
+		onProgress?.("Embedding model ready");
+	})();
+
+	return pipelinePromise;
+}
+
+/**
+ * Embed a single text string. Returns the mean-pooled, normalised vector.
+ */
+export async function embedText(text: string): Promise<number[]> {
+	if (!embedPipeline) {
+		await initEmbedder();
+	}
+
+	const output = await embedPipeline(text, {
+		pooling: "mean",
+		normalize: true,
+	});
+
+	return Array.from(output.data as Float32Array);
+}
+
+/**
+ * Embed an array of code chunks in batches.
+ */
+export async function embedChunks(
+	chunks: CodeChunk[],
+	onProgress?: (done: number, total: number) => void,
+	batchSize: number = 8
+): Promise<EmbeddedChunk[]> {
+	await initEmbedder();
+
+	const results: EmbeddedChunk[] = [];
+
+	for (let i = 0; i < chunks.length; i += batchSize) {
+		const batch = chunks.slice(i, i + batchSize);
+
+		// Process batch sequentially (transformers.js doesn't support true batching in browser)
+		for (const chunk of batch) {
+			const embedding = await embedText(chunk.code);
+			results.push({ ...chunk, embedding });
+		}
+
+		onProgress?.(Math.min(i + batchSize, chunks.length), chunks.length);
+	}
+
+	return results;
+}
+
+/**
+ * Check if the embedder is ready.
+ */
+export function isEmbedderReady(): boolean {
+	return embedPipeline != null;
+}

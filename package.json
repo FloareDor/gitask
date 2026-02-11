@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev",
+    "dev": "kill-port 3000 && rimraf .next/dev/lock && next dev",
     "build": "next build",
     "start": "next start"
   },
@@ -20,6 +20,9 @@
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
-    "typescript": "^5"
+    "kill-port": "^2.0.1",
+    "rimraf": "^6.1.2",
+    "typescript": "^5",
+    "vitest": "^4.0.18"
   }
 }
