@@ -1,7 +1,211 @@
-export default function Home() {
+"use client";
+
+import { useState } from "react";
+import { useRouter } from "next/navigation";
+
+export default function LandingPage() {
+  const [url, setUrl] = useState("");
+  const [error, setError] = useState("");
+  const router = useRouter();
+
+  function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setError("");
+
+    // Parse GitHub URL
+    const match = url.match(
+      /(?:https?:\/\/)?(?:www\.)?github\.com\/([^\/]+)\/([^\/\s]+)/
+    );
+
+    if (!match) {
+      setError("Please enter a valid GitHub URL (e.g. https://github.com/owner/repo)");
+      return;
+    }
+
+    const owner = match[1];
+    const repo = match[2].replace(/\.git$/, "");
+    router.push(`/${owner}/${repo}`);
+  }
+
   return (
-    <main>
-      <div>Hello world!</div>
-    </main>
+    <div style={styles.wrapper}>
+      {/* Gradient orbs for visual flair */}
+      <div style={styles.orbPurple} />
+      <div style={styles.orbBlue} />
+
+      <main style={styles.main}>
+        <div className="fade-in" style={styles.hero}>
+          <div style={styles.badge}>
+            <span style={styles.badgeDot} />
+            100% Client-Side • Zero Cost
+          </div>
+
+          <h1 style={styles.title}>
+            Turn any GitHub repo into an
+            <span style={styles.gradient}> intelligent assistant</span>
+          </h1>
+
+          <p style={styles.subtitle}>
+            GitAsk runs an entire RAG pipeline. embedding, storage, retrieval.
+            On your device using WebGPU. No server, no API keys, full privacy.
+          </p>
+
+          <form onSubmit={handleSubmit} style={styles.form}>
+            <input
+              className="input"
+              type="text"
+              placeholder="Paste a GitHub URL (e.g. https://github.com/facebook/react)"
+              value={url}
+              onChange={(e) => setUrl(e.target.value)}
+              style={styles.urlInput}
+              id="repo-url-input"
+            />
+            <button type="submit" className="btn btn-primary" id="go-btn">
+              Ask →
+            </button>
+          </form>
+
+          {error && <p style={styles.error}>{error}</p>}
+
+          <div style={styles.features}>
+            {[
+              { icon: "⚡", label: "WebGPU Inference", desc: "GPU-accelerated embeddings" },
+              { icon: "🧠", label: "AST Chunking", desc: "Tree-sitter code parsing" },
+              { icon: "🔍", label: "Hybrid Search", desc: "Vector + keyword fusion" },
+              { icon: "💾", label: "Local Cache", desc: "IndexedDB persistence" },
+            ].map((f) => (
+              <div key={f.label} className="glass" style={styles.featureCard}>
+                <span style={styles.featureIcon}>{f.icon}</span>
+                <strong style={styles.featureLabel}>{f.label}</strong>
+                <span style={styles.featureDesc}>{f.desc}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      </main>
+    </div>
   );
 }
+
+const styles: Record<string, React.CSSProperties> = {
+  wrapper: {
+    minHeight: "100vh",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    position: "relative",
+    overflow: "hidden",
+  },
+  orbPurple: {
+    position: "absolute",
+    top: "-20%",
+    left: "-10%",
+    width: "600px",
+    height: "600px",
+    borderRadius: "50%",
+    background: "radial-gradient(circle, rgba(99,102,241,0.15) 0%, transparent 70%)",
+    filter: "blur(60px)",
+    pointerEvents: "none",
+  },
+  orbBlue: {
+    position: "absolute",
+    bottom: "-20%",
+    right: "-10%",
+    width: "500px",
+    height: "500px",
+    borderRadius: "50%",
+    background: "radial-gradient(circle, rgba(59,130,246,0.12) 0%, transparent 70%)",
+    filter: "blur(60px)",
+    pointerEvents: "none",
+  },
+  main: {
+    position: "relative",
+    zIndex: 1,
+    width: "100%",
+    maxWidth: "800px",
+    padding: "40px 24px",
+    textAlign: "center",
+  },
+  hero: {
+    display: "flex",
+    flexDirection: "column",
+    alignItems: "center",
+    gap: "24px",
+  },
+  badge: {
+    display: "inline-flex",
+    alignItems: "center",
+    gap: "8px",
+    padding: "6px 16px",
+    borderRadius: "9999px",
+    fontSize: "12px",
+    fontWeight: 500,
+    color: "var(--text-secondary)",
+    background: "var(--bg-glass)",
+    border: "1px solid var(--border)",
+  },
+  badgeDot: {
+    width: "6px",
+    height: "6px",
+    borderRadius: "50%",
+    background: "var(--success)",
+    display: "inline-block",
+  },
+  title: {
+    fontSize: "clamp(2rem, 5vw, 3.2rem)",
+    fontWeight: 700,
+    lineHeight: 1.15,
+    letterSpacing: "-0.02em",
+  },
+  gradient: {
+    background: "linear-gradient(135deg, var(--accent), #a78bfa, #60a5fa)",
+    WebkitBackgroundClip: "text",
+    WebkitTextFillColor: "transparent",
+  },
+  subtitle: {
+    fontSize: "16px",
+    color: "var(--text-secondary)",
+    lineHeight: 1.6,
+    maxWidth: "560px",
+  },
+  form: {
+    display: "flex",
+    gap: "12px",
+    width: "100%",
+    maxWidth: "600px",
+    marginTop: "8px",
+  },
+  urlInput: {
+    flex: 1,
+  },
+  error: {
+    color: "var(--error)",
+    fontSize: "13px",
+  },
+  features: {
+    display: "grid",
+    gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))",
+    gap: "12px",
+    width: "100%",
+    marginTop: "32px",
+  },
+  featureCard: {
+    display: "flex",
+    flexDirection: "column",
+    alignItems: "center",
+    gap: "6px",
+    padding: "20px 12px",
+    textAlign: "center",
+  },
+  featureIcon: {
+    fontSize: "24px",
+  },
+  featureLabel: {
+    fontSize: "13px",
+    fontWeight: 600,
+  },
+  featureDesc: {
+    fontSize: "12px",
+    color: "var(--text-secondary)",
+  },
+};

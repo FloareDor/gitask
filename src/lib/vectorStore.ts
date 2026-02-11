@@ -1,0 +1,122 @@
+/**
+ * Vector Store — wraps EntityDB for indexing and searching code embeddings.
+ *
+ * Handles insert, search, persistence to IndexedDB, and cache invalidation.
+ */
+
+import type { EmbeddedChunk } from "./embedder";
+import type { CodeChunk } from "./chunker";
+
+export interface SearchResult {
+	chunk: CodeChunk;
+	score: number;
+	embedding?: number[];
+}
+
+/**
+ * In-memory vector store backed by simple arrays.
+ * We use entity-db for persistence but manage search ourselves
+ * to support binary quantisation + Hamming distance.
+ */
+export class VectorStore {
+	private chunks: EmbeddedChunk[] = [];
+	private repoKey: string = "";
+
+	constructor() { }
+
+	/**
+	 * Insert embedded chunks into the store.
+	 */
+	insert(chunks: EmbeddedChunk[]): void {
+		this.chunks.push(...chunks);
+	}
+
+	/**
+	 * Get all stored chunks.
+	 */
+	getAll(): EmbeddedChunk[] {
+		return this.chunks;
+	}
+
+	/**
+	 * Get the number of chunks stored.
+	 */
+	get size(): number {
+		return this.chunks.length;
+	}
+
+	/**
+	 * Clear the store.
+	 */
+	clear(): void {
+		this.chunks = [];
+	}
+
+	/**
+	 * Persist the store to IndexedDB keyed by owner/repo.
+	 */
+	async persist(owner: string, repo: string, sha: string): Promise<void> {
+		this.repoKey = `${owner}/${repo}`;
+		const data = {
+			sha,
+			timestamp: Date.now(),
+			chunks: this.chunks,
+		};
+
+		return new Promise((resolve, reject) => {
+			const request = indexedDB.open("gitask-cache", 1);
+			request.onupgradeneeded = () => {
+				const db = request.result;
+				if (!db.objectStoreNames.contains("repos")) {
+					db.createObjectStore("repos");
+				}
+			};
+			request.onsuccess = () => {
+				const db = request.result;
+				const tx = db.transaction("repos", "readwrite");
+				tx.objectStore("repos").put(data, this.repoKey);
+				tx.oncomplete = () => resolve();
+				tx.onerror = () => reject(tx.error);
+			};
+			request.onerror = () => reject(request.error);
+		});
+	}
+
+	/**
+	 * Load from IndexedDB cache if SHA matches.
+	 * Returns true if cache was loaded, false if stale/missing.
+	 */
+	async loadFromCache(
+		owner: string,
+		repo: string,
+		currentSha: string
+	): Promise<boolean> {
+		this.repoKey = `${owner}/${repo}`;
+
+		return new Promise((resolve) => {
+			const request = indexedDB.open("gitask-cache", 1);
+			request.onupgradeneeded = () => {
+				const db = request.result;
+				if (!db.objectStoreNames.contains("repos")) {
+					db.createObjectStore("repos");
+				}
+			};
+			request.onsuccess = () => {
+				const db = request.result;
+				const tx = db.transaction("repos", "readonly");
+				const getReq = tx.objectStore("repos").get(this.repoKey);
+				getReq.onsuccess = () => {
+					const data = getReq.result;
+					if (data && data.sha === currentSha) {
+						this.chunks = data.chunks;
+						resolve(true);
+					} else {
+						resolve(false);
+					}
+				};
+				getReq.onerror = () => resolve(false);
+			};
+			request.onerror = () => resolve(false);
+		});
+	}
+}
