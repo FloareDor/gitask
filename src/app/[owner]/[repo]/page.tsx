@@ -108,10 +108,14 @@ export default function RepoPage({
 				}))
 			);
 
-			// 2. Build context
-			const context = results
+			// 2. Build context (truncated to stay within context window)
+			const MAX_CONTEXT_CHARS = 3000;
+			let context = results
 				.map((r) => `### ${r.chunk.filePath} (score: ${r.score.toFixed(3)})\n\`\`\`\n${r.chunk.code}\n\`\`\``)
 				.join("\n\n");
+			if (context.length > MAX_CONTEXT_CHARS) {
+				context = context.slice(0, MAX_CONTEXT_CHARS) + "\n...(truncated)";
+			}
 
 			const systemPrompt = `You are GitAsk, an AI assistant that answers questions about the ${owner}/${repo} GitHub repository. Use the following code context to answer the user's question. Be concise and cite file paths when relevant.\n\n${context}`;
 
@@ -129,10 +133,11 @@ export default function RepoPage({
 				return;
 			}
 
-			// 4. Stream response
+			// 4. Stream response (cap history to last 4 messages to stay within token budget)
+			const recentHistory = messages.slice(-4);
 			const chatMessages: ChatMessage[] = [
 				{ role: "system", content: systemPrompt },
-				...messages.map((m) => ({ role: m.role as "user" | "assistant", content: m.content })),
+				...recentHistory.map((m) => ({ role: m.role as "user" | "assistant", content: m.content })),
 				{ role: "user" as const, content: userMessage },
 			];
 

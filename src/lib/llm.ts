@@ -54,6 +54,22 @@ export async function initLLM(
 			initProgressCallback: (progress) => {
 				onProgress?.(`LLM: ${progress.text}`);
 			},
+			appConfig: {
+				model_list: [
+					{
+						model: "https://huggingface.co/mlc-ai/Qwen2-0.5B-Instruct-q4f16_1-MLC",
+						model_id: MODEL_ID,
+						model_lib:
+							"https://raw.githubusercontent.com/mlc-ai/binary-mlc-llm-libs/main/web-llm-models/" +
+							"v0_2_80" +
+							"/Qwen2-0.5B-Instruct-q4f16_1-ctx4k_cs1k-webgpu.wasm",
+						low_resource_required: true,
+						overrides: {
+							context_window_size: 8192,
+						},
+					},
+				],
+			},
 		});
 
 		setStatus("ready");
