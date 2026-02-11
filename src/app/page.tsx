@@ -67,6 +67,10 @@ export default function LandingPage() {
 
           {error && <p style={styles.error}>{error}</p>}
 
+          <a href="/evals" style={styles.evalsLink}>
+            📊 View Ablation Study & Evals
+          </a>
+
           <div style={styles.features}>
             {[
               { icon: "⚡", label: "WebGPU Inference", desc: "GPU-accelerated embeddings" },
@@ -181,6 +185,16 @@ const styles: Record<string, React.CSSProperties> = {
   error: {
     color: "var(--error)",
     fontSize: "13px",
+  },
+  evalsLink: {
+    fontSize: "13px",
+    color: "var(--text-secondary)",
+    textDecoration: "none",
+    padding: "8px 16px",
+    borderRadius: "var(--radius-sm)",
+    border: "1px solid var(--border)",
+    transition: "all 0.2s ease",
+    background: "var(--bg-glass)",
   },
   features: {
     display: "grid",
