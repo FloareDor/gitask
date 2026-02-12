@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "kill-port 3000 && rimraf .next/dev/lock && next dev",
+    "dev": "node scripts/dev-cleanup.js && next dev",
     "build": "next build",
     "start": "next start"
   },

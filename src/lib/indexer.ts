@@ -11,7 +11,7 @@ import {
 	isIndexable,
 	prioritiseFiles,
 } from "./github";
-import { chunkCode, type CodeChunk } from "./chunker";
+import { chunkCode, chunkWithTreeSitter, type CodeChunk } from "./chunker";
 import { detectLanguage } from "./chunker";
 import { embedChunks, initEmbedder } from "./embedder";
 import { VectorStore } from "./vectorStore";
@@ -53,6 +53,24 @@ export async function indexRepository(
 	});
 
 	const tree = await fetchRepoTree(owner, repo, token);
+
+	// 1.5 Init Tree-Sitter (dynamic import to avoid bundling fs/promises)
+	// eslint-disable-next-line @typescript-eslint/no-explicit-any
+	let Parser: any = null;
+	try {
+		const mod = await import("web-tree-sitter");
+		Parser = mod.default;
+		await Parser.init({
+			locateFile(scriptName: string) {
+				return "/" + scriptName;
+			},
+		});
+	} catch (e) {
+		console.warn("Failed to init tree-sitter:", e);
+	}
+
+	// eslint-disable-next-line @typescript-eslint/no-explicit-any
+	const parsers: Record<string, any> = {};
 
 	// 2. Check cache
 	const cached = await store.loadFromCache(owner, repo, tree.sha);
@@ -107,7 +125,31 @@ export async function indexRepository(
 
 			// Chunk the file and track ranges
 			const chunkStart = allChunks.length;
-			const chunks = chunkCode(file.path, content);
+
+			let chunks: CodeChunk[] = [];
+
+			// Attempt to use AST chunking if possible
+			if (Parser && lang && ["javascript", "typescript", "tsx", "python", "rust", "go", "java", "c", "cpp"].includes(lang)) {
+				try {
+					if (!parsers[lang]) {
+						// Load the language WASM if not already loaded
+						const wasmPath = `/wasms/tree-sitter-${lang}.wasm`;
+						const language = await Parser.Language.load(wasmPath);
+						// eslint-disable-next-line @typescript-eslint/no-explicit-any
+						const parser = new (Parser as any)();
+						parser.setLanguage(language);
+						parsers[lang] = parser;
+					}
+
+					chunks = chunkWithTreeSitter(file.path, content, parsers[lang], lang);
+				} catch (e) {
+					console.warn(`Failed to AST chunk ${file.path}, falling back to text:`, e);
+					chunks = chunkCode(file.path, content);
+				}
+			} else {
+				chunks = chunkCode(file.path, content);
+			}
+
 			allChunks.push(...chunks);
 			const chunkEnd = allChunks.length;
 
