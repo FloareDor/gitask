@@ -1,12 +1,35 @@
 "use client";
 
-import { useState } from "react";
+import { ArchitectureDiagram } from "@/components/ArchitectureDiagram";
+import { useEffect, useState, useRef } from "react";
 import { useRouter } from "next/navigation";
 
 export default function LandingPage() {
   const [url, setUrl] = useState("");
   const [error, setError] = useState("");
+  const [isHowVisible, setIsHowVisible] = useState(false);
+  const howSectionRef = useRef<HTMLElement>(null);
   const router = useRouter();
+
+  useEffect(() => {
+    const node = howSectionRef.current;
+    if (!node) {
+      return;
+    }
+
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry.isIntersecting) {
+          setIsHowVisible(true);
+          observer.disconnect();
+        }
+      },
+      { threshold: 0.22 }
+    );
+
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, []);
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -86,6 +109,20 @@ export default function LandingPage() {
             ))}
           </div>
         </div>
+        {/* Architecture Diagram Section */}
+        <section
+          ref={howSectionRef}
+          style={{
+            ...styles.howSection,
+            ...(isHowVisible ? styles.howSectionVisible : {}),
+          }}
+        >
+          <div style={styles.howHeader}>
+            <h2 style={styles.howTitle}>How It Works</h2>
+          </div>
+
+          <ArchitectureDiagram />
+        </section>
       </main>
     </div>
   );
@@ -221,5 +258,25 @@ const styles: Record<string, React.CSSProperties> = {
   featureDesc: {
     fontSize: "12px",
     color: "var(--text-secondary)",
+  },
+  howSection: {
+    width: "100%",
+    marginTop: "128px",
+    opacity: 0,
+    transform: "translateY(28px)",
+    transition: "opacity 0.55s ease, transform 0.55s ease",
+  },
+  howSectionVisible: {
+    opacity: 1,
+    transform: "translateY(0)",
+  },
+  howHeader: {
+    textAlign: "center",
+    marginBottom: "24px",
+  },
+  howTitle: {
+    fontSize: "clamp(1.5rem, 2.4vw, 2rem)",
+    fontWeight: 700,
+    letterSpacing: "-0.02em",
   },
 };
