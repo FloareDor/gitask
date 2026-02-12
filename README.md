@@ -2,7 +2,7 @@
 
 Just a simple, browser-based RAG engine.
 
-It turns any GitHub repo into a local AI assistant. Everything runs right on your device (WebGPU) — no servers, no API keys, no costs.
+It turns any GitHub repo into a local AI assistant. Everything runs right on your device (WebGPU). no servers, no API keys, no costs.
 
 Here's how it works:
 
