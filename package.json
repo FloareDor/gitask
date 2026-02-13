@@ -13,6 +13,7 @@
     "@huggingface/transformers": "^3.8.1",
     "@mlc-ai/web-llm": "^0.2.80",
     "@vercel/analytics": "^1.6.1",
+    "dotenv": "^17.3.1",
     "next": "16.1.6",
     "react": "19.2.3",
     "react-dom": "19.2.3",
