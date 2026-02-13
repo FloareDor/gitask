@@ -154,7 +154,7 @@ class GeminiEngineWrapper implements LLMEngine {
 		this.apiKey = apiKey;
 		if (apiKey) {
 			const genAI = new GoogleGenerativeAI(apiKey);
-			this.model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+			this.model = genAI.getGenerativeModel({ model: "gemini-3-flash-preview" });
 		}
 	}
 

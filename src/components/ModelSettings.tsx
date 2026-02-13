@@ -84,7 +84,7 @@ export function ModelSettings() {
 					<p style={styles.hint}>
 						{config.provider === "mlc"
 							? "Runs privately in your browser. Needs ~4GB VRAM. Downloads ~3GB model once."
-							: "Runs on Google Cloud using Gemini Flash. Fast, no download required."}
+							: "Runs on Google Cloud using Gemini 3 Flash Preview. Fast, no download required."}
 					</p>
 				</div>
 
