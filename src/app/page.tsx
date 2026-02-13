@@ -53,7 +53,6 @@ export default function LandingPage() {
 
   return (
     <div style={styles.wrapper}>
-      <ModelSettings />
       {/* Gradient orbs for visual flair */}
       <div style={styles.orbPurple} />
       <div style={styles.orbBlue} />
@@ -74,6 +73,11 @@ export default function LandingPage() {
             GitAsk runs an entire RAG pipeline. embedding, storage, retrieval.
             On your device using WebGPU. No server, no API keys, full privacy.
           </p>
+
+          {/* Mode Indicator / Switcher */}
+          <div style={styles.modeSwitcher}>
+            <ModelSettings />
+          </div>
 
           <form onSubmit={handleSubmit} style={styles.form}>
             <input
@@ -220,6 +224,11 @@ const styles: Record<string, React.CSSProperties> = {
   },
   urlInput: {
     flex: 1,
+  },
+  modeSwitcher: {
+    marginTop: "16px",
+    display: "flex",
+    justifyContent: "center",
   },
   error: {
     color: "var(--error)",

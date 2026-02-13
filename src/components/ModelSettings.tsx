@@ -14,11 +14,14 @@ export function ModelSettings() {
 	const [config, setConfig] = useState<LLMConfig>({ provider: "mlc" });
 	const [reloading, setReloading] = useState(false);
 	const [statusMsg, setStatusMsg] = useState("");
+	const [hasDefaultKey, setHasDefaultKey] = useState(false);
 
 	useEffect(() => {
 		// Load initial config
 		setConfig(getLLMConfig());
-	}, [isOpen]); // Reload config when opening in case it changed elsewhere
+		// Check if env key exists (client-side check rely on process.env being replaced at build time)
+		setHasDefaultKey(!!process.env.NEXT_PUBLIC_GEMINI_API_KEY);
+	}, [isOpen]);
 
 	const handleSave = async () => {
 		setReloading(true);
@@ -36,13 +39,17 @@ export function ModelSettings() {
 	};
 
 	if (!isOpen) {
+		const isGemini = config.provider === "gemini";
 		return (
 			<button
 				onClick={() => setIsOpen(true)}
-				style={styles.settingsBtn}
+				style={{
+					...styles.settingsBtn,
+					borderColor: isGemini ? "var(--success)" : "var(--border)",
+				}}
 				aria-label="Settings"
 			>
-				⚙️ Settings
+				{isGemini ? "⚡ Using Gemini Cloud" : "🔒 Using Local LLM"} <span style={{ opacity: 0.5, marginLeft: 4 }}> (Settings)</span>
 			</button>
 		);
 	}
@@ -77,7 +84,7 @@ export function ModelSettings() {
 					<p style={styles.hint}>
 						{config.provider === "mlc"
 							? "Runs privately in your browser. Needs ~4GB VRAM. Downloads ~3GB model once."
-							: "Runs on Google Cloud using Gemini 1.5 Flash. Fast, no download required."}
+							: "Runs on Google Cloud using Gemini Flash. Fast, no download required."}
 					</p>
 				</div>
 
@@ -86,16 +93,21 @@ export function ModelSettings() {
 						<label style={styles.label}>Gemini API Key</label>
 						<input
 							type="password"
-							placeholder="Paste your API Key here"
+							placeholder={hasDefaultKey ? "Using default key from environment" : "Paste your API Key here"}
 							value={config.apiKey || ""}
 							onChange={(e) =>
 								setConfig({ ...config, apiKey: e.target.value })
 							}
-							style={styles.input}
+							style={{
+								...styles.input,
+								...(hasDefaultKey && !config.apiKey ? { border: "1px solid var(--success)" } : {}),
+							}}
 						/>
 						<p style={styles.hint}>
-							Stored only in your browser's localStorage. Never sent to our
-							server.
+							{hasDefaultKey && !config.apiKey
+								? "✅ Default API Key is active. You can override it above."
+								: "Stored only in your browser's localStorage. Never sent to our server."
+							}
 						</p>
 					</div>
 				)}
@@ -113,7 +125,7 @@ export function ModelSettings() {
 					<button
 						onClick={handleSave}
 						style={styles.saveBtn}
-						disabled={reloading || (config.provider === "gemini" && !config.apiKey)}
+						disabled={reloading || (config.provider === "gemini" && !config.apiKey && !hasDefaultKey)}
 					>
 						{reloading ? "Saving & Reloading..." : "Save & Reload"}
 					</button>
@@ -125,17 +137,19 @@ export function ModelSettings() {
 
 const styles: Record<string, React.CSSProperties> = {
 	settingsBtn: {
-		position: "fixed",
-		top: "20px",
-		right: "20px",
+		// position: "fixed", // Removed for inline placement
+		// top: "20px",
+		// right: "20px",
 		background: "var(--bg-glass)",
 		border: "1px solid var(--border)",
-		padding: "8px 12px",
-		borderRadius: "8px",
+		padding: "8px 16px",
+		borderRadius: "20px",
 		cursor: "pointer",
 		zIndex: 50,
-		fontSize: "14px",
+		fontSize: "13px",
 		color: "var(--text)",
+		fontWeight: 500,
+		transition: "all 0.2s",
 	},
 	overlay: {
 		position: "fixed",
