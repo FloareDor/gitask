@@ -57,14 +57,34 @@ export function getLLMStatus(): LLMStatus {
 const STORAGE_KEY = "gitask_llm_config";
 
 export function getLLMConfig(): LLMConfig {
-	if (typeof window === "undefined") return { provider: "mlc" };
-	try {
-		const stored = localStorage.getItem(STORAGE_KEY);
-		if (stored) return JSON.parse(stored);
-	} catch (e) {
-		console.warn("Failed to parse LLM config", e);
+	// 1. Try to load from localStorage
+	if (typeof window !== "undefined") {
+		try {
+			const stored = localStorage.getItem(STORAGE_KEY);
+			if (stored) {
+				const config = JSON.parse(stored);
+				// If provider is gemini but no key, and we have an env key, use it.
+				// However, usually we want to respect the user's choice.
+				// If the user explicitly saved "gemini" with empty key, they might be expecting the env key.
+				return config;
+			}
+		} catch (e) {
+			console.warn("Failed to parse LLM config", e);
+		}
 	}
+
+	// 2. Default if nothing saved
+	// If we have an env key, default to Gemini as requested ("use gemini shit by default")
+	if (typeof process !== "undefined" && process.env.NEXT_PUBLIC_GEMINI_API_KEY) {
+		return { provider: "gemini" };
+	}
+
 	return { provider: "mlc" };
+}
+
+export function getEffectiveApiKey(config: LLMConfig): string | undefined {
+	if (config.provider !== "gemini") return undefined;
+	return config.apiKey || process.env.NEXT_PUBLIC_GEMINI_API_KEY;
 }
 
 export function setLLMConfig(config: LLMConfig) {
@@ -203,11 +223,12 @@ export async function initLLM(
 	initPromise = (async () => {
 		try {
 			if (config.provider === "gemini") {
-				if (!config.apiKey) {
+				const paramKey = getEffectiveApiKey(config);
+				if (!paramKey) {
 					throw new Error("Gemini API Key is missing. Please check settings.");
 				}
 				onProgress?.("Initializing Gemini...");
-				activeEngine = new GeminiEngineWrapper(config.apiKey);
+				activeEngine = new GeminiEngineWrapper(paramKey);
 				onProgress?.("Gemini Ready");
 			} else {
 				// Default to MLC
