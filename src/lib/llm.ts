@@ -75,7 +75,8 @@ export function getLLMConfig(): LLMConfig {
 
 	// 2. Default if nothing saved
 	// If we have an env key, default to Gemini as requested ("use gemini shit by default")
-	if (typeof process !== "undefined" && process.env.NEXT_PUBLIC_GEMINI_API_KEY) {
+	// NOW: we check boolean flag, since key is hidden
+	if (typeof process !== "undefined" && process.env.NEXT_PUBLIC_HAS_GEMINI_KEY) {
 		return { provider: "gemini" };
 	}
 
@@ -84,7 +85,14 @@ export function getLLMConfig(): LLMConfig {
 
 export function getEffectiveApiKey(config: LLMConfig): string | undefined {
 	if (config.provider !== "gemini") return undefined;
-	return config.apiKey || process.env.NEXT_PUBLIC_GEMINI_API_KEY;
+	// If config has key, use it.
+	// If not, and we have default key flag, return undefined to signal "use proxy"
+	// WAIT: initLLM needs to know if it CAN proceed.
+	// So we should return a marker or handle it in initLLM.
+
+	// Actually, getEffectiveApiKey was helper. Let's return undefined if no user key.
+	// The initLLM will check process.env.NEXT_PUBLIC_HAS_GEMINI_KEY if this returns undefined.
+	return config.apiKey;
 }
 
 export function setLLMConfig(config: LLMConfig) {
@@ -140,19 +148,17 @@ class MLCEngineWrapper implements LLMEngine {
 
 class GeminiEngineWrapper implements LLMEngine {
 	private model: any;
+	private apiKey?: string;
 
-	constructor(apiKey: string) {
-		const genAI = new GoogleGenerativeAI(apiKey);
-		// specific model for now
-		this.model = genAI.getGenerativeModel({ model: "gemini-flash-latest" });
+	constructor(apiKey?: string) {
+		this.apiKey = apiKey;
+		if (apiKey) {
+			const genAI = new GoogleGenerativeAI(apiKey);
+			this.model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+		}
 	}
 
 	private toGeminiContent(messages: ChatMessage[]) {
-		// Gemini expects specific history format.
-		// System prompt is separate in Gemini but we can prepend or use systemInstruction if available.
-		// For simplicity/compatibility, we'll map system to user or use systemInstruction.
-		// 1.5 Flash supports systemInstruction.
-
 		const systemMsg = messages.find((m) => m.role === "system");
 		const history = messages
 			.filter((m) => m.role !== "system")
@@ -167,38 +173,48 @@ class GeminiEngineWrapper implements LLMEngine {
 	async *generateStream(
 		messages: ChatMessage[]
 	): AsyncGenerator<string, void, undefined> {
-		const { systemInstruction, history } = this.toGeminiContent(messages);
-		// The last message should be the prompt, previous are history.
-		// However, standard chat structure puts all in history-like list.
-		// Gemini `startChat` takes history (excl last) and then `sendMessage(last)`.
+		if (this.apiKey) {
+			// Client-side direct
+			const { systemInstruction, history } = this.toGeminiContent(messages);
+			const lastMsg = history.pop();
+			if (!lastMsg) return;
 
-		const lastMsg = history.pop();
-		if (!lastMsg) return;
+			const chat = this.model.startChat({
+				systemInstruction,
+				history,
+			});
 
-		const chat = this.model.startChat({
-			systemInstruction,
-			history,
-		});
+			const result = await chat.sendMessageStream(lastMsg.parts[0].text);
+			for await (const chunk of result.stream) {
+				const text = chunk.text();
+				if (text) yield text;
+			}
+		} else {
+			// Proxy via server
+			const response = await fetch("/api/gemini", {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({ messages }),
+			});
 
-		const result = await chat.sendMessageStream(lastMsg.parts[0].text);
-		for await (const chunk of result.stream) {
-			const text = chunk.text();
-			if (text) yield text;
+			if (!response.body) throw new Error("No response body");
+			const reader = response.body.getReader();
+			const decoder = new TextDecoder();
+
+			while (true) {
+				const { done, value } = await reader.read();
+				if (done) break;
+				yield decoder.decode(value, { stream: true });
+			}
 		}
 	}
 
 	async generateFull(messages: ChatMessage[]): Promise<string> {
-		const { systemInstruction, history } = this.toGeminiContent(messages);
-		const lastMsg = history.pop();
-		if (!lastMsg) return "";
-
-		const chat = this.model.startChat({
-			systemInstruction,
-			history,
-		});
-
-		const result = await chat.sendMessage(lastMsg.parts[0].text);
-		return result.response.text();
+		let fullText = "";
+		for await (const chunk of this.generateStream(messages)) {
+			fullText += chunk;
+		}
+		return fullText;
 	}
 
 	async dispose(): Promise<void> {
@@ -223,12 +239,15 @@ export async function initLLM(
 	initPromise = (async () => {
 		try {
 			if (config.provider === "gemini") {
-				const paramKey = getEffectiveApiKey(config);
-				if (!paramKey) {
+				const userKey = getEffectiveApiKey(config);
+				const hasDefault = process.env.NEXT_PUBLIC_HAS_GEMINI_KEY;
+
+				if (!userKey && !hasDefault) {
 					throw new Error("Gemini API Key is missing. Please check settings.");
 				}
-				onProgress?.("Initializing Gemini...");
-				activeEngine = new GeminiEngineWrapper(paramKey);
+
+				onProgress?.(userKey ? "Initializing Gemini (Custom Key)..." : "Initializing Gemini (Proxy)...");
+				activeEngine = new GeminiEngineWrapper(userKey); // undefined key => uses proxy
 				onProgress?.("Gemini Ready");
 			} else {
 				// Default to MLC
