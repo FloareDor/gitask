@@ -20,7 +20,7 @@ export function ModelSettings() {
 		// Load initial config
 		setConfig(getLLMConfig());
 		// Check if env key exists (client-side check rely on process.env being replaced at build time)
-		setHasDefaultKey(!!process.env.NEXT_PUBLIC_GEMINI_API_KEY);
+		setHasDefaultKey(!!process.env.NEXT_PUBLIC_HAS_GEMINI_KEY);
 	}, [isOpen]);
 
 	const handleSave = async () => {
