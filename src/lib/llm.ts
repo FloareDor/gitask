@@ -1,15 +1,39 @@
 /**
- * LLM wrapper — provides a unified interface to WebLLM.
+ * LLM wrapper — provides a unified interface to WebLLM and Gemini.
  *
- * Uses Qwen2-0.5B-Instruct (q4f16_1) via a dedicated Web Worker
- * so inference never blocks the UI thread.
+ * Supports switching between local WebGPU inference (MLC) and cloud inference (Gemini).
  */
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-let engine: any = null;
-let initPromise: Promise<void> | null = null;
+import { GoogleGenerativeAI } from "@google/generative-ai";
 
-export type LLMStatus = "idle" | "loading" | "ready" | "generating";
+export type LLMStatus = "idle" | "loading" | "ready" | "generating" | "error";
+
+export type LLMProvider = "mlc" | "gemini";
+
+export interface LLMConfig {
+	provider: LLMProvider;
+	apiKey?: string; // For Gemini
+}
+
+export interface ChatMessage {
+	role: "system" | "user" | "assistant";
+	content: string;
+}
+
+// ─── Internal Engine Interface ──────────────────────────────────────────────
+
+interface LLMEngine {
+	generateStream(
+		messages: ChatMessage[]
+	): AsyncGenerator<string, void, undefined>;
+	generateFull(messages: ChatMessage[]): Promise<string>;
+	dispose(): Promise<void>;
+}
+
+// ─── State ──────────────────────────────────────────────────────────────────
+
+let activeEngine: LLMEngine | null = null;
+let initPromise: Promise<void> | null = null;
 
 let currentStatus: LLMStatus = "idle";
 const statusListeners: Set<(status: LLMStatus) => void> = new Set();
@@ -28,75 +52,42 @@ export function getLLMStatus(): LLMStatus {
 	return currentStatus;
 }
 
-const MODEL_ID = "Qwen2-0.5B-Instruct-q4f16_1-MLC";
+// ─── Configuration ──────────────────────────────────────────────────────────
 
-/**
- * Initialise WebLLM with a Web Worker backend.
- */
-export async function initLLM(
-	onProgress?: (msg: string) => void
-): Promise<void> {
-	if (engine) return;
-	if (initPromise) return initPromise;
+const STORAGE_KEY = "gitask_llm_config";
 
-	setStatus("loading");
-
-	initPromise = (async () => {
-		// Dynamic import to avoid SSR issues
-		const { CreateWebWorkerMLCEngine } = await import("@mlc-ai/web-llm");
-
-		const worker = new Worker(
-			new URL("../workers/llm-worker.ts", import.meta.url),
-			{ type: "module" }
-		);
-
-		engine = await CreateWebWorkerMLCEngine(worker, MODEL_ID, {
-			initProgressCallback: (progress) => {
-				onProgress?.(`LLM: ${progress.text}`);
-			},
-			appConfig: {
-				model_list: [
-					{
-						model: "https://huggingface.co/mlc-ai/Qwen2-0.5B-Instruct-q4f16_1-MLC",
-						model_id: MODEL_ID,
-						model_lib:
-							"https://raw.githubusercontent.com/mlc-ai/binary-mlc-llm-libs/main/web-llm-models/" +
-							"v0_2_80" +
-							"/Qwen2-0.5B-Instruct-q4f16_1-ctx4k_cs1k-webgpu.wasm",
-						low_resource_required: true,
-						overrides: {
-							context_window_size: 8192,
-						},
-					},
-				],
-			},
-		});
-
-		setStatus("ready");
-		onProgress?.("LLM ready");
-	})();
-
-	return initPromise;
-}
-
-export interface ChatMessage {
-	role: "system" | "user" | "assistant";
-	content: string;
-}
-
-/**
- * Generate a streaming chat completion.
- * Yields token-by-token for the UI.
- */
-export async function* generate(
-	messages: ChatMessage[]
-): AsyncGenerator<string, void, undefined> {
-	if (!engine) throw new Error("LLM not initialised. Call initLLM() first.");
-
-	setStatus("generating");
-
+export function getLLMConfig(): LLMConfig {
+	if (typeof window === "undefined") return { provider: "mlc" };
 	try {
-		const chunks = await engine.chat.completions.create({
+		const stored = localStorage.getItem(STORAGE_KEY);
+		if (stored) return JSON.parse(stored);
+	} catch (e) {
+		console.warn("Failed to parse LLM config", e);
+	}
+	return { provider: "mlc" };
+}
+
+export function setLLMConfig(config: LLMConfig) {
+	if (typeof window === "undefined") return;
+	localStorage.setItem(STORAGE_KEY, JSON.stringify(config));
+}
+
+// ─── MLC Implementation ─────────────────────────────────────────────────────
+
+const MLC_MODEL_ID = "Qwen2-0.5B-Instruct-q4f16_1-MLC";
+
+class MLCEngineWrapper implements LLMEngine {
+	// eslint-disable-next-line @typescript-eslint/no-explicit-any
+	private rawEngine: any;
+
+	constructor(rawEngine: any) {
+		this.rawEngine = rawEngine;
+	}
+
+	async *generateStream(
+		messages: ChatMessage[]
+	): AsyncGenerator<string, void, undefined> {
+		const chunks = await this.rawEngine.chat.completions.create({
 			messages,
 			temperature: 0.3,
 			max_tokens: 1024,
@@ -107,39 +98,207 @@ export async function* generate(
 			const delta = chunk.choices?.[0]?.delta?.content;
 			if (delta) yield delta;
 		}
-	} finally {
-		setStatus("ready");
 	}
-}
 
-/**
- * Generate a non-streaming completion (for CoVe).
- */
-export async function generateFull(messages: ChatMessage[]): Promise<string> {
-	if (!engine) throw new Error("LLM not initialised. Call initLLM() first.");
-
-	setStatus("generating");
-
-	try {
-		const reply = await engine.chat.completions.create({
+	async generateFull(messages: ChatMessage[]): Promise<string> {
+		const reply = await this.rawEngine.chat.completions.create({
 			messages,
 			temperature: 0.2,
 			max_tokens: 512,
 		});
 		return reply.choices?.[0]?.message?.content ?? "";
+	}
+
+	async dispose(): Promise<void> {
+		// WebWorkerMLCEngine doesn't have a specific dispose method exposed cleanly in this version,
+		// but dereferencing it is usually enough for the worker wrapper.
+		this.rawEngine = null;
+	}
+}
+
+// ─── Gemini Implementation ──────────────────────────────────────────────────
+
+class GeminiEngineWrapper implements LLMEngine {
+	private model: any;
+
+	constructor(apiKey: string) {
+		const genAI = new GoogleGenerativeAI(apiKey);
+		// specific model for now
+		this.model = genAI.getGenerativeModel({ model: "gemini-flash-latest" });
+	}
+
+	private toGeminiContent(messages: ChatMessage[]) {
+		// Gemini expects specific history format.
+		// System prompt is separate in Gemini but we can prepend or use systemInstruction if available.
+		// For simplicity/compatibility, we'll map system to user or use systemInstruction.
+		// 1.5 Flash supports systemInstruction.
+
+		const systemMsg = messages.find((m) => m.role === "system");
+		const history = messages
+			.filter((m) => m.role !== "system")
+			.map((m) => ({
+				role: m.role === "assistant" ? "model" : "user",
+				parts: [{ text: m.content }],
+			}));
+
+		return { systemInstruction: systemMsg?.content, history };
+	}
+
+	async *generateStream(
+		messages: ChatMessage[]
+	): AsyncGenerator<string, void, undefined> {
+		const { systemInstruction, history } = this.toGeminiContent(messages);
+		// The last message should be the prompt, previous are history.
+		// However, standard chat structure puts all in history-like list.
+		// Gemini `startChat` takes history (excl last) and then `sendMessage(last)`.
+
+		const lastMsg = history.pop();
+		if (!lastMsg) return;
+
+		const chat = this.model.startChat({
+			systemInstruction,
+			history,
+		});
+
+		const result = await chat.sendMessageStream(lastMsg.parts[0].text);
+		for await (const chunk of result.stream) {
+			const text = chunk.text();
+			if (text) yield text;
+		}
+	}
+
+	async generateFull(messages: ChatMessage[]): Promise<string> {
+		const { systemInstruction, history } = this.toGeminiContent(messages);
+		const lastMsg = history.pop();
+		if (!lastMsg) return "";
+
+		const chat = this.model.startChat({
+			systemInstruction,
+			history,
+		});
+
+		const result = await chat.sendMessage(lastMsg.parts[0].text);
+		return result.response.text();
+	}
+
+	async dispose(): Promise<void> {
+		this.model = null;
+	}
+}
+
+// ─── Initialization ─────────────────────────────────────────────────────────
+
+/**
+ * Initialise the LLM Engine based on current config.
+ */
+export async function initLLM(
+	onProgress?: (msg: string) => void
+): Promise<void> {
+	if (activeEngine) return;
+	if (initPromise) return initPromise;
+
+	const config = getLLMConfig();
+	setStatus("loading");
+
+	initPromise = (async () => {
+		try {
+			if (config.provider === "gemini") {
+				if (!config.apiKey) {
+					throw new Error("Gemini API Key is missing. Please check settings.");
+				}
+				onProgress?.("Initializing Gemini...");
+				activeEngine = new GeminiEngineWrapper(config.apiKey);
+				onProgress?.("Gemini Ready");
+			} else {
+				// Default to MLC
+				onProgress?.("Loading WebLLM Engine...");
+				const { CreateWebWorkerMLCEngine } = await import("@mlc-ai/web-llm");
+				const worker = new Worker(
+					new URL("../workers/llm-worker.ts", import.meta.url),
+					{ type: "module" }
+				);
+
+				const rawEngine = await CreateWebWorkerMLCEngine(worker, MLC_MODEL_ID, {
+					initProgressCallback: (progress) => {
+						onProgress?.(`LLM: ${progress.text}`);
+					},
+					appConfig: {
+						model_list: [
+							{
+								model:
+									"https://huggingface.co/mlc-ai/Qwen2-0.5B-Instruct-q4f16_1-MLC",
+								model_id: MLC_MODEL_ID,
+								model_lib:
+									"https://raw.githubusercontent.com/mlc-ai/binary-mlc-llm-libs/main/web-llm-models/" +
+									"v0_2_80" +
+									"/Qwen2-0.5B-Instruct-q4f16_1-ctx4k_cs1k-webgpu.wasm",
+								low_resource_required: true,
+								overrides: {
+									context_window_size: 8192,
+								},
+							},
+						],
+					},
+				});
+				activeEngine = new MLCEngineWrapper(rawEngine);
+				onProgress?.("Local LLM Ready");
+			}
+			setStatus("ready");
+		} catch (err) {
+			console.error("LLM Init Error", err);
+			setStatus("error");
+			throw err;
+		}
+	})();
+
+	return initPromise;
+}
+
+/**
+ * Force reload the LLM (e.g. after config change).
+ */
+export async function reloadLLM(onProgress?: (msg: string) => void) {
+	await disposeLLM();
+	return initLLM(onProgress);
+}
+
+// ─── Public API ─────────────────────────────────────────────────────────────
+
+export async function* generate(
+	messages: ChatMessage[]
+): AsyncGenerator<string, void, undefined> {
+	if (!activeEngine)
+		throw new Error("LLM not initialised. Call initLLM() first.");
+
+	setStatus("generating");
+	try {
+		const stream = activeEngine.generateStream(messages);
+		for await (const chunk of stream) {
+			yield chunk;
+		}
 	} finally {
 		setStatus("ready");
 	}
 }
 
-/**
- * Tear down the engine.
- */
-export async function disposeLLM(): Promise<void> {
-	if (engine) {
-		// WebWorkerMLCEngine doesn't have a dispose, but we can nullify
-		engine = null;
-		initPromise = null;
-		setStatus("idle");
+export async function generateFull(messages: ChatMessage[]): Promise<string> {
+	if (!activeEngine)
+		throw new Error("LLM not initialised. Call initLLM() first.");
+
+	setStatus("generating");
+	try {
+		return await activeEngine.generateFull(messages);
+	} finally {
+		setStatus("ready");
 	}
 }
+
+export async function disposeLLM(): Promise<void> {
+	if (activeEngine) {
+		await activeEngine.dispose();
+		activeEngine = null;
+	}
+	initPromise = null;
+	setStatus("idle");
+}
+
