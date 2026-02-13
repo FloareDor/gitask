@@ -9,6 +9,7 @@
   },
   "dependencies": {
     "@babycommando/entity-db": "^1.0.11",
+    "@google/generative-ai": "^0.24.1",
     "@huggingface/transformers": "^3.8.1",
     "@mlc-ai/web-llm": "^0.2.80",
     "next": "16.1.6",

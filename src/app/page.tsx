@@ -1,6 +1,7 @@
 "use client";
 
 import { ArchitectureDiagram } from "@/components/ArchitectureDiagram";
+import { ModelSettings } from "@/components/ModelSettings";
 import { useEffect, useState, useRef } from "react";
 import { useRouter } from "next/navigation";
 
@@ -52,6 +53,7 @@ export default function LandingPage() {
 
   return (
     <div style={styles.wrapper}>
+      <ModelSettings />
       {/* Gradient orbs for visual flair */}
       <div style={styles.orbPurple} />
       <div style={styles.orbBlue} />
