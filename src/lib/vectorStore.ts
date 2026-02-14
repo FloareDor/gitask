@@ -20,6 +20,8 @@ export interface SearchResult {
  */
 export class VectorStore {
 	private chunks: EmbeddedChunk[] = [];
+	private chunksByFile: Map<string, EmbeddedChunk[]> = new Map();
+	private graph: Record<string, { imports: string[]; definitions: string[] }> = {};
 	private repoKey: string = "";
 
 	constructor() { }
@@ -29,6 +31,25 @@ export class VectorStore {
 	 */
 	insert(chunks: EmbeddedChunk[]): void {
 		this.chunks.push(...chunks);
+		for (const chunk of chunks) {
+			const fileChunks = this.chunksByFile.get(chunk.filePath) || [];
+			fileChunks.push(chunk);
+			this.chunksByFile.set(chunk.filePath, fileChunks);
+		}
+	}
+
+	/**
+	 * Set the dependency graph.
+	 */
+	setGraph(graph: Record<string, { imports: string[]; definitions: string[] }>): void {
+		this.graph = graph;
+	}
+
+	/**
+	 * Get the dependency graph.
+	 */
+	getGraph(): Record<string, { imports: string[]; definitions: string[] }> {
+		return this.graph;
 	}
 
 	/**
@@ -36,6 +57,10 @@ export class VectorStore {
 	 */
 	getAll(): EmbeddedChunk[] {
 		return this.chunks;
+	}
+
+	getChunksByFile(filePath: string): EmbeddedChunk[] {
+		return this.chunksByFile.get(filePath) || [];
 	}
 
 	/**
@@ -50,6 +75,8 @@ export class VectorStore {
 	 */
 	clear(): void {
 		this.chunks = [];
+		this.chunksByFile.clear();
+		this.graph = {};
 	}
 
 	/**
@@ -61,6 +88,7 @@ export class VectorStore {
 			sha,
 			timestamp: Date.now(),
 			chunks: this.chunks,
+			graph: this.graph,
 		};
 
 		return new Promise((resolve, reject) => {
@@ -109,6 +137,14 @@ export class VectorStore {
 					const data = getReq.result;
 					if (data && data.sha === currentSha) {
 						this.chunks = data.chunks;
+						this.graph = data.graph || {};
+						// Rebuild index
+						this.chunksByFile.clear();
+						for (const chunk of this.chunks) {
+							const fileChunks = this.chunksByFile.get(chunk.filePath) || [];
+							fileChunks.push(chunk);
+							this.chunksByFile.set(chunk.filePath, fileChunks);
+						}
 						resolve(true);
 					} else {
 						resolve(false);

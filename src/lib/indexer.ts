@@ -11,11 +11,11 @@ import {
 	isIndexable,
 	prioritiseFiles,
 } from "./github";
-import { chunkCode, chunkWithTreeSitter, type CodeChunk } from "./chunker";
+import { chunkCode, chunkFromTree, type CodeChunk } from "./chunker";
 import { detectLanguage } from "./chunker";
 import { embedChunks, initEmbedder } from "./embedder";
 import { VectorStore } from "./vectorStore";
-import { extractSymbols } from "./symbols";
+import { extractDependencies, extractSymbolsFromTree } from "./graph";
 
 export interface AstNode {
 	filePath: string;
@@ -105,6 +105,7 @@ export async function indexRepository(
 	const astNodes: AstNode[] = [];
 	const textChunkCounts: Record<string, number> = {};
 	const fileChunkRanges = new Map<string, { start: number; end: number }>();
+	const dependencyGraph: Record<string, { imports: string[]; definitions: string[] }> = {};
 
 	for (let i = 0; i < indexableFiles.length; i++) {
 		const file = indexableFiles[i];
@@ -112,16 +113,7 @@ export async function indexRepository(
 			const content = await fetchFileContent(owner, repo, file.path, token);
 			const lang = detectLanguage(file.path);
 
-			// Extract symbols for AST visualization
-			const symbols = extractSymbols(content, lang);
-			for (const sym of symbols) {
-				astNodes.push({
-					filePath: file.path,
-					name: sym.name,
-					kind: sym.kind,
-					status: "parsed",
-				});
-			}
+
 
 			// Chunk the file and track ranges
 			const chunkStart = allChunks.length;
@@ -141,7 +133,28 @@ export async function indexRepository(
 						parsers[lang] = parser;
 					}
 
-					chunks = chunkWithTreeSitter(file.path, content, parsers[lang], lang);
+					const tree = parsers[lang].parse(content);
+					try {
+						// Extract dependencies (imports/exports)
+						const deps = extractDependencies(tree, lang);
+						dependencyGraph[file.path] = deps;
+
+						// Extract symbols for AST visualization
+						const treeSymbols = extractSymbolsFromTree(tree, lang);
+						for (const sym of treeSymbols) {
+							astNodes.push({
+								filePath: file.path,
+								name: sym.name,
+								kind: sym.kind,
+								status: "parsed",
+							});
+						}
+
+						// Chunk code using the same tree
+						chunks = chunkFromTree(file.path, content, tree, lang);
+					} finally {
+						tree.delete();
+					}
 				} catch (e) {
 					console.warn(`Failed to AST chunk ${file.path}, falling back to text:`, e);
 					chunks = chunkCode(file.path, content);
@@ -222,6 +235,7 @@ export async function indexRepository(
 
 	// 6. Store
 	store.insert(embedded);
+	store.setGraph(dependencyGraph);
 
 	// 7. Persist to IndexedDB
 	onProgress?.({
