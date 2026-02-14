@@ -109,6 +109,24 @@ export function chunkWithTreeSitter(
 	language: string
 ): CodeChunk[] {
 	const tree = parser.parse(code);
+	try {
+		return chunkFromTree(filePath, code, tree, language);
+	} finally {
+		tree.delete();
+	}
+}
+
+/**
+ * Chunk code using an existing Tree-sitter AST.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export function chunkFromTree(
+	filePath: string,
+	code: string,
+	// eslint-disable-next-line @typescript-eslint/no-explicit-any
+	tree: any,
+	language: string
+): CodeChunk[] {
 	const chunks: CodeChunk[] = [];
 	const cursor = tree.walk();
 

@@ -137,7 +137,49 @@ export function hybridSearch(
 		.sort((a, b) => b[1] - a[1])
 		.slice(0, coarseCandidates);
 
+	// 3.5 Graph Expansion
+	// For top/seed candidates, find what files they import and add those chunks
+	const SEED_COUNT = 20;
+	const EXPANSION_WEIGHT = 0.5; // Weight for expanded interactions
+	const graph = store.getGraph();
+
+	const seenIds = new Set(candidates.map((c) => c[0]));
+
+	// Take the top N candidates as seeds
+	const seeds = candidates.slice(0, SEED_COUNT);
 	const chunkMap = new Map(chunks.map((c) => [c.id, c]));
+
+	for (const [seedId, seedScore] of seeds) {
+		const chunk = chunkMap.get(seedId);
+		if (!chunk) continue;
+
+		// Get dependencies for this file
+		const deps = graph[chunk.filePath];
+		if (!deps || !deps.imports) continue;
+
+		// For each import, try to resolve it to a file in the store
+		// Note: imports are raw strings (e.g. './utils'), we need to fuzzy match or resolve to absolute paths.
+		// For now, we do a naive suffix check or exact match if possible.
+		// Since we don't have a full resolver, we iterate all files? No, that's slow.
+		// We can iterate the graph keys to find matching files.
+
+		for (const importPath of deps.imports) {
+			// Resolve importPath to filePath. 
+			// Heuristic: check if any file in the graph ends with the import path + extension
+			// or if importPath is relative, resolve it relative to chunk.filePath
+
+			const targetFile = resolveImport(chunk.filePath, importPath, Object.keys(graph));
+			if (targetFile) {
+				const neighborChunks = store.getChunksByFile(targetFile);
+				for (const neighbor of neighborChunks) {
+					if (!seenIds.has(neighbor.id)) {
+						candidates.push([neighbor.id, seedScore * EXPANSION_WEIGHT]);
+						seenIds.add(neighbor.id);
+					}
+				}
+			}
+		}
+	}
 
 	const reranked: SearchResult[] = [];
 	for (const [id] of candidates) {
@@ -151,4 +193,41 @@ export function hybridSearch(
 	reranked.sort((a, b) => b.score - a.score);
 
 	return reranked.slice(0, limit);
+}
+
+/**
+ * Simple import resolver heuristic.
+ * Tries to match `importPath` to a file in `allFiles`.
+ */
+function resolveImport(currentFile: string, importPath: string, allFiles: string[]): string | null {
+	// 1. Exact match (rare for imports)
+	if (allFiles.includes(importPath)) return importPath;
+
+	// 2. Normalize import path (remove quotes, handled by extractor)
+	// Handle relative imports
+	if (importPath.startsWith(".")) {
+		// This is tricky without a real path resolver.
+		// Let's try to match the filename at the end.
+		const basename = importPath.split("/").pop();
+		if (!basename) return null;
+
+		// Find files that look like .../basename.ts or .../basename/index.ts
+		return allFiles.find(f => {
+			if (f.includes(basename)) {
+				// Very loose check: verify extensions
+				if (f.endsWith(`${basename}.ts`) || f.endsWith(`${basename}.tsx`) ||
+					f.endsWith(`${basename}.js`) || f.endsWith(`${basename}/index.ts`)) {
+					return true;
+				}
+			}
+			return false;
+		}) || null;
+	}
+
+	// 3. Absolute/Package imports
+	// Try to find a file that *ends with* the import path (e.g. "lib/utils" -> "src/lib/utils.ts")
+	return allFiles.find(f => {
+		const noExt = f.replace(/\.[^/.]+$/, "");
+		return noExt.endsWith(importPath);
+	}) || null;
 }

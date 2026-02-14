@@ -4,8 +4,9 @@
  */
 
 import { describe, it, expect } from "vitest";
-import { reciprocalRankFusion, keywordSearch, vectorSearch } from "./search";
+import { reciprocalRankFusion, keywordSearch, vectorSearch, hybridSearch } from "./search";
 import type { EmbeddedChunk } from "./embedder";
+import { VectorStore } from "./vectorStore";
 
 function makeChunk(id: string, code: string, embedding: number[]): EmbeddedChunk {
 	return {
@@ -100,5 +101,47 @@ describe("vectorSearch", () => {
 
 		const results = vectorSearch(chunks, [0.5, 0.3, -0.1, 0.8], 5);
 		expect(results.size).toBeLessThanOrEqual(5);
+	});
+});
+
+describe("hybridSearch with Graph Expansion", () => {
+	it("expands results using dependency graph", () => {
+		const store = new VectorStore();
+
+		// Seed chunk (found by vector/keyword search)
+		// Embedding matches query [1, 1]
+		const seedChunk = makeChunk("seed", "import { foo } from './dep';", [1, 1]);
+		seedChunk.filePath = "src/seed.ts";
+
+		// Dependency chunk (not similar to query, but imported by seed)
+		// Embedding is opposite [-1, -1]
+		const depChunk = makeChunk("dep", "export const foo = 1;", [-1, -1]);
+		depChunk.filePath = "src/dep.ts";
+
+		// Irrelevant chunk
+		const randomChunk = makeChunk("random", "irrelevant", [0, 0]);
+		randomChunk.filePath = "src/random.ts";
+
+		store.insert([seedChunk, depChunk, randomChunk]);
+
+		// Set up graph
+		store.setGraph({
+			"src/seed.ts": { imports: ["./dep"], definitions: [] },
+			"src/dep.ts": { imports: [], definitions: ["foo"] },
+		});
+
+		// Query that matches seedChunk strongly
+		const queryEmbedding = [1, 1];
+		const query = "seed";
+
+		const results = hybridSearch(store, queryEmbedding, query, {
+			limit: 10,
+			coarseCandidates: 5,
+		});
+
+		const ids = results.map((r) => r.chunk.id);
+
+		expect(ids).toContain("seed");
+		expect(ids).toContain("dep"); // Should be included due to graph expansion
 	});
 });
