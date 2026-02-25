@@ -109,11 +109,15 @@ export default function LandingPage() {
               {
                 icon: "🗜",
                 label: "Binary Quantization",
-                desc: `${STORAGE_COMPARISON.compressionRatio}x smaller vectors. ${STORAGE_COMPARISON.exampleRepoChunks} chunks: ${STORAGE_COMPARISON.float32TotalKB.toFixed(0)}KB to ${STORAGE_COMPARISON.binaryTotalKB.toFixed(0)}KB. Same recall.`,
+                desc: `${STORAGE_COMPARISON.compressionRatio}x smaller vectors. ${STORAGE_COMPARISON.exampleRepoChunks} chunks: ${STORAGE_COMPARISON.float32TotalKB.toFixed(0)}KB → ${STORAGE_COMPARISON.binaryTotalKB.toFixed(0)}KB.`,
               },
-              { icon: "🔐", label: "Encrypted Key Vault", desc: "API keys secured by passkey locally. Powered by byok-vault." },
-            ].map((f) => (
-              <div key={f.label} className="glass" style={styles.featureCard}>
+              { icon: "🔐", label: "Encrypted Key Vault", desc: "API keys secured by passkey locally." },
+            ].map((f, i) => (
+              <div
+                key={f.label}
+                className="glass"
+                style={{ ...styles.featureCard, gridColumn: i < 3 ? "span 2" : "span 3" }}
+              >
                 <span style={styles.featureIcon}>{f.icon}</span>
                 <strong style={styles.featureLabel}>{f.label}</strong>
                 <span style={styles.featureDesc}>{f.desc}</span>
@@ -253,7 +257,7 @@ const styles: Record<string, React.CSSProperties> = {
   },
   features: {
     display: "grid",
-    gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))",
+    gridTemplateColumns: "repeat(6, 1fr)",
     gap: "12px",
     width: "100%",
     marginTop: "32px",
