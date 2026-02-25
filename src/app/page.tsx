@@ -6,12 +6,57 @@ import { STORAGE_COMPARISON } from "@/lib/eval-results";
 import { useEffect, useState, useRef } from "react";
 import { useRouter } from "next/navigation";
 
+function NoWebGPUScreen() {
+  return (
+    <div style={{
+      minHeight: "100vh",
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "center",
+      padding: "24px",
+      textAlign: "center" as const,
+    }}>
+      <div className="glass" style={{
+        maxWidth: "380px",
+        padding: "48px 40px",
+        display: "flex",
+        flexDirection: "column" as const,
+        alignItems: "center",
+        gap: "16px",
+      }}>
+        <span style={{ fontSize: "52px", lineHeight: 1 }}>💻</span>
+        <h2 style={{ fontSize: "22px", fontWeight: 700, letterSpacing: "-0.02em" }}>
+          WebGPU not supported
+        </h2>
+        <p style={{ fontSize: "14px", color: "var(--text-secondary)", lineHeight: 1.65 }}>
+          This app needs WebGPU to run embeddings in your browser. Try{" "}
+          <strong style={{ color: "var(--text-primary)" }}>Chrome or Edge on a desktop</strong>{" "}
+          for the full experience.
+        </p>
+      </div>
+    </div>
+  );
+}
+
 export default function LandingPage() {
   const [url, setUrl] = useState("");
   const [error, setError] = useState("");
   const [isHowVisible, setIsHowVisible] = useState(false);
+  const [gpuSupported, setGpuSupported] = useState(true);
+  const [isMobile, setIsMobile] = useState(false);
   const howSectionRef = useRef<HTMLElement>(null);
   const router = useRouter();
+
+  useEffect(() => {
+    if (!("gpu" in navigator)) setGpuSupported(false);
+  }, []);
+
+  useEffect(() => {
+    const check = () => setIsMobile(window.innerWidth < 600);
+    check();
+    window.addEventListener("resize", check);
+    return () => window.removeEventListener("resize", check);
+  }, []);
 
   useEffect(() => {
     const node = howSectionRef.current;
@@ -52,8 +97,10 @@ export default function LandingPage() {
     router.push(`/${owner}/${repo}`);
   }
 
+  if (!gpuSupported) return <NoWebGPUScreen />;
+
   return (
-    <div style={styles.wrapper}>
+    <div style={{ ...styles.wrapper, overflowX: "hidden" }}>
       {/* Settings - fixed top-right */}
       <div style={styles.settingsFixed}>
         <ModelSettings />
@@ -76,11 +123,17 @@ export default function LandingPage() {
           </h1>
 
           <p style={styles.subtitle}>
-            RAG in your browser. Embeddings, storage, retrieval, all on-device
-            with WebGPU. No server. API keys encrypted locally with passkey.
+            Browser-native RAG. Embeddings, retrieval, and storage, all on-device
+            via WebGPU. No server. API keys encrypted locally.
           </p>
 
-          <form onSubmit={handleSubmit} style={styles.form}>
+          <form
+            onSubmit={handleSubmit}
+            style={{
+              ...styles.form,
+              ...(isMobile && { flexDirection: "column" as const }),
+            }}
+          >
             <input
               className="input"
               type="text"
@@ -101,22 +154,28 @@ export default function LandingPage() {
             Evals
           </a>
 
-          <div style={styles.features}>
+          <div style={{
+            ...styles.features,
+            ...(isMobile && { gridTemplateColumns: "1fr" }),
+          }}>
             {[
-              { icon: "⚡", label: "WebGPU Inference", desc: "GPU-accelerated embeddings in your browser" },
-              { icon: "🌲", label: "AST Chunking", desc: "Tree-sitter parses code into semantic chunks" },
-              { icon: "🔍", label: "Hybrid Search", desc: "Vector similarity fused with keyword recall" },
+              { icon: "⚡", label: "WebGPU Inference", desc: "Embeddings computed on your GPU via WebGPU" },
+              { icon: "🌲", label: "AST Chunking", desc: "Code split by syntax, not line count" },
+              { icon: "🔍", label: "Hybrid Search", desc: "Combines vector and keyword search" },
               {
                 icon: "🗜",
                 label: "Binary Quantization",
-                desc: `${STORAGE_COMPARISON.compressionRatio}x smaller vectors. ${STORAGE_COMPARISON.exampleRepoChunks} chunks: ${STORAGE_COMPARISON.float32TotalKB.toFixed(0)}KB → ${STORAGE_COMPARISON.binaryTotalKB.toFixed(0)}KB.`,
+                desc: `${STORAGE_COMPARISON.compressionRatio}x smaller index. ${STORAGE_COMPARISON.float32TotalKB.toFixed(0)}KB → ${STORAGE_COMPARISON.binaryTotalKB.toFixed(0)}KB for ${STORAGE_COMPARISON.exampleRepoChunks} chunks.`,
               },
-              { icon: "🔐", label: "Encrypted Key Vault", desc: "API keys secured by passkey locally." },
+              { icon: "🔐", label: "Encrypted Key Vault", desc: "API keys stored locally, locked by passkey" },
             ].map((f, i) => (
               <div
                 key={f.label}
                 className="glass"
-                style={{ ...styles.featureCard, gridColumn: i < 3 ? "span 2" : "span 3" }}
+                style={{
+                  ...styles.featureCard,
+                  ...(!isMobile && { gridColumn: i < 3 ? "span 2" : "span 3" }),
+                }}
               >
                 <span style={styles.featureIcon}>{f.icon}</span>
                 <strong style={styles.featureLabel}>{f.label}</strong>

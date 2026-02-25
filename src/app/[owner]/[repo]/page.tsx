@@ -52,12 +52,20 @@ export default function RepoPage({
 	const [toastMessage, setToastMessage] = useState<string | null>(null);
 	const [notificationPermission, setNotificationPermission] = useState<NotificationPermission | null>(null);
 	const [showOverflow, setShowOverflow] = useState(false);
+	const [isMobile, setIsMobile] = useState(false);
 	const completedWhileHiddenRef = useRef(false);
 	const indexStartTimeRef = useRef<number | null>(null);
 	const overflowRef = useRef<HTMLDivElement>(null);
 
 	const storeRef = useRef(new VectorStore());
 	const chatEndRef = useRef<HTMLDivElement>(null);
+
+	useEffect(() => {
+		const check = () => setIsMobile(window.innerWidth < 640);
+		check();
+		window.addEventListener("resize", check);
+		return () => window.removeEventListener("resize", check);
+	}, []);
 
 	// Resolve params
 	useEffect(() => {
@@ -425,15 +433,17 @@ ${context}`;
 						className={llmStatus === "loading" ? "pulse" : undefined}
 						title={`LLM: ${llmStatus}`}
 					/>
-					<span style={styles.statusText}>{llmStatus}</span>
-					<button
-						className="btn btn-ghost"
-						style={{ fontSize: "12px", padding: "6px 12px" }}
-						onClick={() => setShowTokenInput(!showTokenInput)}
-						title="GitHub Personal Access Token for higher rate limits"
-					>
-						GH Token
-					</button>
+					{!isMobile && <span style={styles.statusText}>{llmStatus}</span>}
+					{!isMobile && (
+						<button
+							className="btn btn-ghost"
+							style={{ fontSize: "12px", padding: "6px 12px" }}
+							onClick={() => setShowTokenInput(!showTokenInput)}
+							title="GitHub Personal Access Token for higher rate limits"
+						>
+							GH Token
+						</button>
+					)}
 					<button
 						className="btn btn-ghost"
 						style={{ fontSize: "12px", padding: "6px 12px" }}
@@ -670,7 +680,10 @@ ${context}`;
 
 				{/* Browse drawer - all indexed content */}
 				{showBrowse && isIndexed && (
-					<aside style={styles.browseDrawer} className="glass">
+					<aside style={{
+						...styles.browseDrawer,
+						...(isMobile && { position: "fixed" as const, inset: 0, width: "100%", minWidth: "unset", zIndex: 100, borderLeft: "none" }),
+					}} className="glass">
 						<IndexBrowser
 							chunks={storeRef.current.getAll()}
 							onClose={() => setShowBrowse(false)}
@@ -680,7 +693,10 @@ ${context}`;
 
 				{/* Context drawer - retrieved context from last query */}
 				{showContext && contextChunks.length > 0 && (
-					<aside style={styles.contextDrawer} className="glass">
+					<aside style={{
+						...styles.contextDrawer,
+						...(isMobile && { position: "fixed" as const, inset: 0, width: "100%", minWidth: "unset", zIndex: 100, borderLeft: "none" }),
+					}} className="glass">
 						<h3 style={styles.drawerTitle}>
 							Retrieved Context ({contextChunks.length} chunks)
 						</h3>
