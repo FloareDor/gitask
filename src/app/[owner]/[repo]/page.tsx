@@ -8,6 +8,7 @@ import { embedText } from "@/lib/embedder";
 import { initLLM, generate, getLLMStatus, onStatusChange, type LLMStatus, type ChatMessage } from "@/lib/llm";
 import { verifyAndRefine } from "@/lib/cove";
 import AstTreeView from "@/components/AstTreeView";
+import ReactMarkdown from "react-markdown";
 
 interface Message {
 	role: "user" | "assistant";
@@ -181,7 +182,12 @@ export default function RepoPage({
 				context = context.slice(0, MAX_CONTEXT_CHARS) + "\n...(truncated)";
 			}
 
-			const systemPrompt = `You are GitAsk, an AI assistant that answers questions about the ${owner}/${repo} GitHub repository. Use the following code context to answer the user's question. Be concise and cite file paths when relevant.\n\n${context}`;
+			const systemPrompt = `You are GitAsk, an AI assistant for the ${owner}/${repo} GitHub repository.
+
+Base your answer on the code context below. Be concise, cite file paths when relevant, and say if the context doesn't cover the question.
+
+Code context:
+${context}`;
 
 			// 3. Check if LLM is ready
 			if (getLLMStatus() !== "ready" && getLLMStatus() !== "generating") {
@@ -326,12 +332,11 @@ export default function RepoPage({
 			{/* Main content */}
 			<div style={styles.content}>
 				{/* AST Tree visualization during indexing */}
-				{!isIndexed && (astNodes.length > 0 || Object.keys(textChunkCounts).length > 0) && (
+				{!isIndexed && astNodes.length > 0 && (
 					<div style={styles.astPanel}>
 						<AstTreeView
 							astNodes={astNodes}
 							textChunkCounts={textChunkCounts}
-							phase={indexProgress?.phase ?? "chunking"}
 						/>
 					</div>
 				)}
@@ -339,7 +344,7 @@ export default function RepoPage({
 				{/* Chat panel */}
 				<div style={{
 					...styles.chatPanel,
-					display: !isIndexed && (astNodes.length > 0 || Object.keys(textChunkCounts).length > 0) ? "none" : "flex",
+					display: !isIndexed && astNodes.length > 0 ? "none" : "flex",
 				}}>
 					<div style={styles.messageList}>
 						{messages.length === 0 && isIndexed && (
@@ -366,7 +371,13 @@ export default function RepoPage({
 								}}
 								className={msg.role === "assistant" ? "glass" : ""}
 							>
-								<pre style={styles.messageContent}>{msg.content || (isGenerating && i === messages.length - 1 ? "Thinking…" : "")}</pre>
+								{msg.role === "assistant" ? (
+								<div style={{ ...styles.messageContent, whiteSpace: "normal" }} className="chat-markdown">
+									<ReactMarkdown>{msg.content || (isGenerating && i === messages.length - 1 ? "Thinking…" : "")}</ReactMarkdown>
+								</div>
+							) : (
+								<pre style={styles.messageContent}>{msg.content}</pre>
+							)}
 							</div>
 						))}
 						<div ref={chatEndRef} />

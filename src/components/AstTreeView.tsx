@@ -6,7 +6,6 @@ import type { AstNode } from "@/lib/indexer";
 interface AstTreeViewProps {
 	astNodes: AstNode[];
 	textChunkCounts: Record<string, number>;
-	phase: string;
 }
 
 /* ── Kind icons ── */
@@ -136,12 +135,6 @@ function getFileStatus(symbols: AstNode[]): AstNode["status"] {
 	return "pending";
 }
 
-/* ── Chunk status from file's AST status ── */
-
-function getChunkStatusClass(fileStatus: AstNode["status"]): string {
-	return getStatusClass(fileStatus);
-}
-
 /* ── Sub-components ── */
 
 function AstDirNode({ node, depth }: { node: DirNode; depth: number }) {
@@ -169,7 +162,6 @@ function AstDirNode({ node, depth }: { node: DirNode; depth: number }) {
 
 function AstFileNode({ file, depth }: { file: FileNode; depth: number }) {
 	const status = getFileStatus(file.symbols);
-	const isLast = false; // Simplified — connector lines via CSS
 
 	return (
 		<div className="ast-tree-node fade-in">
@@ -208,71 +200,9 @@ function AstFileNode({ file, depth }: { file: FileNode; depth: number }) {
 	);
 }
 
-/* ── Text chunks column ── */
-
-function TextChunksColumn({
-	textChunkCounts,
-	astNodes,
-}: {
-	textChunkCounts: Record<string, number>;
-	astNodes: AstNode[];
-}) {
-	// Derive file statuses from AST nodes
-	const fileStatuses = useMemo(() => {
-		const statuses = new Map<string, AstNode["status"]>();
-		const byFile = new Map<string, AstNode[]>();
-		for (const node of astNodes) {
-			const list = byFile.get(node.filePath) || [];
-			list.push(node);
-			byFile.set(node.filePath, list);
-		}
-		for (const [fp, nodes] of byFile) {
-			statuses.set(fp, getFileStatus(nodes));
-		}
-		return statuses;
-	}, [astNodes]);
-
-	const files = Object.entries(textChunkCounts).sort(([a], [b]) => a.localeCompare(b));
-
-	return (
-		<div className="ast-chunks-list">
-			{files.map(([filePath, count]) => {
-				const status = fileStatuses.get(filePath) || "parsed";
-				const fileName = filePath.split("/").pop() || filePath;
-				const dirPath = filePath.split("/").slice(0, -1).join("/");
-
-				return (
-					<div key={filePath} className="ast-chunk-file fade-in">
-						<div className={`ast-chunk-file-header ${getChunkStatusClass(status)}`}>
-							<span className={`ast-status-dot ${getStatusClass(status)}`}>
-								{getStatusIndicator(status)}
-							</span>
-							<span className="ast-chunk-path" title={filePath}>
-								{dirPath && <span className="ast-chunk-dir">{dirPath}/</span>}
-								{fileName}
-							</span>
-						</div>
-						<div className="ast-chunk-items">
-							{Array.from({ length: count }, (_, i) => (
-								<div
-									key={i}
-									className={`ast-chunk-item ${getChunkStatusClass(status)}`}
-								>
-									<span className="ast-chunk-label">chunk_{i}</span>
-									<span className="ast-chunk-size">≤2048 chars</span>
-								</div>
-							))}
-						</div>
-					</div>
-				);
-			})}
-		</div>
-	);
-}
-
 /* ── Main component ── */
 
-export default function AstTreeView({ astNodes, textChunkCounts, phase }: AstTreeViewProps) {
+export default function AstTreeView({ astNodes, textChunkCounts }: AstTreeViewProps) {
 	const tree = useMemo(
 		() => buildTree(astNodes, textChunkCounts),
 		[astNodes, textChunkCounts],
@@ -281,25 +211,9 @@ export default function AstTreeView({ astNodes, textChunkCounts, phase }: AstTre
 	const totalSymbols = astNodes.length;
 	const doneSymbols = astNodes.filter((n) => n.status === "done").length;
 	const embeddingSymbols = astNodes.filter((n) => n.status === "embedding").length;
-	const totalChunks = Object.values(textChunkCounts).reduce((s, c) => s + c, 0);
-	const totalFiles = Object.keys(textChunkCounts).length;
 
 	return (
-		<div className="ast-tree-container fade-in">
-			{/* Left column: Text Chunks */}
-			<div className="ast-column">
-				<div className="ast-column-header">
-					<h3>Text Chunks</h3>
-					<span className="ast-column-subtitle">
-						Naive splitting — {totalChunks} chunks from {totalFiles} files
-					</span>
-				</div>
-				<div className="ast-column-body">
-					<TextChunksColumn textChunkCounts={textChunkCounts} astNodes={astNodes} />
-				</div>
-			</div>
-
-			{/* Right column: Code Structure (AST) */}
+		<div className="ast-tree-container ast-tree-single fade-in">
 			<div className="ast-column">
 				<div className="ast-column-header">
 					<h3>Code Structure (AST)</h3>
