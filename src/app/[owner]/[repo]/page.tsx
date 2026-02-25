@@ -300,7 +300,7 @@ export default function RepoPage({
 			{/* Main content */}
 			<div style={styles.content}>
 				{/* AST Tree visualization during indexing */}
-				{!isIndexed && astNodes.length > 0 && (
+				{!isIndexed && (astNodes.length > 0 || Object.keys(textChunkCounts).length > 0) && (
 					<div style={styles.astPanel}>
 						<AstTreeView
 							astNodes={astNodes}
@@ -313,7 +313,7 @@ export default function RepoPage({
 				{/* Chat panel */}
 				<div style={{
 					...styles.chatPanel,
-					display: !isIndexed && astNodes.length > 0 ? "none" : "flex",
+					display: !isIndexed && (astNodes.length > 0 || Object.keys(textChunkCounts).length > 0) ? "none" : "flex",
 				}}>
 					<div style={styles.messageList}>
 						{messages.length === 0 && isIndexed && (

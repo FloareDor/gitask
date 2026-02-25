@@ -175,16 +175,15 @@ export async function indexRepository(
 			console.warn(`Skipped ${file.path}`);
 		}
 
-		if (i % 5 === 0 || i === indexableFiles.length - 1) {
-			onProgress?.({
-				phase: "chunking",
-				message: `Chunked ${i + 1}/${totalFiles} files (${allChunks.length} chunks)`,
-				current: i + 1,
-				total: totalFiles,
-				astNodes: [...astNodes],
-				textChunkCounts: { ...textChunkCounts },
-			});
-		}
+		// Report progress every file so AST visualization updates promptly
+		onProgress?.({
+			phase: "chunking",
+			message: `Chunked ${i + 1}/${totalFiles} files (${allChunks.length} chunks)`,
+			current: i + 1,
+			total: totalFiles,
+			astNodes: [...astNodes],
+			textChunkCounts: { ...textChunkCounts },
+		});
 	}
 
 	// 5. Embed chunks
