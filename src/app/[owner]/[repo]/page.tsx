@@ -221,6 +221,27 @@ export default function RepoPage({
 		}
 	}, [owner, repo]);
 
+	const handleDeleteEmbeddings = useCallback(async () => {
+		if (!owner || !repo) return;
+		const confirmed = typeof window !== "undefined" && window.confirm(
+			`Delete embeddings for ${owner}/${repo}? Search will stop working until re-indexed.`
+		);
+		if (!confirmed) return;
+		try {
+			await storeRef.current.clearCache(owner, repo);
+			storeRef.current.clear();
+			setIsIndexed(false);
+			setIndexProgress(null);
+			setAstNodes([]);
+			setTextChunkCounts({});
+			setReindexKey((k) => k + 1);
+			setToastMessage("Embeddings deleted. Re-indexing…");
+		} catch (err) {
+			console.error("Failed to delete embeddings:", err);
+			setToastMessage("Failed to delete embeddings.");
+		}
+	}, [owner, repo]);
+
 	const handleSend = useCallback(async () => {
 		if (!input.trim() || isGenerating || !isIndexed) return;
 
@@ -395,6 +416,16 @@ ${context}`;
 					>
 						📋 Context
 					</button>
+					{owner && repo && (
+						<button
+							className="btn btn-ghost"
+							style={{ fontSize: "12px", padding: "6px 12px", color: "var(--text-muted)" }}
+							onClick={handleDeleteEmbeddings}
+							title="delete embeddings from storage for this repo"
+						>
+							🗑 Delete embeddings
+						</button>
+					)}
 					{isIndexed && (
 						<button
 							className="btn btn-ghost"

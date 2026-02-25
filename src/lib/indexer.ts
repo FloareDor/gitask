@@ -13,7 +13,7 @@ import {
 } from "./github";
 import { chunkCode, chunkFromTree, type CodeChunk } from "./chunker";
 import { detectLanguage } from "./chunker";
-import { embedChunks, initEmbedder } from "./embedder";
+import { embedChunks, initEmbedder, type EmbeddedChunk } from "./embedder";
 import { VectorStore } from "./vectorStore";
 import { extractDependencies, extractSymbolsFromTree } from "./graph";
 
@@ -121,24 +121,55 @@ export async function indexRepository(
 	const indexableFiles = prioritiseFiles(
 		tree.files.filter((f) => isIndexable(f.path))
 	);
-
+	const indexablePaths = indexableFiles.map((f) => f.path);
 	const totalFiles = indexableFiles.length;
 
-	onProgress?.({
-		phase: "fetching",
-		message: `Fetching ${totalFiles} files…`,
-		current: 0,
-		total: totalFiles,
-	});
+	// 4. Check for partial progress (tab-close resume)
+	const partial = await store.loadPartialProgress(owner, repo, tree.sha);
+	let allChunks: CodeChunk[];
+	let astNodes: AstNode[];
+	let textChunkCounts: Record<string, number>;
+	let fileChunkRanges: Map<string, { start: number; end: number }>;
+	let dependencyGraph: Record<string, { imports: string[]; definitions: string[] }>;
+	let startFileIndex: number;
 
-	// 4. Fetch + chunk files, collecting AST data
-	const allChunks: CodeChunk[] = [];
-	const astNodes: AstNode[] = [];
-	const textChunkCounts: Record<string, number> = {};
-	const fileChunkRanges = new Map<string, { start: number; end: number }>();
-	const dependencyGraph: Record<string, { imports: string[]; definitions: string[] }> = {};
+	if (partial?.phase === "embedding" && partial.allChunks && partial.embeddedSoFar != null) {
+		// Resume embedding
+		allChunks = partial.allChunks;
+		astNodes = (partial.astNodes ?? []) as AstNode[];
+		textChunkCounts = partial.textChunkCounts ?? {};
+		fileChunkRanges = new Map(partial.fileChunkRanges ?? []);
+		dependencyGraph = partial.dependencyGraph ?? {};
+		startFileIndex = totalFiles; // Skip chunking
+	} else if (partial?.phase === "chunking" && partial.allChunks && partial.indexablePaths && partial.lastProcessedFileIndex != null) {
+		// Resume chunking
+		allChunks = partial.allChunks;
+		astNodes = (partial.astNodes ?? []) as AstNode[];
+		textChunkCounts = partial.textChunkCounts ?? {};
+		fileChunkRanges = new Map(partial.fileChunkRanges ?? []);
+		dependencyGraph = partial.dependencyGraph ?? {};
+		startFileIndex = partial.lastProcessedFileIndex + 1;
+	} else {
+		// Fresh start
+		allChunks = [];
+		astNodes = [];
+		textChunkCounts = {};
+		fileChunkRanges = new Map();
+		dependencyGraph = {};
+		startFileIndex = 0;
+	}
 
-	for (let i = 0; i < indexableFiles.length; i++) {
+	if (startFileIndex < totalFiles) {
+		onProgress?.({
+			phase: "fetching",
+			message: `Fetching ${totalFiles} files…`,
+			current: startFileIndex,
+			total: totalFiles,
+		});
+	}
+
+	// 5. Fetch + chunk files (or resume from startFileIndex)
+	for (let i = startFileIndex; i < indexableFiles.length; i++) {
 		const file = indexableFiles[i];
 		try {
 			const content = await fetchFileContent(owner, repo, file.path, token);
@@ -213,16 +244,49 @@ export async function indexRepository(
 			astNodes: [...astNodes],
 			textChunkCounts: { ...textChunkCounts },
 		});
+
+		// Persist partial progress after each file for tab-close resilience
+		checkAborted(signal);
+		await store.savePartialProgress(owner, repo, {
+			sha: tree.sha,
+			timestamp: Date.now(),
+			phase: "chunking",
+			indexablePaths,
+			allChunks: [...allChunks],
+			astNodes: [...astNodes],
+			textChunkCounts: { ...textChunkCounts },
+			fileChunkRanges: [...fileChunkRanges.entries()],
+			dependencyGraph: { ...dependencyGraph },
+			lastProcessedFileIndex: i,
+		});
 	}
 
 	checkAborted(signal);
 
-	// 5. Embed chunks
+	// 6. Embed chunks (or resume from embeddedSoFar)
+	const embeddedSoFar: EmbeddedChunk[] = partial?.phase === "embedding" && partial.embeddedSoFar
+		? partial.embeddedSoFar
+		: [];
+	const chunksToEmbed = allChunks.slice(embeddedSoFar.length);
 	const estimatedBytes = estimateStorageBytes(allChunks.length);
+
+	// Save embedding-phase partial before starting (for tab-close during embed)
+	await store.savePartialProgress(owner, repo, {
+		sha: tree.sha,
+		timestamp: Date.now(),
+		phase: "embedding",
+		allChunks: [...allChunks],
+		astNodes: [...astNodes],
+		textChunkCounts: { ...textChunkCounts },
+		fileChunkRanges: [...fileChunkRanges.entries()],
+		dependencyGraph: { ...dependencyGraph },
+		embeddedSoFar: [...embeddedSoFar],
+	});
+
 	onProgress?.({
 		phase: "embedding",
-		message: `Embedding ${allChunks.length} chunks…`,
-		current: 0,
+		message: chunksToEmbed.length > 0 ? `Embedding ${allChunks.length} chunks…` : `Resuming embedding…`,
+		current: embeddedSoFar.length,
 		total: allChunks.length,
 		astNodes: [...astNodes],
 		textChunkCounts: { ...textChunkCounts },
@@ -233,7 +297,7 @@ export async function indexRepository(
 		onProgress?.({
 			phase: "embedding",
 			message: msg,
-			current: 0,
+			current: embeddedSoFar.length,
 			total: allChunks.length,
 			astNodes: [...astNodes],
 			textChunkCounts: { ...textChunkCounts },
@@ -241,36 +305,62 @@ export async function indexRepository(
 		})
 	);
 
-	const embedded = await embedChunks(allChunks, (done, total) => {
-		checkAborted(signal);
-		// Update per-file AST node statuses based on embedding progress
-		const updatedNodes = astNodes.map((node) => {
-			const range = fileChunkRanges.get(node.filePath);
-			if (!range) return node;
+	let embedded: EmbeddedChunk[];
+	if (chunksToEmbed.length === 0) {
+		embedded = embeddedSoFar;
+	} else {
+		const newlyEmbedded = await embedChunks(
+			chunksToEmbed,
+			(done, total) => {
+				checkAborted(signal);
+				const overallDone = embeddedSoFar.length + done;
+				// Update per-file AST node statuses based on embedding progress
+				const updatedNodes = astNodes.map((node) => {
+					const range = fileChunkRanges.get(node.filePath);
+					if (!range) return node;
 
-			let status: AstNode["status"];
-			if (done >= range.end) {
-				status = "done";
-			} else if (done > range.start) {
-				status = "embedding";
-			} else {
-				status = "parsed";
+					let status: AstNode["status"];
+					if (overallDone >= range.end) {
+						status = "done";
+					} else if (overallDone > range.start) {
+						status = "embedding";
+					} else {
+						status = "parsed";
+					}
+					return { ...node, status };
+				});
+
+				onProgress?.({
+					phase: "embedding",
+					message: `Embedded ${overallDone}/${allChunks.length} chunks`,
+					current: overallDone,
+					total: allChunks.length,
+					astNodes: updatedNodes,
+					textChunkCounts: { ...textChunkCounts },
+					estimatedSizeBytes: estimatedBytes,
+				});
+			},
+			8,
+			signal,
+			(batchResults) => {
+				const soFar = [...embeddedSoFar, ...batchResults];
+				store.savePartialProgress(owner, repo, {
+					sha: tree.sha,
+					timestamp: Date.now(),
+					phase: "embedding",
+					allChunks: [...allChunks],
+					astNodes: [...astNodes],
+					textChunkCounts: { ...textChunkCounts },
+					fileChunkRanges: [...fileChunkRanges.entries()],
+					dependencyGraph: { ...dependencyGraph },
+					embeddedSoFar: soFar,
+				}).catch(console.warn);
 			}
-			return { ...node, status };
-		});
+		);
+		embedded = [...embeddedSoFar, ...newlyEmbedded];
+	}
 
-		onProgress?.({
-			phase: "embedding",
-			message: `Embedded ${done}/${total} chunks`,
-			current: done,
-			total,
-			astNodes: updatedNodes,
-			textChunkCounts: { ...textChunkCounts },
-			estimatedSizeBytes: estimatedBytes,
-		});
-	}, 8, signal);
-
-	// 6. Store
+	// 7. Store
 	store.insert(embedded);
 	store.setGraph(dependencyGraph);
 
@@ -286,6 +376,7 @@ export async function indexRepository(
 	});
 
 	await store.persist(owner, repo, tree.sha);
+	await store.clearPartialProgress(owner, repo);
 
 	onProgress?.({
 		phase: "done",

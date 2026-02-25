@@ -90,12 +90,14 @@ export async function embedText(text: string): Promise<number[]> {
 /**
  * Embed an array of code chunks in batches.
  * Supports cancellation via optional AbortSignal (checked between batches).
+ * Optional onBatchComplete called after each batch for incremental persistence.
  */
 export async function embedChunks(
 	chunks: CodeChunk[],
 	onProgress?: (done: number, total: number) => void,
 	batchSize: number = 8,
-	signal?: AbortSignal
+	signal?: AbortSignal,
+	onBatchComplete?: (embeddedSoFar: EmbeddedChunk[]) => void
 ): Promise<EmbeddedChunk[]> {
 	await initEmbedder();
 
@@ -112,7 +114,9 @@ export async function embedChunks(
 			results.push({ ...chunk, embedding });
 		}
 
-		onProgress?.(Math.min(i + batchSize, chunks.length), chunks.length);
+		const done = Math.min(i + batchSize, chunks.length);
+		onProgress?.(done, chunks.length);
+		onBatchComplete?.(results);
 	}
 
 	return results;
