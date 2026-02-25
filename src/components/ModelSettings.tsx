@@ -171,10 +171,10 @@ export function ModelSettings() {
 					...styles.settingsBtn,
 					borderColor: isGemini ? "var(--success)" : "var(--border)",
 				}}
-				aria-label="Settings"
+				aria-label="Model settings"
+				title={isGemini ? "Using Gemini Cloud" : "Using Local LLM"}
 			>
-				{isGemini ? "⚡ Using Gemini Cloud" : "🔒 Using Local LLM"}{" "}
-				<span style={{ opacity: 0.5, marginLeft: 4 }}> (Settings)</span>
+				<span style={{ opacity: 0.8 }}>⚙</span> Settings
 			</button>
 		);
 	}
@@ -217,8 +217,8 @@ export function ModelSettings() {
 					<div style={styles.geminiSection}>
 						{hasDefaultKey && (
 							<p style={styles.hint}>
-								✅ Default API Key is active. You can override with your own key
-								below.
+								This runs on my dev key for now. I might hit the limit. If
+								you've got a Gemini key, using yours would really help.
 							</p>
 						)}
 

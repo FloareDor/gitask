@@ -54,6 +54,11 @@ export default function LandingPage() {
 
   return (
     <div style={styles.wrapper}>
+      {/* Settings - fixed top-right */}
+      <div style={styles.settingsFixed}>
+        <ModelSettings />
+      </div>
+
       {/* Gradient orbs for visual flair */}
       <div style={styles.orbPurple} />
       <div style={styles.orbBlue} />
@@ -74,11 +79,6 @@ export default function LandingPage() {
             RAG in your browser. Embeddings, storage, retrieval, all on-device
             with WebGPU. No server, no API keys.
           </p>
-
-          {/* Mode Indicator / Switcher */}
-          <div style={styles.modeSwitcher}>
-            <ModelSettings />
-          </div>
 
           <form onSubmit={handleSubmit} style={styles.form}>
             <input
@@ -228,10 +228,11 @@ const styles: Record<string, React.CSSProperties> = {
   urlInput: {
     flex: 1,
   },
-  modeSwitcher: {
-    marginTop: "16px",
-    display: "flex",
-    justifyContent: "center",
+  settingsFixed: {
+    position: "fixed",
+    top: "20px",
+    right: "20px",
+    zIndex: 50,
   },
   error: {
     color: "var(--error)",
