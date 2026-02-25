@@ -2,6 +2,7 @@
 
 import { ArchitectureDiagram } from "@/components/ArchitectureDiagram";
 import { ModelSettings } from "@/components/ModelSettings";
+import { STORAGE_COMPARISON } from "@/lib/eval-results";
 import { useEffect, useState, useRef } from "react";
 import { useRouter } from "next/navigation";
 
@@ -105,7 +106,10 @@ export default function LandingPage() {
               { label: "WebGPU Inference", desc: "GPU-accelerated embeddings" },
               { label: "AST Chunking", desc: "Tree-sitter code parsing" },
               { label: "Hybrid Search", desc: "Vector + keyword fusion" },
-              { label: "Local Cache", desc: "IndexedDB persistence" },
+              {
+                label: "Binary Quantization",
+                desc: `${STORAGE_COMPARISON.compressionRatio}× smaller vectors. ${STORAGE_COMPARISON.exampleRepoChunks} chunks: ${STORAGE_COMPARISON.float32TotalKB.toFixed(0)}KB → ${STORAGE_COMPARISON.binaryTotalKB.toFixed(0)}KB. Same recall.`,
+              },
             ].map((f) => (
               <div key={f.label} className="glass" style={styles.featureCard}>
                 <strong style={styles.featureLabel}>{f.label}</strong>
