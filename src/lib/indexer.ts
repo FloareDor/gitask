@@ -43,17 +43,33 @@ function estimateStorageBytes(chunkCount: number): number {
 	return chunkCount * (EMBEDDING_DIM * BYTES_PER_FLOAT + METADATA_PER_CHUNK);
 }
 
+/** Thrown when indexing is aborted via AbortSignal */
+export class IndexAbortError extends Error {
+	constructor() {
+		super("Indexing aborted");
+		this.name = "IndexAbortError";
+	}
+}
+
+function checkAborted(signal?: AbortSignal): void {
+	if (signal?.aborted) throw new IndexAbortError();
+}
+
 /**
  * Index an entire repository.
  * Emits progress events via the callback.
+ * Supports cancellation via optional AbortSignal.
  */
 export async function indexRepository(
 	owner: string,
 	repo: string,
 	store: VectorStore,
 	onProgress?: (progress: IndexProgress) => void,
-	token?: string
+	token?: string,
+	signal?: AbortSignal
 ): Promise<void> {
+	checkAborted(signal);
+
 	// 1. Fetch tree
 	onProgress?.({
 		phase: "fetching",
@@ -63,6 +79,7 @@ export async function indexRepository(
 	});
 
 	const tree = await fetchRepoTree(owner, repo, token);
+	checkAborted(signal);
 
 	// 1.5 Init Tree-Sitter (dynamic import to avoid bundling fs/promises)
 	// eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -83,6 +100,8 @@ export async function indexRepository(
 
 	// eslint-disable-next-line @typescript-eslint/no-explicit-any
 	const parsers: Record<string, any> = {};
+
+	checkAborted(signal);
 
 	// 2. Check cache
 	const cached = await store.loadFromCache(owner, repo, tree.sha);
@@ -196,6 +215,8 @@ export async function indexRepository(
 		});
 	}
 
+	checkAborted(signal);
+
 	// 5. Embed chunks
 	const estimatedBytes = estimateStorageBytes(allChunks.length);
 	onProgress?.({
@@ -221,6 +242,7 @@ export async function indexRepository(
 	);
 
 	const embedded = await embedChunks(allChunks, (done, total) => {
+		checkAborted(signal);
 		// Update per-file AST node statuses based on embedding progress
 		const updatedNodes = astNodes.map((node) => {
 			const range = fileChunkRanges.get(node.filePath);
@@ -246,11 +268,13 @@ export async function indexRepository(
 			textChunkCounts: { ...textChunkCounts },
 			estimatedSizeBytes: estimatedBytes,
 		});
-	});
+	}, 8, signal);
 
 	// 6. Store
 	store.insert(embedded);
 	store.setGraph(dependencyGraph);
+
+	checkAborted(signal);
 
 	// 7. Persist to IndexedDB
 	onProgress?.({

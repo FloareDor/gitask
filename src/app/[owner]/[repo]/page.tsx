@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef, useCallback } from "react";
-import { indexRepository, type IndexProgress, type AstNode } from "@/lib/indexer";
+import { indexRepository, IndexAbortError, type IndexProgress, type AstNode } from "@/lib/indexer";
 import { VectorStore } from "@/lib/vectorStore";
 import { hybridSearch, type SearchOptions } from "@/lib/search";
 import { embedText } from "@/lib/embedder";
@@ -44,6 +44,10 @@ export default function RepoPage({
 	const [astNodes, setAstNodes] = useState<AstNode[]>([]);
 	const [textChunkCounts, setTextChunkCounts] = useState<Record<string, number>>({});
 	const [reindexKey, setReindexKey] = useState(0);
+	const [toastMessage, setToastMessage] = useState<string | null>(null);
+	const [notificationPermission, setNotificationPermission] = useState<NotificationPermission | null>(null);
+	const completedWhileHiddenRef = useRef(false);
+	const indexStartTimeRef = useRef<number | null>(null);
 
 	const storeRef = useRef(new VectorStore());
 	const chatEndRef = useRef<HTMLDivElement>(null);
@@ -93,9 +97,44 @@ export default function RepoPage({
 		chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
 	}, [messages]);
 
+	// Listen for visibility change — show toast when user returns after indexing completed in background
+	useEffect(() => {
+		const handleVisibilityChange = () => {
+			if (document.visibilityState === "visible" && completedWhileHiddenRef.current) {
+				completedWhileHiddenRef.current = false;
+				setToastMessage("Indexing complete. You can ask questions now.");
+			}
+		};
+		document.addEventListener("visibilitychange", handleVisibilityChange);
+		return () => document.removeEventListener("visibilitychange", handleVisibilityChange);
+	}, []);
+
+	// Auto-dismiss toast after 4 seconds
+	useEffect(() => {
+		if (!toastMessage) return;
+		const timer = setTimeout(() => setToastMessage(null), 4000);
+		return () => clearTimeout(timer);
+	}, [toastMessage]);
+
+	// Sync notification permission when indexing starts
+	useEffect(() => {
+		if (typeof Notification === "undefined") return;
+		setNotificationPermission(Notification.permission);
+	}, [owner, repo, reindexKey]);
+
 	// Start indexing when owner/repo are ready
 	useEffect(() => {
 		if (!owner || !repo) return;
+		completedWhileHiddenRef.current = false;
+		indexStartTimeRef.current = Date.now();
+		const controller = new AbortController();
+		const signal = controller.signal;
+		let aborted = false;
+
+		const safeSetState = <T,>(setter: (value: T) => void, value: T) => {
+			if (!aborted) setter(value);
+		};
+
 		(async () => {
 			try {
 				await indexRepository(
@@ -103,16 +142,33 @@ export default function RepoPage({
 					repo,
 					storeRef.current,
 					(progress) => {
-						setIndexProgress(progress);
-						if (progress.astNodes) setAstNodes(progress.astNodes);
-						if (progress.textChunkCounts) setTextChunkCounts(progress.textChunkCounts);
+						if (aborted) return;
+						safeSetState(setIndexProgress, progress);
+						if (progress.astNodes) safeSetState(setAstNodes, progress.astNodes);
+						if (progress.textChunkCounts) safeSetState(setTextChunkCounts, progress.textChunkCounts);
 					},
 					token || undefined,
+					signal,
 				);
-				setIsIndexed(true);
+				if (aborted) return;
+				if (typeof document !== "undefined" && document.hidden) {
+					completedWhileHiddenRef.current = true;
+					// Browser notification if permission granted
+					if (typeof Notification !== "undefined" && Notification.permission === "granted") {
+						try {
+							new Notification("GitAsk", {
+								body: `Indexing complete for ${owner}/${repo}. You can ask questions now.`,
+							});
+						} catch {
+							// Ignore notification errors
+						}
+					}
+				}
+				safeSetState(setIsIndexed, true);
 
 				// Start loading LLM in background
 				initLLM((msg) => {
+					if (aborted) return;
 					setIndexProgress((prev) => ({
 						phase: "done",
 						message: msg,
@@ -121,7 +177,8 @@ export default function RepoPage({
 					}));
 				}).catch(console.error);
 			} catch (err) {
-				setIndexProgress({
+				if (err instanceof IndexAbortError || aborted) return;
+				safeSetState(setIndexProgress, {
 					phase: "done",
 					message: `Error: ${err instanceof Error ? err.message : String(err)}`,
 					current: 0,
@@ -129,7 +186,18 @@ export default function RepoPage({
 				});
 			}
 		})();
+
+		return () => {
+			aborted = true;
+			controller.abort();
+		};
 	}, [owner, repo, token, reindexKey]);
+
+	const handleRequestNotificationPermission = useCallback(async () => {
+		if (typeof Notification === "undefined") return;
+		const perm = await Notification.requestPermission();
+		setNotificationPermission(perm);
+	}, []);
 
 	const handleClearChat = useCallback(() => {
 		setMessages([]);
@@ -252,8 +320,47 @@ ${context}`;
 			? Math.round((indexProgress.current / indexProgress.total) * 100)
 			: 0;
 
+	// Approx time remaining (only when we have meaningful progress)
+	const timeRemaining =
+		indexProgress &&
+		indexProgress.total > 0 &&
+		indexProgress.current > 0 &&
+		indexProgress.current < indexProgress.total &&
+		indexStartTimeRef.current != null &&
+		!["cached", "done", "persisting"].includes(indexProgress.phase)
+			? (() => {
+					const elapsed = Date.now() - indexStartTimeRef.current!;
+					const rate = indexProgress.current / elapsed;
+					const remainingMs = ((indexProgress.total - indexProgress.current) / rate);
+					return formatTimeRemaining(remainingMs);
+				})()
+			: null;
+
 	return (
 		<div style={styles.layout}>
+			{/* Toast for return-to-tab notification */}
+			{toastMessage && (
+				<div
+					role="status"
+					aria-live="polite"
+					style={{
+						position: "fixed",
+						bottom: "24px",
+						left: "50%",
+						transform: "translate(-50%, 0)",
+						padding: "12px 20px",
+						background: "var(--bg-card)",
+						border: "1px solid var(--border)",
+						borderRadius: "8px",
+						boxShadow: "0 4px 12px rgba(0,0,0,0.15)",
+						fontSize: "14px",
+						zIndex: 1000,
+						animation: "toast-in 0.2s ease-out",
+					}}
+				>
+					{toastMessage}
+				</div>
+			)}
 			{/* Header */}
 			<header style={styles.header}>
 				<a href="/" style={styles.logo}>
@@ -341,6 +448,27 @@ ${context}`;
 							<span style={{ color: "var(--text-muted)", marginLeft: "8px" }}>
 								(~{formatBytes(indexProgress.estimatedSizeBytes)})
 							</span>
+						)}
+						{timeRemaining && (
+							<span style={{ color: "var(--text-muted)", marginLeft: "8px" }}>
+								{timeRemaining} remaining
+							</span>
+						)}
+						{typeof Notification !== "undefined" && notificationPermission === "default" && (
+							<button
+								type="button"
+								className="btn btn-ghost"
+								style={{
+									marginLeft: "12px",
+									fontSize: "12px",
+									padding: "2px 8px",
+									color: "var(--text-muted)",
+								}}
+								onClick={handleRequestNotificationPermission}
+								title="Get a system notification when indexing completes (optional)"
+							>
+								Notify when ready (optional)
+							</button>
 						)}
 					</span>
 				</div>
@@ -459,6 +587,12 @@ function formatBytes(bytes: number): string {
 	if (bytes < 1024) return `${bytes} B`;
 	if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
 	return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function formatTimeRemaining(ms: number): string {
+	if (ms < 60_000) return `~${Math.round(ms / 1000)} sec`;
+	if (ms < 3600_000) return `~${Math.round(ms / 60_000)} min`;
+	return `~${(ms / 3600_000).toFixed(1)} hr`;
 }
 
 function getStatusDotStyle(status: LLMStatus): React.CSSProperties {

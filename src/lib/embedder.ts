@@ -89,17 +89,21 @@ export async function embedText(text: string): Promise<number[]> {
 
 /**
  * Embed an array of code chunks in batches.
+ * Supports cancellation via optional AbortSignal (checked between batches).
  */
 export async function embedChunks(
 	chunks: CodeChunk[],
 	onProgress?: (done: number, total: number) => void,
-	batchSize: number = 8
+	batchSize: number = 8,
+	signal?: AbortSignal
 ): Promise<EmbeddedChunk[]> {
 	await initEmbedder();
 
 	const results: EmbeddedChunk[] = [];
 
 	for (let i = 0; i < chunks.length; i += batchSize) {
+		if (signal?.aborted) throw new DOMException("Aborted", "AbortError");
+
 		const batch = chunks.slice(i, i + batchSize);
 
 		// Process batch sequentially (transformers.js doesn't support true batching in browser)
