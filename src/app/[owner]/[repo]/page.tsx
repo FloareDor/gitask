@@ -41,6 +41,7 @@ export default function RepoPage({
 	const [showTokenInput, setShowTokenInput] = useState(false);
 	const [astNodes, setAstNodes] = useState<AstNode[]>([]);
 	const [textChunkCounts, setTextChunkCounts] = useState<Record<string, number>>({});
+	const [reindexKey, setReindexKey] = useState(0);
 
 	const storeRef = useRef(new VectorStore());
 	const chatEndRef = useRef<HTMLDivElement>(null);
@@ -126,7 +127,7 @@ export default function RepoPage({
 				});
 			}
 		})();
-	}, [owner, repo, token]);
+	}, [owner, repo, token, reindexKey]);
 
 	const handleClearChat = useCallback(() => {
 		setMessages([]);
@@ -134,6 +135,21 @@ export default function RepoPage({
 			try { localStorage.removeItem(chatStorageKey); } catch { }
 		}
 	}, [chatStorageKey]);
+
+	const handleClearCacheAndReindex = useCallback(async () => {
+		if (!owner || !repo) return;
+		try {
+			await storeRef.current.clearCache(owner, repo);
+			storeRef.current.clear();
+			setIsIndexed(false);
+			setIndexProgress(null);
+			setAstNodes([]);
+			setTextChunkCounts({});
+			setReindexKey((k) => k + 1);
+		} catch (err) {
+			console.error("Failed to clear cache:", err);
+		}
+	}, [owner, repo]);
 
 	const handleSend = useCallback(async () => {
 		if (!input.trim() || isGenerating || !isIndexed) return;
@@ -258,6 +274,16 @@ export default function RepoPage({
 					>
 						📋 Context
 					</button>
+					{isIndexed && (
+						<button
+							className="btn btn-ghost"
+							style={{ fontSize: "12px", padding: "6px 12px" }}
+							onClick={handleClearCacheAndReindex}
+							title="clear cache and re-scan repo"
+						>
+							🔄 re-index
+						</button>
+					)}
 					{messages.length > 0 && (
 						<button
 							className="btn btn-ghost"

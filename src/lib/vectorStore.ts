@@ -111,6 +111,24 @@ export class VectorStore {
 	}
 
 	/**
+	 * Clear the IndexedDB cache for a repo. Does not clear in-memory store.
+	 */
+	async clearCache(owner: string, repo: string): Promise<void> {
+		const key = `${owner}/${repo}`;
+		return new Promise((resolve, reject) => {
+			const request = indexedDB.open("gitask-cache", 1);
+			request.onsuccess = () => {
+				const db = request.result;
+				const tx = db.transaction("repos", "readwrite");
+				tx.objectStore("repos").delete(key);
+				tx.oncomplete = () => resolve();
+				tx.onerror = () => reject(tx.error);
+			};
+			request.onerror = () => reject(request.error);
+		});
+	}
+
+	/**
 	 * Load from IndexedDB cache if SHA matches.
 	 * Returns true if cache was loaded, false if stale/missing.
 	 */
