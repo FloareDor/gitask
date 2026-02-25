@@ -171,61 +171,97 @@ export function ModelSettings() {
 				aria-label="Model settings"
 				title={isGemini ? "Using Gemini Cloud" : "Using Local LLM"}
 			>
-				<span style={{ opacity: 0.8 }}>⚙</span> Settings
+				<span style={styles.settingsBtnIcon}>⚙</span>
+				<span style={styles.settingsBtnSep} />
+				<span style={styles.settingsBtnLabel}>
+					{isGemini ? "CLOUD" : "LOCAL"}
+				</span>
+				<span style={{
+					...styles.settingsBtnDot,
+					background: isGemini ? "#a78bfa" : "var(--success)",
+				}} />
 			</button>
 		);
 	}
 
 	return (
-		<div style={styles.overlay}>
-			<div style={styles.modal} className="glass">
-				<h2 style={styles.title}>Model Settings</h2>
-
-				<div style={styles.field}>
-					<label style={styles.label}>LLM Provider</label>
-					<div style={styles.toggleGroup}>
-						<button
-							style={{
-								...styles.toggleBtn,
-								...(config.provider === "mlc" ? styles.activeBtn : {}),
-							}}
-							onClick={() => setConfig({ ...config, provider: "mlc" })}
-						>
-							Local (MLC WebGPU)
-						</button>
-						<button
-							style={{
-								...styles.toggleBtn,
-								...(config.provider === "gemini" ? styles.activeBtn : {}),
-							}}
-							onClick={() => setConfig({ ...config, provider: "gemini" })}
-						>
-							Cloud (Gemini API)
-						</button>
+		<div style={styles.overlay} onClick={(e) => { if (e.target === e.currentTarget) setIsOpen(false); }}>
+			<div style={styles.modal}>
+				{/* Modal header */}
+				<div style={styles.modalHeader}>
+					<div style={styles.modalHeaderLeft}>
+						<span style={styles.modalHeaderIcon}>⚙</span>
+						<div>
+							<div style={styles.modalHeaderTitle}>Model Settings</div>
+							<div style={styles.modalHeaderSub}>inference · encryption · provider</div>
+						</div>
 					</div>
-					<p style={styles.hint}>
-						{config.provider === "mlc"
-							? "Runs privately in your browser. Needs ~4GB VRAM. Downloads ~3GB model once."
-							: "Runs on Google Cloud using Gemini 2.5 Flash. Fast, no download required."}
-					</p>
+					<button
+						onClick={() => setIsOpen(false)}
+						style={styles.closeBtn}
+						aria-label="Close"
+					>
+						✕
+					</button>
 				</div>
 
+				{/* Provider picker — two large cards */}
+				<div style={styles.providerRow}>
+					{[
+						{
+							id: "mlc" as const,
+							label: "LOCAL",
+							sublabel: "MLC WebGPU",
+							icon: "🖥",
+							desc: "Runs privately in your browser. ~4GB VRAM. Downloads model once.",
+						},
+						{
+							id: "gemini" as const,
+							label: "CLOUD",
+							sublabel: "Gemini 2.5 Flash",
+							icon: "☁",
+							desc: "Google Cloud inference. Fast, no download. Needs API key.",
+						},
+					].map((p) => {
+						const active = config.provider === p.id;
+						return (
+							<button
+								key={p.id}
+								style={{
+									...styles.providerCard,
+									...(active ? styles.providerCardActive : {}),
+								}}
+								onClick={() => setConfig({ ...config, provider: p.id })}
+							>
+								<span style={styles.providerCardIcon}>{p.icon}</span>
+								<span style={styles.providerCardLabel}>{p.label}</span>
+								<span style={styles.providerCardSub}>{p.sublabel}</span>
+								<span style={styles.providerCardDesc}>{p.desc}</span>
+								{active && <span style={styles.providerCardTick}>✓</span>}
+							</button>
+						);
+					})}
+				</div>
+
+				{/* Gemini-specific fields */}
 				{config.provider === "gemini" && (
 					<div style={styles.geminiSection}>
+						<div style={styles.sectionDivider}>
+							<span style={styles.sectionDividerLabel}>API KEY VAULT</span>
+						</div>
+
 						{hasDefaultKey && (
 							<p style={styles.hint}>
-								A shared key is available. Adding your own gives you higher rate limits and keeps your requests private.
+								A shared key is available. Your own key gives higher rate limits and keeps requests private.
 							</p>
 						)}
 
 						{needsMigration && (
 							<div style={styles.field}>
-								<label style={styles.label}>
-									Migrate your existing API key (one-time)
-								</label>
+								<label style={styles.label}>Migrate existing key (one-time)</label>
 								<input
 									type="password"
-									placeholder="Enter passphrase (min 8 chars) to secure your key"
+									placeholder="Passphrase (min 8 chars) to secure key"
 									value={migratePassphrase}
 									onChange={(e) => setMigratePassphrase(e.target.value)}
 									style={styles.input}
@@ -233,9 +269,7 @@ export function ModelSettings() {
 								<button
 									onClick={handleMigrate}
 									style={styles.saveBtn}
-									disabled={
-										reloading || migratePassphrase.length < 8
-									}
+									disabled={reloading || migratePassphrase.length < 8}
 								>
 									{reloading ? "Migrating..." : "Migrate & Save"}
 								</button>
@@ -249,21 +283,19 @@ export function ModelSettings() {
 									href="https://aistudio.google.com/app/apikey"
 									target="_blank"
 									rel="noopener noreferrer"
-									style={{ fontSize: 12, color: "var(--accent)", marginBottom: 4 }}
+									style={styles.accentLink}
 								>
-									Get your Free Gemini API key →
+									Get a free Gemini API key →
 								</a>
 								<input
 									type="password"
-									placeholder="Paste your Gemini API Key"
+									placeholder="Paste Gemini API key"
 									value={apiKeyInput}
 									onChange={(e) => setApiKeyInput(e.target.value)}
 									style={styles.input}
 								/>
 								{passkeySupported ? (
-									<p style={styles.hint}>
-										Secured with fingerprint / passkey
-									</p>
+									<p style={styles.hint}>🔑 Will be secured with fingerprint / passkey</p>
 								) : (
 									<input
 										type="password"
@@ -274,14 +306,14 @@ export function ModelSettings() {
 									/>
 								)}
 								<p style={styles.hint}>
-									Encrypted in your browser. Never sent to our server.{" "}
+									Encrypted in-browser. Never sent to any server.{" "}
 									<a
 										href="https://www.npmjs.com/package/byok-vault"
 										target="_blank"
 										rel="noopener noreferrer"
 										style={{ color: "var(--accent)", textDecoration: "none" }}
 									>
-										Secured by byok-vault
+										byok-vault
 									</a>
 								</p>
 							</div>
@@ -289,14 +321,10 @@ export function ModelSettings() {
 
 						{vaultState === "locked" && !needsMigration && (
 							<div style={styles.field}>
-								<label style={styles.label}>Unlock API key</label>
+								<label style={styles.label}>Unlock vault</label>
 								{isPasskeyEnrolled ? (
-									<button
-										onClick={handleUnlockWithPasskey}
-										style={styles.saveBtn}
-										disabled={reloading}
-									>
-										{reloading ? "Unlocking..." : "Unlock with fingerprint"}
+									<button onClick={handleUnlockWithPasskey} style={styles.saveBtn} disabled={reloading}>
+										{reloading ? "Unlocking..." : "🔑 Unlock with fingerprint"}
 									</button>
 								) : (
 									<>
@@ -307,11 +335,7 @@ export function ModelSettings() {
 											onChange={(e) => setPassphraseInput(e.target.value)}
 											style={styles.input}
 										/>
-										<button
-											onClick={handleUnlock}
-											style={styles.saveBtn}
-											disabled={reloading || passphraseInput.length < 8}
-										>
+										<button onClick={handleUnlock} style={styles.saveBtn} disabled={reloading || passphraseInput.length < 8}>
 											{reloading ? "Unlocking..." : "Unlock"}
 										</button>
 									</>
@@ -321,44 +345,33 @@ export function ModelSettings() {
 
 						{vaultState === "unlocked" && (
 							<div style={styles.field}>
-								<p style={{ ...styles.hint, color: "var(--success)" }}>
-									API key stored (encrypted)
+								<p style={{ ...styles.hint, color: "var(--success)", fontWeight: 600 }}>
+									✓ API key stored &amp; encrypted
 								</p>
 								<div style={{ display: "flex", gap: 8 }}>
-									<button
-										onClick={handleLock}
-										style={styles.cancelBtn}
-									>
-										Lock
-									</button>
-									<button
-										onClick={handleResetKeys}
-										style={styles.cancelBtn}
-									>
-										Reset keys
-									</button>
+									<button onClick={handleLock} style={styles.cancelBtn}>Lock</button>
+									<button onClick={handleResetKeys} style={styles.cancelBtn}>Reset keys</button>
 								</div>
 							</div>
 						)}
 					</div>
 				)}
 
-				{reloading && <div style={styles.status}>{statusMsg}</div>}
+				{/* Status message */}
+				{reloading && (
+					<div style={styles.status}>
+						<span style={styles.statusDot} className="pulse" />
+						{statusMsg}
+					</div>
+				)}
 
+				{/* Footer actions */}
 				<div style={styles.actions}>
-					<button
-						onClick={() => setIsOpen(false)}
-						style={styles.cancelBtn}
-						disabled={reloading}
-					>
+					<button onClick={() => setIsOpen(false)} style={styles.cancelBtn} disabled={reloading}>
 						Cancel
 					</button>
-					<button
-						onClick={handleSave}
-						style={styles.saveBtn}
-						disabled={reloading || !canSave}
-					>
-						{reloading ? "Saving & Reloading..." : "Save & Reload"}
+					<button onClick={handleSave} style={styles.saveBtn} disabled={reloading || !canSave}>
+						{reloading ? "Saving..." : "Save & Reload"}
 					</button>
 				</div>
 			</div>
@@ -367,94 +380,234 @@ export function ModelSettings() {
 }
 
 const styles: Record<string, React.CSSProperties> = {
+	/* ── Trigger button ── */
 	settingsBtn: {
+		display: "inline-flex",
+		alignItems: "center",
+		gap: 0,
 		background: "var(--bg-card)",
 		border: "2px solid var(--border)",
-		padding: "6px 14px",
-		borderRadius: "2px",
+		borderRadius: "3px",
 		cursor: "pointer",
-		zIndex: 50,
-		fontSize: "13px",
-		color: "var(--text)",
-		fontWeight: 600,
-		transition: "transform 0.1s ease, box-shadow 0.1s ease, border-color 0.1s ease",
-		fontFamily: "var(--font-sans)",
+		padding: 0,
+		overflow: "hidden",
+		fontFamily: "var(--font-mono)",
+		fontSize: "11px",
+		fontWeight: 700,
+		color: "var(--text-primary)",
+		boxShadow: "2px 2px 0 var(--accent)",
+		transition: "transform 0.1s ease, box-shadow 0.1s ease",
+		letterSpacing: "0.05em",
 	},
+	settingsBtnIcon: {
+		padding: "6px 9px",
+		background: "var(--accent)",
+		color: "#fff",
+		fontSize: "13px",
+		lineHeight: 1,
+		display: "flex",
+		alignItems: "center",
+	},
+	settingsBtnSep: {
+		width: "2px",
+		alignSelf: "stretch",
+		background: "var(--border)",
+		flexShrink: 0,
+	},
+	settingsBtnLabel: {
+		padding: "6px 8px",
+		letterSpacing: "0.08em",
+	},
+	settingsBtnDot: {
+		width: "6px",
+		height: "6px",
+		borderRadius: "50%",
+		marginRight: "8px",
+		flexShrink: 0,
+	},
+
+	/* ── Overlay ── */
 	overlay: {
 		position: "fixed",
 		top: 0,
 		left: 0,
 		right: 0,
 		bottom: 0,
-		background: "rgba(0,0,0,0.7)",
+		background: "rgba(0,0,0,0.75)",
 		display: "flex",
 		alignItems: "center",
 		justifyContent: "center",
 		zIndex: 100,
 	},
+
+	/* ── Modal panel ── */
 	modal: {
-		width: "400px",
-		maxWidth: "90%",
-		padding: "28px",
+		width: "440px",
+		maxWidth: "94vw",
 		background: "var(--bg-card)",
-		borderRadius: "4px",
 		border: "2px solid var(--border-accent)",
-		boxShadow: "5px 5px 0 var(--accent)",
+		borderRadius: "4px",
+		boxShadow: "6px 6px 0 var(--accent)",
 		display: "flex",
 		flexDirection: "column",
-		gap: "20px",
+		overflow: "hidden",
 	},
-	title: {
-		fontSize: "20px",
+
+	/* ── Modal header bar ── */
+	modalHeader: {
+		display: "flex",
+		alignItems: "center",
+		justifyContent: "space-between",
+		padding: "14px 18px",
+		background: "var(--bg-secondary)",
+		borderBottom: "2px solid var(--border)",
+	},
+	modalHeaderLeft: {
+		display: "flex",
+		alignItems: "center",
+		gap: "12px",
+	},
+	modalHeaderIcon: {
+		fontSize: "22px",
+		lineHeight: 1,
+		color: "var(--accent)",
+	},
+	modalHeaderTitle: {
+		fontSize: "15px",
 		fontWeight: 800,
-		margin: 0,
 		fontFamily: "var(--font-display)",
-		letterSpacing: "-0.02em",
+		letterSpacing: "-0.01em",
+		color: "var(--text-primary)",
+		lineHeight: 1.2,
 	},
+	modalHeaderSub: {
+		fontSize: "10px",
+		fontFamily: "var(--font-mono)",
+		color: "var(--text-muted)",
+		letterSpacing: "0.08em",
+		textTransform: "uppercase" as const,
+		marginTop: "2px",
+	},
+	closeBtn: {
+		background: "transparent",
+		border: "2px solid var(--border)",
+		borderRadius: "2px",
+		color: "var(--text-muted)",
+		cursor: "pointer",
+		fontSize: "13px",
+		fontWeight: 700,
+		width: "30px",
+		height: "30px",
+		display: "flex",
+		alignItems: "center",
+		justifyContent: "center",
+		flexShrink: 0,
+		fontFamily: "var(--font-mono)",
+		transition: "border-color 0.1s ease, color 0.1s ease",
+	},
+
+	/* ── Provider picker ── */
+	providerRow: {
+		display: "flex",
+		gap: "0",
+		padding: "16px",
+		paddingBottom: "0",
+	},
+	providerCard: {
+		flex: 1,
+		display: "flex",
+		flexDirection: "column" as const,
+		alignItems: "flex-start",
+		gap: "4px",
+		padding: "14px 14px 16px",
+		background: "var(--bg-secondary)",
+		border: "2px solid var(--border)",
+		borderRadius: "2px",
+		cursor: "pointer",
+		textAlign: "left" as const,
+		position: "relative" as const,
+		transition: "border-color 0.1s ease, box-shadow 0.1s ease",
+		margin: "2px",
+	},
+	providerCardActive: {
+		border: "2px solid var(--accent)",
+		boxShadow: "3px 3px 0 var(--accent)",
+		background: "rgba(99,102,241,0.06)",
+	},
+	providerCardIcon: {
+		fontSize: "20px",
+		lineHeight: 1,
+		marginBottom: "4px",
+	},
+	providerCardLabel: {
+		fontSize: "12px",
+		fontWeight: 800,
+		fontFamily: "var(--font-mono)",
+		letterSpacing: "0.1em",
+		color: "var(--text-primary)",
+	},
+	providerCardSub: {
+		fontSize: "11px",
+		fontWeight: 600,
+		color: "var(--accent)",
+		fontFamily: "var(--font-mono)",
+	},
+	providerCardDesc: {
+		fontSize: "11px",
+		color: "var(--text-muted)",
+		lineHeight: 1.4,
+		marginTop: "4px",
+	},
+	providerCardTick: {
+		position: "absolute" as const,
+		top: "10px",
+		right: "10px",
+		fontSize: "12px",
+		color: "var(--accent)",
+		fontWeight: 800,
+	},
+
+	/* ── Gemini section ── */
+	geminiSection: {
+		display: "flex",
+		flexDirection: "column",
+		gap: "12px",
+		padding: "16px",
+		paddingTop: "12px",
+	},
+	sectionDivider: {
+		display: "flex",
+		alignItems: "center",
+		gap: "8px",
+		margin: "4px 0",
+	},
+	sectionDividerLabel: {
+		fontSize: "10px",
+		fontWeight: 700,
+		fontFamily: "var(--font-mono)",
+		letterSpacing: "0.12em",
+		color: "var(--text-muted)",
+	},
+
 	field: {
 		display: "flex",
 		flexDirection: "column",
 		gap: "8px",
 	},
-	geminiSection: {
-		display: "flex",
-		flexDirection: "column",
-		gap: "16px",
-	},
 	label: {
-		fontSize: "13px",
+		fontSize: "10px",
 		fontWeight: 700,
 		color: "var(--text-secondary)",
 		textTransform: "uppercase" as const,
-		letterSpacing: "0.06em",
-		fontFamily: "var(--font-display)",
+		letterSpacing: "0.1em",
+		fontFamily: "var(--font-mono)",
 	},
-	toggleGroup: {
-		display: "flex",
-		gap: "6px",
-		background: "var(--bg-secondary)",
-		padding: "4px",
-		border: "2px solid var(--border)",
-		borderRadius: "2px",
-	},
-	toggleBtn: {
-		flex: 1,
-		padding: "8px",
-		borderRadius: "2px",
-		border: "2px solid transparent",
-		background: "transparent",
-		color: "var(--text-secondary)",
-		cursor: "pointer",
-		fontSize: "13px",
+	accentLink: {
+		fontSize: "12px",
+		color: "var(--accent)",
+		textDecoration: "none",
+		fontFamily: "var(--font-mono)",
 		fontWeight: 600,
-		transition: "all 0.1s ease",
-		fontFamily: "var(--font-sans)",
-	},
-	activeBtn: {
-		background: "var(--accent)",
-		color: "#fff",
-		border: "2px solid var(--accent)",
-		boxShadow: "2px 2px 0 rgba(0,0,0,0.4)",
 	},
 	hint: {
 		fontSize: "12px",
@@ -467,24 +620,43 @@ const styles: Record<string, React.CSSProperties> = {
 		padding: "10px 12px",
 		borderRadius: "2px",
 		border: "2px solid var(--border)",
-		background: "var(--bg-secondary)",
+		background: "var(--bg-primary)",
 		color: "var(--text-primary)",
-		fontSize: "14px",
-		fontFamily: "var(--font-sans)",
+		fontSize: "13px",
+		fontFamily: "var(--font-mono)",
 		outline: "none",
 		transition: "border-color 0.1s ease, box-shadow 0.1s ease",
 	},
+
+	/* ── Status bar ── */
 	status: {
-		fontSize: "13px",
+		display: "flex",
+		alignItems: "center",
+		gap: "8px",
+		fontSize: "12px",
 		color: "var(--accent)",
-		textAlign: "center" as const,
 		fontFamily: "var(--font-mono)",
+		padding: "10px 16px",
+		background: "rgba(99,102,241,0.07)",
+		borderTop: "2px solid rgba(99,102,241,0.2)",
 	},
+	statusDot: {
+		width: "7px",
+		height: "7px",
+		borderRadius: "50%",
+		background: "var(--accent)",
+		flexShrink: 0,
+		display: "inline-block",
+	},
+
+	/* ── Footer ── */
 	actions: {
 		display: "flex",
 		justifyContent: "flex-end",
-		gap: "10px",
-		marginTop: "4px",
+		gap: "8px",
+		padding: "14px 16px",
+		borderTop: "2px solid var(--border)",
+		background: "var(--bg-secondary)",
 	},
 	cancelBtn: {
 		background: "transparent",
@@ -492,10 +664,11 @@ const styles: Record<string, React.CSSProperties> = {
 		borderRadius: "2px",
 		color: "var(--text-secondary)",
 		cursor: "pointer",
-		fontSize: "13px",
-		fontWeight: 600,
+		fontSize: "12px",
+		fontWeight: 700,
 		padding: "7px 14px",
-		fontFamily: "var(--font-sans)",
+		fontFamily: "var(--font-mono)",
+		letterSpacing: "0.04em",
 		transition: "border-color 0.1s ease",
 	},
 	saveBtn: {
@@ -505,9 +678,10 @@ const styles: Record<string, React.CSSProperties> = {
 		borderRadius: "2px",
 		padding: "7px 16px",
 		cursor: "pointer",
-		fontSize: "13px",
+		fontSize: "12px",
 		fontWeight: 700,
-		fontFamily: "var(--font-display)",
+		fontFamily: "var(--font-mono)",
+		letterSpacing: "0.04em",
 		boxShadow: "2px 2px 0 rgba(0,0,0,0.4)",
 		transition: "transform 0.1s ease, box-shadow 0.1s ease",
 	},
