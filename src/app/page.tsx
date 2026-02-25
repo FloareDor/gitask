@@ -66,7 +66,7 @@ export default function LandingPage() {
       <main style={styles.main}>
         <div className="fade-in" style={styles.hero}>
           <div style={styles.badge}>
-            <span style={styles.badgeDot} />
+            <span style={styles.badgeDot} className="pulse" />
             Client-side • Free
           </div>
 
@@ -77,7 +77,7 @@ export default function LandingPage() {
 
           <p style={styles.subtitle}>
             RAG in your browser. Embeddings, storage, retrieval, all on-device
-            with WebGPU. No server, no API keys.
+            with WebGPU. No server. API keys encrypted locally with passkey.
           </p>
 
           <form onSubmit={handleSubmit} style={styles.form}>
@@ -103,15 +103,18 @@ export default function LandingPage() {
 
           <div style={styles.features}>
             {[
-              { label: "WebGPU Inference", desc: "GPU-accelerated embeddings" },
-              { label: "AST Chunking", desc: "Tree-sitter code parsing" },
-              { label: "Hybrid Search", desc: "Vector + keyword fusion" },
+              { icon: "⚡", label: "WebGPU Inference", desc: "GPU-accelerated embeddings in your browser" },
+              { icon: "🌲", label: "AST Chunking", desc: "Tree-sitter parses code into semantic chunks" },
+              { icon: "🔍", label: "Hybrid Search", desc: "Vector similarity fused with keyword recall" },
               {
+                icon: "🗜",
                 label: "Binary Quantization",
-                desc: `${STORAGE_COMPARISON.compressionRatio}× smaller vectors. ${STORAGE_COMPARISON.exampleRepoChunks} chunks: ${STORAGE_COMPARISON.float32TotalKB.toFixed(0)}KB → ${STORAGE_COMPARISON.binaryTotalKB.toFixed(0)}KB. Same recall.`,
+                desc: `${STORAGE_COMPARISON.compressionRatio}x smaller vectors. ${STORAGE_COMPARISON.exampleRepoChunks} chunks: ${STORAGE_COMPARISON.float32TotalKB.toFixed(0)}KB to ${STORAGE_COMPARISON.binaryTotalKB.toFixed(0)}KB. Same recall.`,
               },
+              { icon: "🔐", label: "Encrypted Key Vault", desc: "API keys secured by passkey locally. Powered by byok-vault." },
             ].map((f) => (
               <div key={f.label} className="glass" style={styles.featureCard}>
+                <span style={styles.featureIcon}>{f.icon}</span>
                 <strong style={styles.featureLabel}>{f.label}</strong>
                 <span style={styles.featureDesc}>{f.desc}</span>
               </div>
@@ -262,6 +265,11 @@ const styles: Record<string, React.CSSProperties> = {
     gap: "6px",
     padding: "20px 12px",
     textAlign: "center",
+  },
+  featureIcon: {
+    fontSize: "22px",
+    lineHeight: 1,
+    marginBottom: "2px",
   },
   featureLabel: {
     fontSize: "13px",

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef, useCallback } from "react";
+import { useRouter } from "next/navigation";
 import { indexRepository, IndexAbortError, type IndexProgress, type AstNode } from "@/lib/indexer";
 import { VectorStore } from "@/lib/vectorStore";
 import { hybridSearch, type SearchOptions } from "@/lib/search";
@@ -28,6 +29,7 @@ export default function RepoPage({
 }: {
 	params: Promise<{ owner: string; repo: string }>;
 }) {
+	const router = useRouter();
 	const [owner, setOwner] = useState("");
 	const [repo, setRepo] = useState("");
 
@@ -49,8 +51,10 @@ export default function RepoPage({
 	const [reindexKey, setReindexKey] = useState(0);
 	const [toastMessage, setToastMessage] = useState<string | null>(null);
 	const [notificationPermission, setNotificationPermission] = useState<NotificationPermission | null>(null);
+	const [showOverflow, setShowOverflow] = useState(false);
 	const completedWhileHiddenRef = useRef(false);
 	const indexStartTimeRef = useRef<number | null>(null);
+	const overflowRef = useRef<HTMLDivElement>(null);
 
 	const storeRef = useRef(new VectorStore());
 	const chatEndRef = useRef<HTMLDivElement>(null);
@@ -118,6 +122,18 @@ export default function RepoPage({
 		const timer = setTimeout(() => setToastMessage(null), 4000);
 		return () => clearTimeout(timer);
 	}, [toastMessage]);
+
+	// Close overflow menu on outside click
+	useEffect(() => {
+		if (!showOverflow) return;
+		const handleClick = (e: MouseEvent) => {
+			if (overflowRef.current && !overflowRef.current.contains(e.target as Node)) {
+				setShowOverflow(false);
+			}
+		};
+		document.addEventListener("mousedown", handleClick);
+		return () => document.removeEventListener("mousedown", handleClick);
+	}, [showOverflow]);
 
 	// Sync notification permission when indexing starts
 	useEffect(() => {
@@ -227,28 +243,23 @@ export default function RepoPage({
 	const handleDeleteEmbeddings = useCallback(async () => {
 		if (!owner || !repo) return;
 		const confirmed = typeof window !== "undefined" && window.confirm(
-			`Delete embeddings for ${owner}/${repo}? Search will stop working until re-indexed.`
+			`Delete stored embeddings for ${owner}/${repo}? You will be returned to the home page.`
 		);
 		if (!confirmed) return;
 		try {
 			await storeRef.current.clearCache(owner, repo);
 			storeRef.current.clear();
-			setIsIndexed(false);
-			setIndexProgress(null);
-			setAstNodes([]);
-			setTextChunkCounts({});
-			setReindexKey((k) => k + 1);
-			setToastMessage("Embeddings deleted. Re-indexing…");
+			router.push("/");
 		} catch (err) {
 			console.error("Failed to delete embeddings:", err);
 			setToastMessage("Failed to delete embeddings.");
 		}
-	}, [owner, repo]);
+	}, [owner, repo, router]);
 
-	const handleSend = useCallback(async () => {
-		if (!input.trim() || isGenerating || !isIndexed) return;
+	const handleSend = useCallback(async (overrideText?: string) => {
+		const userMessage = (overrideText ?? input).trim();
+		if (!userMessage || isGenerating || !isIndexed) return;
 
-		const userMessage = input.trim();
 		setInput("");
 		setMessages((prev) => [...prev, { role: "user", content: userMessage }]);
 		setIsGenerating(true);
@@ -278,9 +289,11 @@ export default function RepoPage({
 				: rawContext;
 			setContextMeta({ truncated: contextTruncated, totalChars: rawContext.length, maxChars: MAX_CONTEXT_CHARS });
 
-			const systemPrompt = `You are GitAsk, an AI assistant for the ${owner}/${repo} GitHub repository.
+			const personality = config.provider === "gemini"
+				? "Answer like a senior engineer: direct, human, simple English. Use correct technical terms but no fluff or filler phrases. Cite file paths naturally. If the context does not cover the question, say so plainly."
+				: "Be concise. Cite file paths when relevant. Say if the context does not cover the question.";
 
-Base your answer on the code context below. Be concise, cite file paths when relevant, and say if the context doesn't cover the question.
+			const systemPrompt = `You are GitAsk, a code assistant for the ${owner}/${repo} repository. ${personality}
 
 Code context:
 ${context}`;
@@ -299,8 +312,9 @@ ${context}`;
 				return;
 			}
 
-			// 4. Stream response (cap history to last 4 messages to stay within token budget)
-			const recentHistory = messages.slice(-4);
+			// 4. Stream response (cap history to stay within token budget; Gemini has a large context, MLC does not)
+			const historyLimit = config.provider === "gemini" ? 10 : 6;
+			const recentHistory = messages.slice(-historyLimit);
 			const chatMessages: ChatMessage[] = [
 				{ role: "system", content: systemPrompt },
 				...recentHistory.map((m) => ({ role: m.role as "user" | "assistant", content: m.content })),
@@ -406,14 +420,19 @@ ${context}`;
 					<span style={styles.repoText}>{repo}</span>
 				</a>
 				<div style={styles.headerActions}>
-					<div style={getStatusDotStyle(llmStatus)} title={`LLM: ${llmStatus}`} />
+					<div
+						style={getStatusDotStyle(llmStatus)}
+						className={llmStatus === "loading" ? "pulse" : undefined}
+						title={`LLM: ${llmStatus}`}
+					/>
 					<span style={styles.statusText}>{llmStatus}</span>
 					<button
 						className="btn btn-ghost"
 						style={{ fontSize: "12px", padding: "6px 12px" }}
 						onClick={() => setShowTokenInput(!showTokenInput)}
+						title="GitHub Personal Access Token for higher rate limits"
 					>
-						🔑 Token
+						GH Token
 					</button>
 					<button
 						className="btn btn-ghost"
@@ -433,26 +452,52 @@ ${context}`;
 							📂 Browse
 						</button>
 					)}
-					{owner && repo && (
+					<div ref={overflowRef} style={{ position: "relative" }}>
 						<button
 							className="btn btn-ghost"
-							style={{ fontSize: "12px", padding: "6px 12px", color: "var(--text-muted)" }}
-							onClick={handleDeleteEmbeddings}
-							title="delete embeddings from storage for this repo"
+							style={{ fontSize: "12px", padding: "6px 10px" }}
+							onClick={() => setShowOverflow((v) => !v)}
+							title="More options"
 						>
-							🗑 Delete embeddings
+							•••
 						</button>
-					)}
-					{isIndexed && (
-						<button
-							className="btn btn-ghost"
-							style={{ fontSize: "12px", padding: "6px 12px" }}
-							onClick={handleClearCacheAndReindex}
-							title="clear cache and re-scan repo"
-						>
-							🔄 re-index
-						</button>
-					)}
+						{showOverflow && (
+							<div style={{
+								position: "absolute",
+								top: "calc(100% + 6px)",
+								right: 0,
+								background: "var(--bg-card)",
+								border: "1px solid var(--border)",
+								borderRadius: "var(--radius-sm)",
+								padding: "4px",
+								display: "flex",
+								flexDirection: "column",
+								gap: "2px",
+								zIndex: 20,
+								minWidth: "168px",
+								boxShadow: "0 4px 16px rgba(0,0,0,0.3)",
+							}}>
+								{owner && repo && (
+									<button
+										className="btn btn-ghost"
+										style={{ fontSize: "12px", padding: "6px 12px", color: "var(--text-muted)", justifyContent: "flex-start", width: "100%", border: "none" }}
+										onClick={() => { handleDeleteEmbeddings(); setShowOverflow(false); }}
+									>
+										🗑 Delete embeddings
+									</button>
+								)}
+								{isIndexed && (
+									<button
+										className="btn btn-ghost"
+										style={{ fontSize: "12px", padding: "6px 12px", justifyContent: "flex-start", width: "100%", border: "none" }}
+										onClick={() => { handleClearCacheAndReindex(); setShowOverflow(false); }}
+									>
+										🔄 Re-index
+									</button>
+								)}
+							</div>
+						)}
+					</div>
 					{messages.length > 0 && (
 						<button
 							className="btn btn-ghost"
@@ -544,9 +589,25 @@ ${context}`;
 							<div style={styles.emptyState}>
 								<div style={styles.emptyStateIcon}>💬</div>
 								<p style={styles.emptyStateTitle}>Ask about this repo</p>
-								<p style={styles.emptyStateHint}>
-									Try: &quot;What does this project do?&quot; or &quot;How is the main function structured?&quot;
-								</p>
+								<p style={styles.emptyStateHint}>Try one of these to get started</p>
+								<div style={styles.chipRow}>
+									{[
+										"What does this project do?",
+										"Walk me through the main data flow",
+										"What are the key entry points?",
+										"How is error handling structured?",
+									].map((q) => (
+										<button
+											key={q}
+											className="btn btn-ghost"
+											style={styles.chip}
+											onClick={() => handleSend(q)}
+											disabled={isGenerating}
+										>
+											{q}
+										</button>
+									))}
+								</div>
 							</div>
 						)}
 
@@ -810,6 +871,20 @@ const styles: Record<string, React.CSSProperties> = {
 		lineHeight: 1.5,
 		textAlign: "center",
 		maxWidth: "320px",
+	},
+	chipRow: {
+		display: "flex",
+		flexWrap: "wrap" as const,
+		gap: "8px",
+		justifyContent: "center",
+		maxWidth: "520px",
+		marginTop: "4px",
+	},
+	chip: {
+		fontSize: "12px",
+		padding: "6px 14px",
+		borderRadius: "9999px",
+		whiteSpace: "nowrap" as const,
 	},
 	message: {
 		padding: "14px 18px",

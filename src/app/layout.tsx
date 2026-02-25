@@ -5,7 +5,7 @@ import "./globals.css";
 export const metadata: Metadata = {
   title: "GitAsk: Ask any GitHub repo",
   description:
-    "RAG in your browser. Index any repo, ask questions. No server, no API keys.",
+    "RAG in your browser. Index any GitHub repo and chat with it. WebGPU inference, AST chunking, hybrid search. No server. API keys encrypted locally.",
 };
 
 export default function RootLayout({

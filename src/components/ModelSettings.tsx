@@ -206,7 +206,7 @@ export function ModelSettings() {
 					<p style={styles.hint}>
 						{config.provider === "mlc"
 							? "Runs privately in your browser. Needs ~4GB VRAM. Downloads ~3GB model once."
-							: "Runs on Google Cloud using Gemini 3 Flash Preview. Fast, no download required."}
+							: "Runs on Google Cloud using Gemini 2.5 Flash. Fast, no download required."}
 					</p>
 				</div>
 
@@ -214,8 +214,7 @@ export function ModelSettings() {
 					<div style={styles.geminiSection}>
 						{hasDefaultKey && (
 							<p style={styles.hint}>
-								This runs on my dev key for now. I might hit the limit. If
-								you've got a Gemini key, using yours would really help.
+								A shared key is available. Adding your own gives you higher rate limits and keeps your requests private.
 							</p>
 						)}
 
@@ -275,7 +274,15 @@ export function ModelSettings() {
 									/>
 								)}
 								<p style={styles.hint}>
-									Encrypted in your browser. Never sent to our server.
+									Encrypted in your browser. Never sent to our server.{" "}
+									<a
+										href="https://www.npmjs.com/package/byok-vault"
+										target="_blank"
+										rel="noopener noreferrer"
+										style={{ color: "var(--accent)", textDecoration: "none" }}
+									>
+										Secured by byok-vault
+									</a>
 								</p>
 							</div>
 						)}
