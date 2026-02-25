@@ -325,7 +325,14 @@ ${context}`;
 							style={{ width: `${progressPercent}%` }}
 						/>
 					</div>
-					<span style={styles.progressText}>{indexProgress.message}</span>
+					<span style={styles.progressText}>
+						{indexProgress.message}
+						{indexProgress.estimatedSizeBytes != null && indexProgress.estimatedSizeBytes > 0 && (
+							<span style={{ color: "var(--text-muted)", marginLeft: "8px" }}>
+								(~{formatBytes(indexProgress.estimatedSizeBytes)})
+							</span>
+						)}
+					</span>
 				</div>
 			)}
 
@@ -434,6 +441,12 @@ ${context}`;
 			</div>
 		</div>
 	);
+}
+
+function formatBytes(bytes: number): string {
+	if (bytes < 1024) return `${bytes} B`;
+	if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+	return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
 function getStatusDotStyle(status: LLMStatus): React.CSSProperties {

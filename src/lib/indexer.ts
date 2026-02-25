@@ -31,7 +31,17 @@ export type IndexProgress = {
 	total: number;
 	astNodes?: AstNode[];
 	textChunkCounts?: Record<string, number>;
+	/** Approx storage size in bytes (IndexedDB) */
+	estimatedSizeBytes?: number;
 };
+
+/** Estimate IndexedDB storage: 384-dim embeddings + metadata per chunk */
+function estimateStorageBytes(chunkCount: number): number {
+	const EMBEDDING_DIM = 384;
+	const BYTES_PER_FLOAT = 8;
+	const METADATA_PER_CHUNK = 1500;
+	return chunkCount * (EMBEDDING_DIM * BYTES_PER_FLOAT + METADATA_PER_CHUNK);
+}
 
 /**
  * Index an entire repository.
@@ -187,6 +197,7 @@ export async function indexRepository(
 	}
 
 	// 5. Embed chunks
+	const estimatedBytes = estimateStorageBytes(allChunks.length);
 	onProgress?.({
 		phase: "embedding",
 		message: `Embedding ${allChunks.length} chunks…`,
@@ -194,6 +205,7 @@ export async function indexRepository(
 		total: allChunks.length,
 		astNodes: [...astNodes],
 		textChunkCounts: { ...textChunkCounts },
+		estimatedSizeBytes: estimatedBytes,
 	});
 
 	await initEmbedder((msg) =>
@@ -204,6 +216,7 @@ export async function indexRepository(
 			total: allChunks.length,
 			astNodes: [...astNodes],
 			textChunkCounts: { ...textChunkCounts },
+			estimatedSizeBytes: estimatedBytes,
 		})
 	);
 
@@ -231,6 +244,7 @@ export async function indexRepository(
 			total,
 			astNodes: updatedNodes,
 			textChunkCounts: { ...textChunkCounts },
+			estimatedSizeBytes: estimatedBytes,
 		});
 	});
 
@@ -244,6 +258,7 @@ export async function indexRepository(
 		message: "Saving to cache…",
 		current: 0,
 		total: 1,
+		estimatedSizeBytes: estimatedBytes,
 	});
 
 	await store.persist(owner, repo, tree.sha);
@@ -253,5 +268,6 @@ export async function indexRepository(
 		message: `Indexed ${embedded.length} chunks from ${totalFiles} files`,
 		current: embedded.length,
 		total: embedded.length,
+		estimatedSizeBytes: estimatedBytes,
 	});
 }
