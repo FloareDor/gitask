@@ -1,6 +1,8 @@
-
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import { NextResponse } from "next/server";
+
+// Prevent static optimization - fixes 405 on Vercel production
+export const dynamic = "force-dynamic";
 
 // Initialize Gemini with server-side key
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || "");
