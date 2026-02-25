@@ -1,14 +1,19 @@
 /**
  * Browser E2E test for BYOK Gemini flow.
- * Run with: node scripts/test-byok-browser.js
+ * Run with: GEMINI_API_KEY=your_key node scripts/test-byok-browser.js
  *
  * Requires: npm run dev running on localhost:3000
  */
 
 const { chromium } = require("playwright");
 
-const API_KEY = "AIzaSyBNUc_py5pDezsSmUaLeqFyoNDe6xzYz5c";
-const PASSPHRASE = "testpass123";
+const API_KEY = process.env.GEMINI_API_KEY;
+const PASSPHRASE = process.env.BYOK_PASSPHRASE || "testpass123";
+
+if (!API_KEY) {
+	console.error("Set GEMINI_API_KEY in the environment to run this test.");
+	process.exit(1);
+}
 
 async function run() {
 	const browser = await chromium.launch({ headless: true });

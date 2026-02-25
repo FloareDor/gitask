@@ -1,10 +1,15 @@
 /**
  * Test byok-vault with user-provided Gemini key.
- * Run with: node scripts/test-byok-vault.js
+ * Run with: GEMINI_API_KEY=your_key node scripts/test-byok-vault.js
  */
 
-const USER_API_KEY = "AIzaSyBNUc_py5pDezsSmUaLeqFyoNDe6xzYz5c";
-const PASSPHRASE = "testpass123";
+const USER_API_KEY = process.env.GEMINI_API_KEY;
+const PASSPHRASE = process.env.BYOK_PASSPHRASE || "testpass123";
+
+if (!USER_API_KEY) {
+	console.error("Set GEMINI_API_KEY in the environment to run this test.");
+	process.exit(1);
+}
 
 async function testInNode() {
 	// Minimal localStorage mock for Node

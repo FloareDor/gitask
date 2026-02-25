@@ -1,7 +1,7 @@
 /**
- * Tests the Next.js /api/gemini route with real GEMINI_API_KEY.
+ * Tests the Next.js /api/gemini route (uses GEMINI_API_KEY from server env).
  * Run with: node scripts/test-gemini-route.js
- * Requires the app to be running (npm run dev or npm run start).
+ * Requires the app to be running (npm run dev or npm run start) and GEMINI_API_KEY set in .env.
  */
 
 const BASE = process.env.API_BASE || 'http://localhost:3000';
