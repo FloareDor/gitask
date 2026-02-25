@@ -9,7 +9,11 @@ import {
 	type LLMConfig,
 } from "@/lib/llm";
 import { getGeminiVault } from "@/lib/gemini-vault";
-import { BYOKVaultError, getUserMessage } from "byok-vault";
+import {
+	BYOKVaultError,
+	createBrowserPasskeyAdapter,
+	getUserMessage,
+} from "byok-vault";
 
 export function ModelSettings() {
 	const [isOpen, setIsOpen] = useState(false);
@@ -20,10 +24,14 @@ export function ModelSettings() {
 	const [apiKeyInput, setApiKeyInput] = useState("");
 	const [passphraseInput, setPassphraseInput] = useState("");
 	const [migratePassphrase, setMigratePassphrase] = useState("");
+	const [usePasskey, setUsePasskey] = useState(false);
 
 	const vault = getGeminiVault();
 	const vaultState = vault?.getState() ?? "none";
 	const canUseVault = vault?.canCall() ?? false;
+	const passkeySupported =
+		typeof window !== "undefined" && createBrowserPasskeyAdapter().isSupported();
+	const isPasskeyEnrolled = vault?.isPasskeyEnrolled() ?? false;
 	const needsMigration =
 		config.provider === "gemini" &&
 		hasLegacyApiKey(config) &&
@@ -35,13 +43,15 @@ export function ModelSettings() {
 		setApiKeyInput("");
 		setPassphraseInput("");
 		setMigratePassphrase("");
+		setUsePasskey(false);
 	}, [isOpen]);
 
 	const canSave =
 		config.provider !== "gemini" ||
 		hasDefaultKey ||
 		canUseVault ||
-		(apiKeyInput.trim() && passphraseInput.length >= 8);
+		(apiKeyInput.trim() &&
+			(usePasskey || passphraseInput.length >= 8));
 
 	const handleMigrate = async () => {
 		if (!config.apiKey || migratePassphrase.length < 8 || !vault) return;
@@ -87,6 +97,21 @@ export function ModelSettings() {
 		}
 	};
 
+	const handleUnlockWithPasskey = async () => {
+		if (!vault) return;
+		setReloading(true);
+		setStatusMsg("Unlocking with fingerprint...");
+		try {
+			await vault.unlockWithPasskey({ session: "tab" });
+			await reloadLLM((msg) => setStatusMsg(msg));
+		} catch (e) {
+			console.error(e);
+			setStatusMsg(getUserMessage(e));
+		} finally {
+			setReloading(false);
+		}
+	};
+
 	const handleLock = () => {
 		vault?.lock();
 		setConfig(getLLMConfig());
@@ -105,11 +130,22 @@ export function ModelSettings() {
 		setReloading(true);
 		setStatusMsg("Initializing...");
 		try {
-			if (config.provider === "gemini" && apiKeyInput.trim() && passphraseInput.length >= 8 && vault) {
-				await vault.setConfig(
-					{ apiKey: apiKeyInput.trim(), provider: "gemini" },
-					passphraseInput
-				);
+			if (
+				config.provider === "gemini" &&
+				apiKeyInput.trim() &&
+				vault
+			) {
+				if (usePasskey) {
+					await vault.setConfigWithPasskey(
+						{ apiKey: apiKeyInput.trim(), provider: "gemini" },
+						{ rpName: "GitAsk", userName: "user" }
+					);
+				} else if (passphraseInput.length >= 8) {
+					await vault.setConfig(
+						{ apiKey: apiKeyInput.trim(), provider: "gemini" },
+						passphraseInput
+					);
+				}
 				setApiKeyInput("");
 				setPassphraseInput("");
 			}
@@ -222,13 +258,37 @@ export function ModelSettings() {
 									onChange={(e) => setApiKeyInput(e.target.value)}
 									style={styles.input}
 								/>
-								<input
-									type="password"
-									placeholder="Passphrase (min 8 chars) to encrypt"
-									value={passphraseInput}
-									onChange={(e) => setPassphraseInput(e.target.value)}
-									style={styles.input}
-								/>
+								{passkeySupported && (
+									<div style={styles.toggleGroup}>
+										<button
+											style={{
+												...styles.toggleBtn,
+												...(!usePasskey ? styles.activeBtn : {}),
+											}}
+											onClick={() => setUsePasskey(false)}
+										>
+											Passphrase
+										</button>
+										<button
+											style={{
+												...styles.toggleBtn,
+												...(usePasskey ? styles.activeBtn : {}),
+											}}
+											onClick={() => setUsePasskey(true)}
+										>
+											Fingerprint / Passkey
+										</button>
+									</div>
+								)}
+								{!usePasskey && (
+									<input
+										type="password"
+										placeholder="Passphrase (min 8 chars) to encrypt"
+										value={passphraseInput}
+										onChange={(e) => setPassphraseInput(e.target.value)}
+										style={styles.input}
+									/>
+								)}
 								<p style={styles.hint}>
 									Encrypted in your browser. Never sent to our server.
 								</p>
@@ -238,20 +298,32 @@ export function ModelSettings() {
 						{vaultState === "locked" && !needsMigration && (
 							<div style={styles.field}>
 								<label style={styles.label}>Unlock API key</label>
-								<input
-									type="password"
-									placeholder="Enter passphrase"
-									value={passphraseInput}
-									onChange={(e) => setPassphraseInput(e.target.value)}
-									style={styles.input}
-								/>
-								<button
-									onClick={handleUnlock}
-									style={styles.saveBtn}
-									disabled={reloading || passphraseInput.length < 8}
-								>
-									{reloading ? "Unlocking..." : "Unlock"}
-								</button>
+								{isPasskeyEnrolled ? (
+									<button
+										onClick={handleUnlockWithPasskey}
+										style={styles.saveBtn}
+										disabled={reloading}
+									>
+										{reloading ? "Unlocking..." : "Unlock with fingerprint"}
+									</button>
+								) : (
+									<>
+										<input
+											type="password"
+											placeholder="Enter passphrase"
+											value={passphraseInput}
+											onChange={(e) => setPassphraseInput(e.target.value)}
+											style={styles.input}
+										/>
+										<button
+											onClick={handleUnlock}
+											style={styles.saveBtn}
+											disabled={reloading || passphraseInput.length < 8}
+										>
+											{reloading ? "Unlocking..." : "Unlock"}
+										</button>
+									</>
+								)}
 							</div>
 						)}
 
