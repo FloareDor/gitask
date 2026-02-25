@@ -259,13 +259,19 @@ ${context}`;
 				<a href="/" style={styles.logo}>
 					GitAsk
 				</a>
-				<div style={styles.repoName}>
+				<a
+					href={`https://github.com/${owner}/${repo}`}
+					target="_blank"
+					rel="noopener noreferrer"
+					style={styles.repoName}
+					title={`Open ${owner}/${repo} on GitHub`}
+					className="repo-link"
+				>
 					<span style={styles.ownerText}>{owner}</span>
 					<span style={styles.slash}>/</span>
 					<span style={styles.repoText}>{repo}</span>
-				</div>
+				</a>
 				<div style={styles.headerActions}>
-					<ModelSettings />
 					<div style={getStatusDotStyle(llmStatus)} title={`LLM: ${llmStatus}`} />
 					<span style={styles.statusText}>{llmStatus}</span>
 					<button
@@ -301,6 +307,8 @@ ${context}`;
 							🗑 Clear
 						</button>
 					)}
+					<div style={styles.headerDivider} />
+					<ModelSettings />
 				</div>
 			</header>
 
@@ -321,7 +329,7 @@ ${context}`;
 			{/* Progress bar */}
 			{!isIndexed && indexProgress && (
 				<div style={styles.progressContainer}>
-					<div className="progress-bar">
+					<div className="progress-bar" style={styles.progressBar}>
 						<div
 							className="progress-bar-fill"
 							style={{ width: `${progressPercent}%` }}
@@ -358,9 +366,9 @@ ${context}`;
 					<div style={styles.messageList}>
 						{messages.length === 0 && isIndexed && (
 							<div style={styles.emptyState}>
-								<p style={{ fontSize: "28px" }}>💬</p>
-								<p style={{ fontWeight: 600 }}>Ask about this repo</p>
-								<p style={{ color: "var(--text-secondary)", fontSize: "13px" }}>
+								<div style={styles.emptyStateIcon}>💬</div>
+								<p style={styles.emptyStateTitle}>Ask about this repo</p>
+								<p style={styles.emptyStateHint}>
 									Try: &quot;What does this project do?&quot; or &quot;How is the main function structured?&quot;
 								</p>
 							</div>
@@ -377,8 +385,9 @@ ${context}`;
 											? "var(--accent)"
 											: "var(--bg-card)",
 									maxWidth: msg.role === "user" ? "70%" : "90%",
+									boxShadow: msg.role === "user" ? "0 2px 8px rgba(99, 102, 241, 0.2)" : "0 1px 3px rgba(0,0,0,0.15)",
 								}}
-								className={msg.role === "assistant" ? "glass" : ""}
+								className={msg.role === "assistant" ? "glass chat-message" : "chat-message"}
 							>
 								{msg.role === "assistant" ? (
 								<div style={{ ...styles.messageContent, whiteSpace: "normal" }} className="chat-markdown">
@@ -408,13 +417,14 @@ ${context}`;
 							onChange={(e) => setInput(e.target.value)}
 							disabled={!isIndexed || isGenerating}
 							id="chat-input"
-							style={{ flex: 1 }}
+							style={styles.chatInput}
 						/>
 						<button
 							type="submit"
 							className="btn btn-primary"
 							disabled={!isIndexed || isGenerating || !input.trim()}
 							id="send-btn"
+							style={styles.sendBtn}
 						>
 							{isGenerating ? "…" : "Send"}
 						</button>
@@ -495,6 +505,16 @@ const styles: Record<string, React.CSSProperties> = {
 		alignItems: "center",
 		gap: "4px",
 		flex: 1,
+		textDecoration: "none",
+		color: "inherit",
+		transition: "opacity 0.2s ease",
+		cursor: "pointer",
+	},
+	headerDivider: {
+		width: "1px",
+		height: "20px",
+		background: "var(--border)",
+		margin: "0 12px",
 	},
 	ownerText: { color: "var(--text-secondary)", fontSize: "14px" },
 	slash: { color: "var(--text-muted)", fontSize: "14px" },
@@ -516,10 +536,15 @@ const styles: Record<string, React.CSSProperties> = {
 		gap: "8px",
 	},
 	progressContainer: {
-		padding: "12px 24px",
+		padding: "14px 24px",
 		display: "flex",
 		flexDirection: "column",
-		gap: "6px",
+		gap: "8px",
+		background: "var(--bg-secondary)",
+	},
+	progressBar: {
+		height: "6px",
+		borderRadius: "3px",
 	},
 	progressText: {
 		fontSize: "12px",
@@ -547,22 +572,44 @@ const styles: Record<string, React.CSSProperties> = {
 		padding: "24px",
 		display: "flex",
 		flexDirection: "column",
-		gap: "12px",
+		gap: "16px",
+		maxWidth: "900px",
+		margin: "0 auto",
+		width: "100%",
 	},
 	emptyState: {
 		display: "flex",
 		flexDirection: "column",
 		alignItems: "center",
 		justifyContent: "center",
-		gap: "8px",
+		gap: "12px",
 		flex: 1,
 		color: "var(--text-secondary)",
+		padding: "48px 24px",
+	},
+	emptyStateIcon: {
+		fontSize: "40px",
+		opacity: 0.6,
+		lineHeight: 1,
+	},
+	emptyStateTitle: {
+		fontWeight: 600,
+		fontSize: "18px",
+		color: "var(--text-primary)",
+	},
+	emptyStateHint: {
+		color: "var(--text-muted)",
+		fontSize: "13px",
+		lineHeight: 1.5,
+		textAlign: "center",
+		maxWidth: "320px",
 	},
 	message: {
-		padding: "12px 16px",
+		padding: "14px 18px",
 		borderRadius: "var(--radius)",
 		fontSize: "14px",
-		lineHeight: 1.6,
+		lineHeight: 1.65,
+		transition: "box-shadow 0.2s ease",
 	},
 	messageContent: {
 		fontFamily: "var(--font-sans)",
@@ -574,29 +621,42 @@ const styles: Record<string, React.CSSProperties> = {
 	},
 	inputBar: {
 		display: "flex",
-		gap: "8px",
+		gap: "12px",
 		padding: "16px 24px",
 		borderTop: "1px solid var(--border)",
 		background: "var(--bg-secondary)",
+		flexShrink: 0,
+		maxWidth: "900px",
+		margin: "0 auto",
+		width: "100%",
 	},
+	chatInput: { flex: 1 },
+	sendBtn: { flexShrink: 0 },
 	contextDrawer: {
 		width: "360px",
+		minWidth: "280px",
 		overflow: "auto",
-		padding: "16px",
+		padding: "20px",
 		borderLeft: "1px solid var(--border)",
 		display: "flex",
 		flexDirection: "column",
-		gap: "12px",
+		gap: "16px",
 	},
 	drawerTitle: {
-		fontSize: "14px",
+		fontSize: "13px",
 		fontWeight: 600,
-		color: "var(--text-secondary)",
+		color: "var(--text-muted)",
+		textTransform: "uppercase" as const,
+		letterSpacing: "0.05em",
 	},
 	contextItem: {
 		display: "flex",
 		flexDirection: "column",
-		gap: "6px",
+		gap: "8px",
+		padding: "12px",
+		background: "var(--bg-glass)",
+		borderRadius: "var(--radius-sm)",
+		border: "1px solid var(--border)",
 	},
 	contextMeta: {
 		display: "flex",

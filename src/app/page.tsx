@@ -97,7 +97,7 @@ export default function LandingPage() {
 
           {error && <p style={styles.error}>{error}</p>}
 
-          <a href="/evals" style={styles.evalsLink}>
+          <a href="/evals" style={styles.evalsLink} className="evals-link">
             Evals
           </a>
 

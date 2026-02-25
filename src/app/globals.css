@@ -164,16 +164,16 @@ html, body {
 .progress-bar {
   width: 100%;
   height: 4px;
-  background: var(--bg-secondary);
-  border-radius: 2px;
+  background: var(--bg-primary);
+  border-radius: 3px;
   overflow: hidden;
 }
 
 .progress-bar-fill {
   height: 100%;
   background: linear-gradient(90deg, var(--accent), var(--accent-hover));
-  border-radius: 2px;
-  transition: width 0.3s ease;
+  border-radius: 3px;
+  transition: width 0.35s ease-out;
 }
 
 /* Scrollbar */
@@ -211,6 +211,23 @@ html, body {
 .gap-sm { gap: 8px; }
 .gap-md { gap: 16px; }
 .gap-lg { gap: 24px; }
+
+.repo-link:hover {
+  opacity: 0.85;
+}
+
+.evals-link:hover {
+  color: var(--text-primary);
+  border-color: var(--border-hover);
+}
+
+/* Logo hover */
+header a[href="/"] {
+  transition: opacity 0.2s ease;
+}
+header a[href="/"]:hover {
+  opacity: 0.9;
+}
 
 /* ==========================================
    AST Tree Visualization
@@ -439,4 +456,9 @@ html, body {
 .chat-markdown pre code {
   background: none;
   padding: 0;
+}
+
+/* Chat message entrance */
+.chat-message {
+  animation: fadeIn 0.25s ease-out forwards;
 }
