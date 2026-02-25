@@ -53,6 +53,7 @@ export default function RepoPage({
 	const [notificationPermission, setNotificationPermission] = useState<NotificationPermission | null>(null);
 	const [showOverflow, setShowOverflow] = useState(false);
 	const [isMobile, setIsMobile] = useState(false);
+	const [coveEnabled, setCoveEnabled] = useState(false);
 	const completedWhileHiddenRef = useRef(false);
 	const indexStartTimeRef = useRef<number | null>(null);
 	const overflowRef = useRef<HTMLDivElement>(null);
@@ -79,6 +80,25 @@ export default function RepoPage({
 	useEffect(() => {
 		return onStatusChange(setLlmStatus);
 	}, []);
+
+	// Load CoVE preference (default OFF)
+	useEffect(() => {
+		try {
+			const saved = localStorage.getItem("gitask-cove-enabled");
+			if (saved === "true") setCoveEnabled(true);
+		} catch {
+			// Ignore storage failures
+		}
+	}, []);
+
+	// Persist CoVE preference
+	useEffect(() => {
+		try {
+			localStorage.setItem("gitask-cove-enabled", coveEnabled ? "true" : "false");
+		} catch {
+			// Ignore storage failures
+		}
+	}, [coveEnabled]);
 
 	// Load chat history from localStorage
 	useEffect(() => {
@@ -341,18 +361,20 @@ ${context}`;
 				});
 			}
 
-			// 5. CoVe (optional, runs in background for refinement)
-			try {
-				const refined = await verifyAndRefine(fullResponse, userMessage, storeRef.current);
-				if (refined && refined !== fullResponse && refined.length > 20) {
-					setMessages((prev) => {
-						const updated = [...prev];
-						updated[updated.length - 1] = { role: "assistant", content: refined };
-						return updated;
-					});
+			// 5. CoVe (optional, default OFF due to latency cost)
+			if (coveEnabled) {
+				try {
+					const refined = await verifyAndRefine(fullResponse, userMessage, storeRef.current);
+					if (refined && refined !== fullResponse && refined.length > 20) {
+						setMessages((prev) => {
+							const updated = [...prev];
+							updated[updated.length - 1] = { role: "assistant", content: refined };
+							return updated;
+						});
+					}
+				} catch {
+					// CoVe is optional, don't break on failure
 				}
-			} catch {
-				// CoVe is optional, don't break on failure
 			}
 		} catch (err) {
 			setMessages((prev) => [
@@ -362,7 +384,7 @@ ${context}`;
 		} finally {
 			setIsGenerating(false);
 		}
-	}, [input, isGenerating, isIndexed, messages, owner, repo, llmStatus]);
+	}, [input, isGenerating, isIndexed, messages, owner, repo, llmStatus, coveEnabled]);
 
 	const progressPercent =
 		indexProgress && indexProgress.total > 0
@@ -451,6 +473,19 @@ ${context}`;
 						title="Retrieved context from last query"
 					>
 						📋 Context
+					</button>
+					<button
+						className="btn btn-ghost"
+						style={{
+							fontSize: "12px",
+							padding: "6px 12px",
+							color: coveEnabled ? "var(--success)" : "var(--text-muted)",
+							borderColor: coveEnabled ? "rgba(34,197,94,0.4)" : undefined,
+						}}
+						onClick={() => setCoveEnabled((v) => !v)}
+						title="Enable CoVe verification (adds ~2-4s latency)"
+					>
+						CoVE {coveEnabled ? "on" : "off"}
 					</button>
 					{isIndexed && (
 						<button
