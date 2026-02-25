@@ -7,7 +7,7 @@ It turns any GitHub repo into a local AI assistant. Everything runs right on you
 Here's how it works:
 
 ```mermaid
-flowchart LR
+flowchart TB
   subgraph Build["Ingestion + Indexing"]
     A["URL Trigger<br/>(proxy.ts)"] --> B["GitHub Ingestion<br/>Service"]
     B --> C["AST Chunker<br/>(tree-sitter WASM)"]
@@ -35,7 +35,7 @@ flowchart LR
 
 ## Retrieval (CodeRAG-style)
 
-We use multi-query expansion and multi-path retrieval with preference reranking (shown in the unified diagram above).
+It uses multi-query expansion and multi-path retrieval with preference reranking (shown in the unified diagram above).
 
 ## How to run it
 
