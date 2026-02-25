@@ -17,7 +17,9 @@ flowchart TB
   end
 
   subgraph Query["Query-time Retrieval (CodeRAG-style)"]
-    Q["User question"] --> QE["Query expansion"]
+    SP[" "]
+    SP --> Q["User question"]
+    Q --> QE["Query expansion"]
     QE --> Q1["Query 1: original"]
     QE --> Q2["Query 2: code-style"]
     Q1 --> H1["Hybrid Search<br/>(Hamming + Regex)"]
@@ -30,6 +32,7 @@ flowchart TB
     Pref --> Top["Top-k chunks"]
     Top --> I["WebLLM Worker<br/>(Qwen2-0.5B)"]
     I --> J["Chat UI +<br/>CoVe Loop"]
+    style SP fill:transparent,stroke:transparent,color:transparent
   end
 ```
 
