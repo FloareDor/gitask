@@ -198,6 +198,7 @@ export default function LandingPage() {
             ].map((f, i) => (
               <div
                 key={f.label}
+                className="feature-card"
                 style={{
                   ...styles.featureCard,
                   ...(!isMobile && { gridColumn: i < 3 ? "span 2" : "span 3" }),
@@ -414,7 +415,7 @@ const styles: Record<string, React.CSSProperties> = {
     background: "var(--bg-card)",
     border: "2px solid var(--border)",
     borderRadius: "var(--radius)",
-    boxShadow: "3px 3px 0 var(--bg-secondary)",
+    boxShadow: "3px 3px 0 var(--accent)",
     transition: "transform 0.1s ease, box-shadow 0.1s ease, border-color 0.1s ease",
     cursor: "default",
   },

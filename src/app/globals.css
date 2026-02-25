@@ -263,6 +263,12 @@ html, body {
   transform: translate(-1px, -1px);
 }
 
+.feature-card:hover {
+  transform: translate(-2px, -2px);
+  box-shadow: 5px 5px 0 var(--accent);
+  border-color: var(--border-accent);
+}
+
 /* Logo hover */
 header a[href="/"] {
   transition: opacity 0.15s ease;
