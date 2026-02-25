@@ -1,4 +1,4 @@
-﻿.flow {
+.flow {
   width: min(500px, 100%);
   margin: 0 auto;
 }
@@ -12,8 +12,8 @@
 .step {
   width: min(420px, 100%);
   opacity: 0;
-  transform: translateY(14px);
-  transition: opacity 360ms ease, transform 360ms ease;
+  transform: translateY(12px);
+  transition: opacity 320ms ease, transform 320ms ease;
 }
 
 .isVisible {
@@ -22,62 +22,73 @@
 }
 
 .card {
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 12px;
-  background: rgba(16, 18, 26, 0.72);
-  padding: 8px 10px 14px;
+  border: 2px solid var(--border, #2d2d42);
+  border-radius: 4px;
+  background: var(--bg-card, #16161f);
+  box-shadow: 3px 3px 0 var(--accent, #6366f1);
+  padding: 10px 14px 14px;
   min-height: 92px;
   display: flex;
   flex-direction: column;
+  transition: transform 0.1s ease, box-shadow 0.1s ease;
+}
+
+.card:hover {
+  transform: translate(-2px, -2px);
+  box-shadow: 5px 5px 0 var(--accent, #6366f1);
 }
 
 .meta {
   display: flex;
   align-items: center;
   gap: 6px;
-  margin-bottom: 4px;
+  margin-bottom: 6px;
 }
 
 .index {
-  min-width: 22px;
-  padding: 0 5px;
-  border-radius: 999px;
-  border: 1px solid rgba(255, 255, 255, 0.12);
+  min-width: 24px;
+  padding: 1px 5px;
+  border-radius: 2px;
+  border: 1px solid var(--border, #2d2d42);
   font-family: var(--font-mono);
   font-size: 0.6rem;
   color: var(--text-muted);
   text-align: center;
+  background: var(--bg-secondary, #111118);
 }
 
 .phase {
   font-size: 0.62rem;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.1em;
   text-transform: uppercase;
-  color: var(--text-secondary);
-  font-weight: 600;
+  color: var(--accent, #6366f1);
+  font-weight: 700;
+  font-family: var(--font-mono);
 }
 
 .title {
   margin: 0;
   font-size: 0.9rem;
+  font-weight: 700;
   line-height: 1.25;
   color: var(--text-primary);
+  font-family: var(--font-display, "Space Grotesk", sans-serif);
 }
 
 .detail {
-  margin: 4px 0 0;
-  font-size: 0.76rem;
-  line-height: 1.35;
+  margin: 5px 0 0;
+  font-size: 0.75rem;
+  line-height: 1.4;
   color: var(--text-secondary);
 }
 
 .connector {
   width: 2px;
   height: 30px;
-  margin: 6px 0;
+  margin: 4px 0;
   opacity: 0;
   transform: translateY(-6px);
-  transition: opacity 320ms ease, transform 320ms ease;
+  transition: opacity 300ms ease, transform 300ms ease;
 }
 
 .connectorVisible {
@@ -87,9 +98,10 @@
 
 .connectorLine {
   display: block;
-  width: 100%;
+  width: 2px;
   height: 24px;
-  background: rgba(255, 255, 255, 0.2);
+  background: var(--border, #2d2d42);
+  margin-left: 0;
 }
 
 .connectorArrow {
@@ -99,7 +111,7 @@
   margin-left: -4px;
   border-left: 5px solid transparent;
   border-right: 5px solid transparent;
-  border-top: 6px solid rgba(255, 255, 255, 0.45);
+  border-top: 6px solid var(--border, #2d2d42);
 }
 
 @media (max-width: 640px) {
@@ -108,7 +120,7 @@
   }
 
   .card {
-    padding: 8px 9px 12px;
+    padding: 8px 10px 12px;
     min-height: 84px;
   }
 
@@ -125,7 +137,8 @@
   .step,
   .isVisible,
   .connector,
-  .connectorVisible {
+  .connectorVisible,
+  .card {
     transition: none;
     transform: none;
   }
