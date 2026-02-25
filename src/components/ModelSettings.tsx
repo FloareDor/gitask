@@ -183,7 +183,7 @@ export function ModelSettings() {
 		<div style={styles.overlay} onClick={(e) => { if (e.target === e.currentTarget) setIsOpen(false); }}>
 			<div style={styles.modal}>
 				<div style={styles.modalTop}>
-					<span style={styles.modalTitle}>model</span>
+					<span style={styles.modalTitle}>llm</span>
 					<button onClick={() => setIsOpen(false)} style={styles.closeBtn} aria-label="Close">✕</button>
 				</div>
 
@@ -203,9 +203,13 @@ export function ModelSettings() {
 					</button>
 				</div>
 				<p style={styles.hint}>
-					{config.provider === "mlc"
-						? "runs in your browser — needs ~4GB VRAM, downloads once"
-						: "google cloud, fast, no download — needs your API key"}
+					{config.provider === "mlc" ? (
+						<>runs in your browser via{" "}
+							<a href="https://github.com/mlc-ai/web-llm" target="_blank" rel="noopener noreferrer" style={{ color: "var(--accent)" }}>web-llm</a>
+							{" "}— needs ~4GB VRAM, downloads once</>
+					) : (
+						"google cloud, fast, no download — needs your API key"
+					)}
 				</p>
 
 				{/* Gemini key fields */}
@@ -253,7 +257,7 @@ export function ModelSettings() {
 									/>
 								)}
 								<p style={styles.hint}>
-									stays in your browser.{" "}
+									stays in your browser, secured by{" "}
 									<a href="https://www.npmjs.com/package/byok-vault" target="_blank" rel="noopener noreferrer" style={{ color: "var(--accent)" }}>byok-vault</a>
 								</p>
 							</div>
