@@ -2,9 +2,11 @@
  * LLM wrapper — provides a unified interface to WebLLM and Gemini.
  *
  * Supports switching between local WebGPU inference (MLC) and cloud inference (Gemini).
+ * BYOK Gemini keys are stored encrypted via byok-vault, not in config.
  */
 
 import { GoogleGenerativeAI } from "@google/generative-ai";
+import { getGeminiVault } from "./gemini-vault";
 
 export type LLMStatus = "idle" | "loading" | "ready" | "generating" | "error";
 
@@ -12,7 +14,8 @@ export type LLMProvider = "mlc" | "gemini";
 
 export interface LLMConfig {
 	provider: LLMProvider;
-	apiKey?: string; // For Gemini
+	/** @deprecated For legacy migration only; BYOK keys now in vault */
+	apiKey?: string;
 }
 
 export interface ChatMessage {
@@ -83,21 +86,18 @@ export function getLLMConfig(): LLMConfig {
 	return { provider: "mlc" };
 }
 
-export function getEffectiveApiKey(config: LLMConfig): string | undefined {
-	if (config.provider !== "gemini") return undefined;
-	// If config has key, use it.
-	// If not, and we have default key flag, return undefined to signal "use proxy"
-	// WAIT: initLLM needs to know if it CAN proceed.
-	// So we should return a marker or handle it in initLLM.
-
-	// Actually, getEffectiveApiKey was helper. Let's return undefined if no user key.
-	// The initLLM will check process.env.NEXT_PUBLIC_HAS_GEMINI_KEY if this returns undefined.
-	return config.apiKey;
+/**
+ * Check if there is a legacy plain-text apiKey in config (for migration).
+ */
+export function hasLegacyApiKey(config: LLMConfig): boolean {
+	return config.provider === "gemini" && !!config.apiKey;
 }
 
 export function setLLMConfig(config: LLMConfig) {
 	if (typeof window === "undefined") return;
-	localStorage.setItem(STORAGE_KEY, JSON.stringify(config));
+	// Never persist apiKey — BYOK keys live in vault
+	const { apiKey: _omit, ...safe } = config;
+	localStorage.setItem(STORAGE_KEY, JSON.stringify(safe));
 }
 
 // ─── MLC Implementation ─────────────────────────────────────────────────────
@@ -146,15 +146,19 @@ class MLCEngineWrapper implements LLMEngine {
 
 // ─── Gemini Implementation ──────────────────────────────────────────────────
 
-class GeminiEngineWrapper implements LLMEngine {
-	private model: any;
-	private apiKey?: string;
+type BYOKVaultRef = import("byok-vault").BYOKVault;
 
-	constructor(apiKey?: string) {
-		this.apiKey = apiKey;
-		if (apiKey) {
-			const genAI = new GoogleGenerativeAI(apiKey);
-			this.model = genAI.getGenerativeModel({ model: "gemini-3-flash-preview" });
+class GeminiEngineWrapper implements LLMEngine {
+	private vault: BYOKVaultRef | null;
+	private useProxy: boolean;
+
+	constructor(vaultOrProxy: { vault: BYOKVaultRef } | { useProxy: true }) {
+		if ("vault" in vaultOrProxy) {
+			this.vault = vaultOrProxy.vault;
+			this.useProxy = false;
+		} else {
+			this.vault = null;
+			this.useProxy = true;
 		}
 	}
 
@@ -167,29 +171,52 @@ class GeminiEngineWrapper implements LLMEngine {
 				parts: [{ text: m.content }],
 			}));
 
-		return { systemInstruction: systemMsg?.content, history };
+		// Fold system instruction into first user message (some models don't support systemInstruction)
+		const systemPrefix = systemMsg?.content
+			? `${systemMsg.content}\n\n---\n\n`
+			: "";
+		if (systemPrefix) {
+			const firstUser = history.find((h) => h.role === "user");
+			if (firstUser) {
+				firstUser.parts[0].text = systemPrefix + firstUser.parts[0].text;
+			}
+			// else: lastMsg (popped below) is the first user message; we'll prepend there
+		}
+
+		return { history, systemPrefix };
+	}
+
+	private async collectGeminiStream(
+		messages: ChatMessage[],
+		apiKey: string
+	): Promise<string[]> {
+		const { history, systemPrefix } = this.toGeminiContent(messages);
+		const lastMsg = history.pop();
+		if (lastMsg && systemPrefix) {
+			// First user message was lastMsg (single-turn)
+			lastMsg.parts[0].text = systemPrefix + lastMsg.parts[0].text;
+		}
+		if (!lastMsg) return [];
+
+		const genAI = new GoogleGenerativeAI(apiKey);
+		const model = genAI.getGenerativeModel({
+			model: "gemini-2.5-flash",
+		});
+		const chat = model.startChat({ history });
+
+		const result = await chat.sendMessageStream(lastMsg.parts[0].text);
+		const out: string[] = [];
+		for await (const chunk of result.stream) {
+			const text = chunk.text();
+			if (text) out.push(text);
+		}
+		return out;
 	}
 
 	async *generateStream(
 		messages: ChatMessage[]
 	): AsyncGenerator<string, void, undefined> {
-		if (this.apiKey) {
-			// Client-side direct
-			const { systemInstruction, history } = this.toGeminiContent(messages);
-			const lastMsg = history.pop();
-			if (!lastMsg) return;
-
-			const chat = this.model.startChat({
-				systemInstruction,
-				history,
-			});
-
-			const result = await chat.sendMessageStream(lastMsg.parts[0].text);
-			for await (const chunk of result.stream) {
-				const text = chunk.text();
-				if (text) yield text;
-			}
-		} else {
+		if (this.useProxy) {
 			// Proxy via server
 			const response = await fetch("/api/gemini", {
 				method: "POST",
@@ -206,6 +233,18 @@ class GeminiEngineWrapper implements LLMEngine {
 				if (done) break;
 				yield decoder.decode(value, { stream: true });
 			}
+			return;
+		}
+
+		// BYOK: run inside vault scope, collect chunks then yield
+		if (!this.vault) throw new Error("Vault not configured");
+		const runWithKey = (apiKey: string) => this.collectGeminiStream(messages, apiKey);
+		const chunks = await this.vault.withKeyScope(async () =>
+			this.vault!.withKey(runWithKey)
+		);
+
+		for (const chunk of chunks) {
+			yield chunk;
 		}
 	}
 
@@ -218,7 +257,7 @@ class GeminiEngineWrapper implements LLMEngine {
 	}
 
 	async dispose(): Promise<void> {
-		this.model = null;
+		this.vault = null;
 	}
 }
 
@@ -239,15 +278,24 @@ export async function initLLM(
 	initPromise = (async () => {
 		try {
 			if (config.provider === "gemini") {
-				const userKey = getEffectiveApiKey(config);
+				const vault = getGeminiVault();
 				const hasDefault = process.env.NEXT_PUBLIC_HAS_GEMINI_KEY;
+				const canUseVault = vault?.canCall();
 
-				if (!userKey && !hasDefault) {
-					throw new Error("Gemini API Key is missing. Please check settings.");
+				if (canUseVault && vault) {
+					onProgress?.("Initializing Gemini (Custom Key)...");
+					activeEngine = new GeminiEngineWrapper({ vault });
+				} else if (hasDefault) {
+					onProgress?.("Initializing Gemini (Proxy)...");
+					activeEngine = new GeminiEngineWrapper({ useProxy: true });
+				} else {
+					const state = vault?.getState();
+					throw new Error(
+						state === "locked"
+							? "Please unlock your API key in Settings."
+							: "Add an API key in Settings or use the default key."
+					);
 				}
-
-				onProgress?.(userKey ? "Initializing Gemini (Custom Key)..." : "Initializing Gemini (Proxy)...");
-				activeEngine = new GeminiEngineWrapper(userKey); // undefined key => uses proxy
 				onProgress?.("Gemini Ready");
 			} else {
 				// Default to MLC

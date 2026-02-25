@@ -4,7 +4,7 @@ import { NextResponse } from "next/server";
 
 // Initialize Gemini with server-side key
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || "");
-const model = genAI.getGenerativeModel({ model: "gemini-3-flash-preview" });
+const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
 
 export async function GET() {
 	return NextResponse.json({ status: "Gemini Proxy Online v2" });
@@ -45,14 +45,23 @@ export async function POST(req: Request) {
 			);
 		}
 
+		// Fold system instruction into first user message (some models don't support systemInstruction)
+		const systemPrefix = systemMsg?.content
+			? `${systemMsg.content}\n\n---\n\n`
+			: "";
+		if (systemPrefix) {
+			if (history.length > 0) {
+				history[0].parts[0].text = systemPrefix + history[0].parts[0].text;
+			} else {
+				lastMsg.parts[0].text = systemPrefix + lastMsg.parts[0].text;
+			}
+		}
+
 		// Create a readable stream for the response
 		const stream = new ReadableStream({
 			async start(controller) {
 				try {
-					const chat = model.startChat({
-						systemInstruction: systemMsg?.content,
-						history,
-					});
+					const chat = model.startChat({ history });
 
 					const result = await chat.sendMessageStream(lastMsg.parts[0].text);
 

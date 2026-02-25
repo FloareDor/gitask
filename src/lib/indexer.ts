@@ -59,12 +59,14 @@ export async function indexRepository(
 	let Parser: any = null;
 	try {
 		const mod = await import("web-tree-sitter");
-		Parser = mod.default;
-		await Parser.init({
-			locateFile(scriptName: string) {
-				return "/" + scriptName;
-			},
-		});
+		Parser = mod.Parser ?? mod.default;
+		if (Parser?.init) {
+			await Parser.init({
+				locateFile(scriptName: string) {
+					return "/" + scriptName;
+				},
+			});
+		}
 	} catch (e) {
 		console.warn("Failed to init tree-sitter:", e);
 	}

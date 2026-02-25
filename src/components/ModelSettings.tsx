@@ -5,9 +5,11 @@ import {
 	getLLMConfig,
 	setLLMConfig,
 	reloadLLM,
+	hasLegacyApiKey,
 	type LLMConfig,
-	type LLMProvider,
 } from "@/lib/llm";
+import { getGeminiVault } from "@/lib/gemini-vault";
+import { BYOKVaultError, getUserMessage } from "byok-vault";
 
 export function ModelSettings() {
 	const [isOpen, setIsOpen] = useState(false);
@@ -15,24 +17,112 @@ export function ModelSettings() {
 	const [reloading, setReloading] = useState(false);
 	const [statusMsg, setStatusMsg] = useState("");
 	const [hasDefaultKey, setHasDefaultKey] = useState(false);
+	const [apiKeyInput, setApiKeyInput] = useState("");
+	const [passphraseInput, setPassphraseInput] = useState("");
+	const [migratePassphrase, setMigratePassphrase] = useState("");
+
+	const vault = getGeminiVault();
+	const vaultState = vault?.getState() ?? "none";
+	const canUseVault = vault?.canCall() ?? false;
+	const needsMigration =
+		config.provider === "gemini" &&
+		hasLegacyApiKey(config) &&
+		vaultState === "none";
 
 	useEffect(() => {
-		// Load initial config
 		setConfig(getLLMConfig());
-		// Check if env key exists (client-side check rely on process.env being replaced at build time)
 		setHasDefaultKey(!!process.env.NEXT_PUBLIC_HAS_GEMINI_KEY);
+		setApiKeyInput("");
+		setPassphraseInput("");
+		setMigratePassphrase("");
 	}, [isOpen]);
+
+	const canSave =
+		config.provider !== "gemini" ||
+		hasDefaultKey ||
+		canUseVault ||
+		(apiKeyInput.trim() && passphraseInput.length >= 8);
+
+	const handleMigrate = async () => {
+		if (!config.apiKey || migratePassphrase.length < 8 || !vault) return;
+		setReloading(true);
+		setStatusMsg("Migrating key to vault...");
+		try {
+			await vault.importKey(config.apiKey, migratePassphrase);
+			const { apiKey: _omit, ...safe } = config;
+			setLLMConfig(safe);
+			setConfig(safe);
+			setMigratePassphrase("");
+			await reloadLLM((msg) => setStatusMsg(msg));
+			setIsOpen(false);
+		} catch (e) {
+			console.error(e);
+			setStatusMsg(
+				e instanceof BYOKVaultError && e.code === "WRONG_PASSPHRASE"
+					? "Wrong passphrase. Please try again."
+					: getUserMessage(e)
+			);
+		} finally {
+			setReloading(false);
+		}
+	};
+
+	const handleUnlock = async () => {
+		if (!vault || passphraseInput.length < 8) return;
+		setReloading(true);
+		setStatusMsg("Unlocking...");
+		try {
+			await vault.unlock(passphraseInput, { session: "tab" });
+			setPassphraseInput("");
+			await reloadLLM((msg) => setStatusMsg(msg));
+		} catch (e) {
+			console.error(e);
+			setStatusMsg(
+				e instanceof BYOKVaultError && e.code === "WRONG_PASSPHRASE"
+					? "Wrong passphrase. Please try again."
+					: getUserMessage(e)
+			);
+		} finally {
+			setReloading(false);
+		}
+	};
+
+	const handleLock = () => {
+		vault?.lock();
+		setConfig(getLLMConfig());
+	};
+
+	const handleResetKeys = () => {
+		if (!confirm("Remove stored API key? You will need to re-enter it."))
+			return;
+		vault?.nuke();
+		setConfig(getLLMConfig());
+		setApiKeyInput("");
+		setPassphraseInput("");
+	};
 
 	const handleSave = async () => {
 		setReloading(true);
 		setStatusMsg("Initializing...");
 		try {
-			setLLMConfig(config);
+			if (config.provider === "gemini" && apiKeyInput.trim() && passphraseInput.length >= 8 && vault) {
+				await vault.setConfig(
+					{ apiKey: apiKeyInput.trim(), provider: "gemini" },
+					passphraseInput
+				);
+				setApiKeyInput("");
+				setPassphraseInput("");
+			}
+			setLLMConfig({ provider: config.provider });
 			await reloadLLM((msg) => setStatusMsg(msg));
 			setIsOpen(false);
 		} catch (e) {
 			console.error(e);
-			setStatusMsg("Error: " + String(e));
+			setStatusMsg(
+				e instanceof BYOKVaultError && e.code === "WRONG_PASSPHRASE"
+					? "Wrong passphrase. Please try again."
+					: getUserMessage(e)
+			);
 		} finally {
 			setReloading(false);
 		}
@@ -49,7 +139,8 @@ export function ModelSettings() {
 				}}
 				aria-label="Settings"
 			>
-				{isGemini ? "⚡ Using Gemini Cloud" : "🔒 Using Local LLM"} <span style={{ opacity: 0.5, marginLeft: 4 }}> (Settings)</span>
+				{isGemini ? "⚡ Using Gemini Cloud" : "🔒 Using Local LLM"}{" "}
+				<span style={{ opacity: 0.5, marginLeft: 4 }}> (Settings)</span>
 			</button>
 		);
 	}
@@ -89,26 +180,102 @@ export function ModelSettings() {
 				</div>
 
 				{config.provider === "gemini" && (
-					<div style={styles.field}>
-						<label style={styles.label}>Gemini API Key</label>
-						<input
-							type="password"
-							placeholder={hasDefaultKey ? "Using default key from environment" : "Paste your API Key here"}
-							value={config.apiKey || ""}
-							onChange={(e) =>
-								setConfig({ ...config, apiKey: e.target.value })
-							}
-							style={{
-								...styles.input,
-								...(hasDefaultKey && !config.apiKey ? { border: "1px solid var(--success)" } : {}),
-							}}
-						/>
-						<p style={styles.hint}>
-							{hasDefaultKey && !config.apiKey
-								? "✅ Default API Key is active. You can override it above."
-								: "Stored only in your browser's localStorage. Never sent to our server."
-							}
-						</p>
+					<div style={styles.geminiSection}>
+						{hasDefaultKey && (
+							<p style={styles.hint}>
+								✅ Default API Key is active. You can override with your own key
+								below.
+							</p>
+						)}
+
+						{needsMigration && (
+							<div style={styles.field}>
+								<label style={styles.label}>
+									Migrate your existing API key (one-time)
+								</label>
+								<input
+									type="password"
+									placeholder="Enter passphrase (min 8 chars) to secure your key"
+									value={migratePassphrase}
+									onChange={(e) => setMigratePassphrase(e.target.value)}
+									style={styles.input}
+								/>
+								<button
+									onClick={handleMigrate}
+									style={styles.saveBtn}
+									disabled={
+										reloading || migratePassphrase.length < 8
+									}
+								>
+									{reloading ? "Migrating..." : "Migrate & Save"}
+								</button>
+							</div>
+						)}
+
+						{!needsMigration && vaultState === "none" && (
+							<div style={styles.field}>
+								<label style={styles.label}>Add your API key (encrypted)</label>
+								<input
+									type="password"
+									placeholder="Paste your Gemini API Key"
+									value={apiKeyInput}
+									onChange={(e) => setApiKeyInput(e.target.value)}
+									style={styles.input}
+								/>
+								<input
+									type="password"
+									placeholder="Passphrase (min 8 chars) to encrypt"
+									value={passphraseInput}
+									onChange={(e) => setPassphraseInput(e.target.value)}
+									style={styles.input}
+								/>
+								<p style={styles.hint}>
+									Encrypted in your browser. Never sent to our server.
+								</p>
+							</div>
+						)}
+
+						{vaultState === "locked" && !needsMigration && (
+							<div style={styles.field}>
+								<label style={styles.label}>Unlock API key</label>
+								<input
+									type="password"
+									placeholder="Enter passphrase"
+									value={passphraseInput}
+									onChange={(e) => setPassphraseInput(e.target.value)}
+									style={styles.input}
+								/>
+								<button
+									onClick={handleUnlock}
+									style={styles.saveBtn}
+									disabled={reloading || passphraseInput.length < 8}
+								>
+									{reloading ? "Unlocking..." : "Unlock"}
+								</button>
+							</div>
+						)}
+
+						{vaultState === "unlocked" && (
+							<div style={styles.field}>
+								<p style={{ ...styles.hint, color: "var(--success)" }}>
+									API key stored (encrypted)
+								</p>
+								<div style={{ display: "flex", gap: 8 }}>
+									<button
+										onClick={handleLock}
+										style={styles.cancelBtn}
+									>
+										Lock
+									</button>
+									<button
+										onClick={handleResetKeys}
+										style={styles.cancelBtn}
+									>
+										Reset keys
+									</button>
+								</div>
+							</div>
+						)}
 					</div>
 				)}
 
@@ -125,7 +292,7 @@ export function ModelSettings() {
 					<button
 						onClick={handleSave}
 						style={styles.saveBtn}
-						disabled={reloading || (config.provider === "gemini" && !config.apiKey && !hasDefaultKey)}
+						disabled={reloading || !canSave}
 					>
 						{reloading ? "Saving & Reloading..." : "Save & Reload"}
 					</button>
@@ -184,6 +351,11 @@ const styles: Record<string, React.CSSProperties> = {
 		display: "flex",
 		flexDirection: "column",
 		gap: "8px",
+	},
+	geminiSection: {
+		display: "flex",
+		flexDirection: "column",
+		gap: "16px",
 	},
 	label: {
 		fontSize: "14px",
