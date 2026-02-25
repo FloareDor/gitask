@@ -5,9 +5,10 @@ import { indexRepository, IndexAbortError, type IndexProgress, type AstNode } fr
 import { VectorStore } from "@/lib/vectorStore";
 import { hybridSearch, type SearchOptions } from "@/lib/search";
 import { embedText } from "@/lib/embedder";
-import { initLLM, generate, getLLMStatus, onStatusChange, type LLMStatus, type ChatMessage } from "@/lib/llm";
+import { initLLM, generate, getLLMStatus, getLLMConfig, onStatusChange, type LLMStatus, type ChatMessage } from "@/lib/llm";
 import { verifyAndRefine } from "@/lib/cove";
 import AstTreeView from "@/components/AstTreeView";
+import IndexBrowser from "@/components/IndexBrowser";
 import { ModelSettings } from "@/components/ModelSettings";
 import ReactMarkdown from "react-markdown";
 
@@ -38,7 +39,9 @@ export default function RepoPage({
 	const [input, setInput] = useState("");
 	const [isGenerating, setIsGenerating] = useState(false);
 	const [contextChunks, setContextChunks] = useState<ContextChunk[]>([]);
+	const [contextMeta, setContextMeta] = useState<{ truncated: boolean; totalChars: number; maxChars: number } | null>(null);
 	const [showContext, setShowContext] = useState(false);
+	const [showBrowse, setShowBrowse] = useState(false);
 	const [token, setToken] = useState("");
 	const [showTokenInput, setShowTokenInput] = useState(false);
 	const [astNodes, setAstNodes] = useState<AstNode[]>([]);
@@ -263,14 +266,17 @@ export default function RepoPage({
 				}))
 			);
 
-			// 2. Build context (truncated to stay within context window)
-			const MAX_CONTEXT_CHARS = 3000;
-			let context = results
+			// 2. Build context (Gemini Flash has huge context, no truncation; MLC needs a limit)
+			const config = getLLMConfig();
+			const MAX_CONTEXT_CHARS = config.provider === "gemini" ? Infinity : 24_000; // MLC ~8K tokens
+			const rawContext = results
 				.map((r) => `### ${r.chunk.filePath} (score: ${r.score.toFixed(3)})\n\`\`\`\n${r.chunk.code}\n\`\`\``)
 				.join("\n\n");
-			if (context.length > MAX_CONTEXT_CHARS) {
-				context = context.slice(0, MAX_CONTEXT_CHARS) + "\n...(truncated)";
-			}
+			const contextTruncated = rawContext.length > MAX_CONTEXT_CHARS;
+			const context = contextTruncated
+				? rawContext.slice(0, MAX_CONTEXT_CHARS) + "\n...(truncated)"
+				: rawContext;
+			setContextMeta({ truncated: contextTruncated, totalChars: rawContext.length, maxChars: MAX_CONTEXT_CHARS });
 
 			const systemPrompt = `You are GitAsk, an AI assistant for the ${owner}/${repo} GitHub repository.
 
@@ -413,9 +419,20 @@ ${context}`;
 						className="btn btn-ghost"
 						style={{ fontSize: "12px", padding: "6px 12px" }}
 						onClick={() => setShowContext(!showContext)}
+						title="Retrieved context from last query"
 					>
 						📋 Context
 					</button>
+					{isIndexed && (
+						<button
+							className="btn btn-ghost"
+							style={{ fontSize: "12px", padding: "6px 12px" }}
+							onClick={() => setShowBrowse(!showBrowse)}
+							title="Browse all indexed content"
+						>
+							📂 Browse
+						</button>
+					)}
 					{owner && repo && (
 						<button
 							className="btn btn-ghost"
@@ -590,10 +607,30 @@ ${context}`;
 					</form>
 				</div>
 
-				{/* Context drawer */}
+				{/* Browse drawer - all indexed content */}
+				{showBrowse && isIndexed && (
+					<aside style={styles.browseDrawer} className="glass">
+						<IndexBrowser
+							chunks={storeRef.current.getAll()}
+							onClose={() => setShowBrowse(false)}
+						/>
+					</aside>
+				)}
+
+				{/* Context drawer - retrieved context from last query */}
 				{showContext && contextChunks.length > 0 && (
 					<aside style={styles.contextDrawer} className="glass">
-						<h3 style={styles.drawerTitle}>Retrieved Context</h3>
+						<h3 style={styles.drawerTitle}>
+							Retrieved Context ({contextChunks.length} chunks)
+						</h3>
+						<p style={{ fontSize: "11px", color: "var(--text-muted)", marginBottom: "8px" }}>
+							Top results from hybrid search. Full code shown below.
+						</p>
+						{contextMeta?.truncated && (
+							<div style={{ fontSize: "11px", color: "var(--warning)", background: "rgba(245,158,11,0.1)", padding: "8px", borderRadius: "6px", marginBottom: "8px" }}>
+								⚠ LLM context was truncated: {contextMeta.totalChars} chars → {contextMeta.maxChars.toLocaleString()} max. Model may not have seen all chunks.
+							</div>
+						)}
 						{contextChunks.map((chunk, i) => (
 							<div key={i} style={styles.contextItem}>
 								<div style={styles.contextMeta}>
@@ -602,9 +639,14 @@ ${context}`;
 										{(chunk.score * 100).toFixed(1)}%
 									</span>
 								</div>
-								<pre className="code" style={{ fontSize: "11px", maxHeight: "150px", overflow: "auto" }}>
-									{chunk.code.slice(0, 500)}
+								<pre className="code" style={{ fontSize: "11px", maxHeight: "300px", overflow: "auto", whiteSpace: "pre-wrap", wordBreak: "break-all" }}>
+									{chunk.code}
 								</pre>
+								{chunk.code.length > 500 && (
+									<span style={{ fontSize: "10px", color: "var(--text-muted)" }}>
+										{chunk.code.length} chars
+									</span>
+								)}
 							</div>
 						))}
 					</aside>
@@ -797,6 +839,15 @@ const styles: Record<string, React.CSSProperties> = {
 	},
 	chatInput: { flex: 1 },
 	sendBtn: { flexShrink: 0 },
+	browseDrawer: {
+		width: "480px",
+		minWidth: "400px",
+		overflow: "hidden",
+		padding: "20px",
+		borderLeft: "1px solid var(--border)",
+		display: "flex",
+		flexDirection: "column",
+	},
 	contextDrawer: {
 		width: "360px",
 		minWidth: "280px",
