@@ -252,7 +252,7 @@ export function ModelSettings() {
 									rel="noopener noreferrer"
 									style={{ fontSize: 12, color: "var(--accent)", marginBottom: 4 }}
 								>
-									Get your Gemini API key →
+									Get your Free Gemini API key →
 								</a>
 								<input
 									type="password"
