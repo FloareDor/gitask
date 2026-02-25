@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import { useEffect, useRef, useState } from "react";
 import styles from "./ArchitectureDiagram.module.css";
@@ -44,7 +44,7 @@ const NODES: FlowNode[] = [
   {
     id: "db",
     phase: "Persist",
-    title: "Entity-DB",
+    title: "IndexedDB",
     detail: "IndexedDB stores vectors, metadata, and symbol structure locally.",
   },
   {

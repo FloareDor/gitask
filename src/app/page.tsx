@@ -61,17 +61,17 @@ export default function LandingPage() {
         <div className="fade-in" style={styles.hero}>
           <div style={styles.badge}>
             <span style={styles.badgeDot} />
-            100% Client-Side • Zero Cost
+            Client-side • Free
           </div>
 
           <h1 style={styles.title}>
-            Turn any GitHub repo into an
-            <span style={styles.gradient}> intelligent assistant</span>
+            Turn any GitHub repo into a
+            <span style={styles.gradient}> chat you can query</span>
           </h1>
 
           <p style={styles.subtitle}>
-            GitAsk runs an entire RAG pipeline. embedding, storage, retrieval.
-            On your device using WebGPU. No server, no API keys, full privacy.
+            RAG in your browser. Embeddings, storage, retrieval, all on-device
+            with WebGPU. No server, no API keys.
           </p>
 
           {/* Mode Indicator / Switcher */}
@@ -97,18 +97,17 @@ export default function LandingPage() {
           {error && <p style={styles.error}>{error}</p>}
 
           <a href="/evals" style={styles.evalsLink}>
-            📊 View Ablation Study & Evals
+            Evals
           </a>
 
           <div style={styles.features}>
             {[
-              { icon: "⚡", label: "WebGPU Inference", desc: "GPU-accelerated embeddings" },
-              { icon: "🧠", label: "AST Chunking", desc: "Tree-sitter code parsing" },
-              { icon: "🔍", label: "Hybrid Search", desc: "Vector + keyword fusion" },
-              { icon: "💾", label: "Local Cache", desc: "IndexedDB persistence" },
+              { label: "WebGPU Inference", desc: "GPU-accelerated embeddings" },
+              { label: "AST Chunking", desc: "Tree-sitter code parsing" },
+              { label: "Hybrid Search", desc: "Vector + keyword fusion" },
+              { label: "Local Cache", desc: "IndexedDB persistence" },
             ].map((f) => (
               <div key={f.label} className="glass" style={styles.featureCard}>
-                <span style={styles.featureIcon}>{f.icon}</span>
                 <strong style={styles.featureLabel}>{f.label}</strong>
                 <span style={styles.featureDesc}>{f.desc}</span>
               </div>
@@ -258,9 +257,6 @@ const styles: Record<string, React.CSSProperties> = {
     gap: "6px",
     padding: "20px 12px",
     textAlign: "center",
-  },
-  featureIcon: {
-    fontSize: "24px",
   },
   featureLabel: {
     fontSize: "13px",

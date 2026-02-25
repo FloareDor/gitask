@@ -319,7 +319,7 @@ export default function RepoPage({
 						{messages.length === 0 && isIndexed && (
 							<div style={styles.emptyState}>
 								<p style={{ fontSize: "28px" }}>💬</p>
-								<p style={{ fontWeight: 600 }}>Ask anything about this repo</p>
+								<p style={{ fontWeight: 600 }}>Ask about this repo</p>
 								<p style={{ color: "var(--text-secondary)", fontSize: "13px" }}>
 									Try: &quot;What does this project do?&quot; or &quot;How is the main function structured?&quot;
 								</p>

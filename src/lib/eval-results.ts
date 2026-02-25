@@ -101,7 +101,7 @@ export const COVE_ANALYSIS: CoveAnalysisEntry[] = [
 	{
 		aspect: "Recommendation",
 		observation:
-			"CoVe is most valuable for multi-hop reasoning queries. A toggle or auto-detect (enable for questions with >2 hops) would be the optimal production strategy.",
+			"CoVe is most valuable for multi-hop reasoning queries. Best as opt-in for complex questions.",
 	},
 ];
 
