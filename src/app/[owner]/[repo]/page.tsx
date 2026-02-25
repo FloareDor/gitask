@@ -4,8 +4,8 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { indexRepository, IndexAbortError, type IndexProgress, type AstNode } from "@/lib/indexer";
 import { VectorStore } from "@/lib/vectorStore";
-import { hybridSearch, type SearchOptions } from "@/lib/search";
-import { embedText } from "@/lib/embedder";
+import { multiPathHybridSearch } from "@/lib/search";
+import { expandQuery } from "@/lib/queryExpansion";
 import { initLLM, generate, getLLMStatus, getLLMConfig, onStatusChange, type LLMStatus, type ChatMessage } from "@/lib/llm";
 import { verifyAndRefine } from "@/lib/cove";
 import AstTreeView from "@/components/AstTreeView";
@@ -273,9 +273,9 @@ export default function RepoPage({
 		setIsGenerating(true);
 
 		try {
-			// 1. Embed query and search
-			const queryEmbedding = await embedText(userMessage);
-			const results = hybridSearch(storeRef.current, queryEmbedding, userMessage, { limit: 5 });
+			// 1. Query expansion + multi-path retrieval (CodeRAG-style)
+			const queryVariants = expandQuery(userMessage);
+			const results = await multiPathHybridSearch(storeRef.current, queryVariants, { limit: 5 });
 
 			setContextChunks(
 				results.map((r) => ({

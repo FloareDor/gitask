@@ -1,26 +1,33 @@
 /**
- * Ablation Study — Benchmarks the GitAsk retrieval pipeline
- * across 4 configurations measuring Recall@5, MRR, and Latency.
+ * Ablation Study - Benchmarks the GitAsk retrieval pipeline
+ * across configurations measuring Recall@5, MRR, and Latency.
  *
  * Configs:
- *   1. Full Pipeline   — Hamming coarse → RRF (vector+keyword) → Cosine rerank
- *   2. No Quantization — Cosine-only vector search → RRF → Cosine rerank
- *   3. Vector-Only     — Hamming coarse → Cosine rerank (no keyword, no RRF)
- *   4. No Reranking    — Hamming coarse → RRF → return RRF order (no cosine rerank)
+ *   1. Full Pipeline       - Hamming coarse -> RRF (vector+keyword) -> Cosine rerank
+ *   2. No Quantization     - Cosine-only vector search -> RRF -> Cosine rerank
+ *   3. Vector-Only         - Hamming coarse -> Cosine rerank (no keyword, no RRF)
+ *   4. No Reranking        - Hamming coarse -> RRF -> return RRF order (no cosine rerank)
+ *   5. CodeRAG Multi-Path  - Query expansion -> per-path hybrid -> path RRF -> preference rerank
  */
 
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { EVAL_CHUNKS, EVAL_QUERIES, type EvalQuery } from "./eval-data";
-import { binarize, hammingDistance, cosineSimilarity } from "./quantize";
+import { cosineSimilarity } from "./quantize";
 import {
 	keywordSearch,
 	vectorSearch,
 	reciprocalRankFusion,
+	multiPathHybridSearch,
 } from "./search";
+import { expandQuery } from "./queryExpansion";
 import type { EmbeddedChunk } from "./embedder";
 import type { SearchResult } from "./vectorStore";
+import { VectorStore } from "./vectorStore";
 
-// ─── Search Variants ────────────────────────────────────────────────────────
+let activeQueryEmbedding: number[] = [];
+vi.mock("./embedder", () => ({
+	embedText: vi.fn(async () => activeQueryEmbedding),
+}));
 
 /** Config 1: Full pipeline (default hybridSearch logic) */
 function searchFullPipeline(
@@ -48,14 +55,13 @@ function searchFullPipeline(
 	return reranked.slice(0, limit);
 }
 
-/** Config 2: No quantization — use cosine for vector search instead of Hamming */
+/** Config 2: No quantization - use cosine for vector search instead of Hamming */
 function searchNoQuantization(
 	chunks: EmbeddedChunk[],
 	queryEmb: number[],
 	queryText: string,
 	limit: number = 5
 ): SearchResult[] {
-	// Cosine-based vector scores (no binarization)
 	const cosScores = new Map<string, number>();
 	for (const chunk of chunks) {
 		const score = cosineSimilarity(queryEmb, chunk.embedding);
@@ -80,7 +86,7 @@ function searchNoQuantization(
 	return reranked.slice(0, limit);
 }
 
-/** Config 3: Vector-only — no keyword search, no RRF */
+/** Config 3: Vector-only - no keyword search, no RRF */
 function searchVectorOnly(
 	chunks: EmbeddedChunk[],
 	queryEmb: number[],
@@ -104,7 +110,7 @@ function searchVectorOnly(
 	return reranked.slice(0, limit);
 }
 
-/** Config 4: No reranking — RRF scores determine final order */
+/** Config 4: No reranking - RRF scores determine final order */
 function searchNoReranking(
 	chunks: EmbeddedChunk[],
 	queryEmb: number[],
@@ -128,7 +134,25 @@ function searchNoReranking(
 	return results;
 }
 
-// ─── Metrics ────────────────────────────────────────────────────────────────
+/** Config 5: CodeRAG multi-path search */
+async function searchCodeRagMultiPath(
+	chunks: EmbeddedChunk[],
+	queryEmb: number[],
+	queryText: string,
+	limit: number = 5
+): Promise<SearchResult[]> {
+	activeQueryEmbedding = queryEmb;
+	const store = new VectorStore();
+	store.insert(chunks);
+	store.setGraph({});
+	const variants = expandQuery(queryText);
+	return multiPathHybridSearch(store, variants, {
+		limit,
+		coarseCandidates: 50,
+		rrfK: 60,
+		preferenceAlpha: 0.7,
+	});
+}
 
 function recallAtK(results: SearchResult[], relevant: string[], k: number): number {
 	const topK = results.slice(0, k).map((r) => r.chunk.id);
@@ -144,8 +168,6 @@ function meanReciprocalRank(results: SearchResult[], relevant: string[]): number
 	}
 	return 0;
 }
-
-// ─── Types ──────────────────────────────────────────────────────────────────
 
 export interface AblationResult {
 	config: string;
@@ -165,22 +187,21 @@ type SearchFn = (
 	queryEmb: number[],
 	queryText: string,
 	limit?: number
-) => SearchResult[];
+) => SearchResult[] | Promise<SearchResult[]>;
 
-// ─── Benchmark Runner ───────────────────────────────────────────────────────
-
-function runBenchmark(
+async function runBenchmark(
 	name: string,
 	searchFn: SearchFn,
 	chunks: EmbeddedChunk[],
 	queries: EvalQuery[]
-): AblationResult {
+): Promise<AblationResult> {
 	const perQuery: AblationResult["perQuery"] = [];
 
 	for (const q of queries) {
+		activeQueryEmbedding = q.queryEmbedding;
 		const start = performance.now();
-		const results = searchFn(chunks, q.queryEmbedding, q.query, 5);
-		const elapsed = (performance.now() - start) * 1000; // → microseconds
+		const results = await searchFn(chunks, q.queryEmbedding, q.query, 5);
+		const elapsed = (performance.now() - start) * 1000;
 
 		perQuery.push({
 			queryId: q.id,
@@ -201,24 +222,22 @@ function runBenchmark(
 	};
 }
 
-// ─── Tests ──────────────────────────────────────────────────────────────────
-
 const CONFIGS: { name: string; fn: SearchFn }[] = [
 	{ name: "Full Pipeline", fn: searchFullPipeline },
 	{ name: "No Quantization", fn: searchNoQuantization },
 	{ name: "Vector-Only", fn: searchVectorOnly },
 	{ name: "No Reranking", fn: searchNoReranking },
+	{ name: "CodeRAG Multi-Path", fn: searchCodeRagMultiPath },
 ];
 
 describe("Ablation Study", () => {
 	const allResults: AblationResult[] = [];
 
 	for (const { name, fn } of CONFIGS) {
-		it(`${name} — produces valid results`, () => {
-			const result = runBenchmark(name, fn, EVAL_CHUNKS, EVAL_QUERIES);
+		it(`${name} - produces valid results`, async () => {
+			const result = await runBenchmark(name, fn, EVAL_CHUNKS, EVAL_QUERIES);
 			allResults.push(result);
 
-			// Sanity checks
 			expect(result.avgRecallAt5).toBeGreaterThanOrEqual(0);
 			expect(result.avgRecallAt5).toBeLessThanOrEqual(1);
 			expect(result.avgMRR).toBeGreaterThanOrEqual(0);
@@ -228,31 +247,23 @@ describe("Ablation Study", () => {
 		});
 	}
 
-	it("prints summary table", () => {
-		// Run all configs to make sure we have data
-		const results = CONFIGS.map(({ name, fn }) =>
-			runBenchmark(name, fn, EVAL_CHUNKS, EVAL_QUERIES)
+	it("prints summary table", async () => {
+		const results = await Promise.all(
+			CONFIGS.map(({ name, fn }) => runBenchmark(name, fn, EVAL_CHUNKS, EVAL_QUERIES))
 		);
 
-		console.log("\n╔══════════════════════════════════════════════════════════════╗");
-		console.log("║              GitAsk Ablation Study Results                   ║");
-		console.log("╠══════════════════════╦════════════╦════════════╦═════════════╣");
-		console.log("║ Configuration        ║ Recall@5   ║ MRR        ║ Latency(μs) ║");
-		console.log("╠══════════════════════╬════════════╬════════════╬═════════════╣");
-
+		console.log("\nAblation Results");
+		console.log("Configuration | Recall@5 | MRR | Latency(us)");
+		console.log("--- | --- | --- | ---");
 		for (const r of results) {
-			const name = r.config.padEnd(20);
-			const recall = (r.avgRecallAt5 * 100).toFixed(1).padStart(8) + "%";
-			const mrr = r.avgMRR.toFixed(4).padStart(10);
-			const latency = r.avgLatencyUs.toFixed(0).padStart(9);
-			console.log(`║ ${name} ║ ${recall} ║ ${mrr} ║ ${latency}   ║`);
+			const recall = (r.avgRecallAt5 * 100).toFixed(1) + "%";
+			const mrr = r.avgMRR.toFixed(4);
+			const latency = r.avgLatencyUs.toFixed(0);
+			console.log(`${r.config} | ${recall} | ${mrr} | ${latency}`);
 		}
 
-		console.log("╚══════════════════════╩════════════╩════════════╩═════════════╝\n");
-
-		// Export results as JSON for the evals page
 		console.log("ABLATION_RESULTS_JSON=" + JSON.stringify(results, null, 2));
 
-		expect(results.length).toBe(4);
+		expect(results.length).toBe(5);
 	});
 });

@@ -7,6 +7,8 @@
  * 3. Produces a corrected answer if needed.
  *
  * Kept to a single pass since Qwen2-0.5B is lightweight.
+ *
+ * @see Dhuliawala et al., "Chain-of-Verification Reduces Hallucination in Large Language Models", Findings of ACL 2024. https://arxiv.org/abs/2309.11495
  */
 
 import { generateFull, type ChatMessage } from "./llm";

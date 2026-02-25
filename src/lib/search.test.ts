@@ -3,10 +3,16 @@
  * and the vector search + reranking pipeline.
  */
 
-import { describe, it, expect } from "vitest";
-import { reciprocalRankFusion, keywordSearch, vectorSearch, hybridSearch } from "./search";
+import { describe, it, expect, vi } from "vitest";
+import { reciprocalRankFusion, keywordSearch, vectorSearch, hybridSearch, multiPathHybridSearch } from "./search";
 import type { EmbeddedChunk } from "./embedder";
+import { embedText } from "./embedder";
 import { VectorStore } from "./vectorStore";
+
+// Mock embedder for multiPathHybridSearch tests (avoid loading real model)
+vi.mock("./embedder", () => ({
+	embedText: vi.fn(() => Promise.resolve(new Array(384).fill(0.5))),
+}));
 
 function makeChunk(id: string, code: string, embedding: number[]): EmbeddedChunk {
 	return {
@@ -143,5 +149,88 @@ describe("hybridSearch with Graph Expansion", () => {
 
 		expect(ids).toContain("seed");
 		expect(ids).toContain("dep"); // Should be included due to graph expansion
+	});
+
+	it("resolves relative imports using current file directory", () => {
+		const store = new VectorStore();
+
+		const seedChunk = makeChunk("seed", "import { util } from './utils';", [1, 1]);
+		seedChunk.filePath = "src/feature/seed.ts";
+
+		const featureUtils = makeChunk("feature-utils", "export const util = 1;", [-1, -1]);
+		featureUtils.filePath = "src/feature/utils.ts";
+
+		const sharedUtils = makeChunk("shared-utils", "export const util = 2;", [-1, -1]);
+		sharedUtils.filePath = "src/shared/utils.ts";
+
+		store.insert([seedChunk, featureUtils, sharedUtils]);
+		store.setGraph({
+			"src/shared/utils.ts": { imports: [], definitions: ["util"] },
+			"src/feature/seed.ts": { imports: ["./utils"], definitions: [] },
+			"src/feature/utils.ts": { imports: [], definitions: ["util"] },
+		});
+
+		const results = hybridSearch(store, [1, 1], "seed", {
+			limit: 10,
+			coarseCandidates: 1,
+		});
+
+		const ids = results.map((r) => r.chunk.id);
+		expect(ids).toContain("feature-utils");
+		expect(ids).not.toContain("shared-utils");
+	});
+});
+
+describe("multiPathHybridSearch", () => {
+	it("returns empty when no variants", async () => {
+		const store = new VectorStore();
+		const results = await multiPathHybridSearch(store, [], { limit: 5 });
+		expect(results).toEqual([]);
+	});
+
+	it("with single variant behaves like hybridSearch plus preference rerank", async () => {
+		const store = new VectorStore();
+		const chunk = makeChunk("foo", "function foo() { return 1; }", new Array(384).fill(0.5));
+		store.insert([chunk]);
+		store.setGraph({ "src/foo.ts": { imports: [], definitions: ["foo"] } });
+
+		const results = await multiPathHybridSearch(store, ["foo"], { limit: 5 });
+		expect(results.length).toBeGreaterThanOrEqual(1);
+		expect(results[0].chunk.id).toBe("foo");
+	});
+
+	it("with two identical variants deduplicates and returns consistent results", async () => {
+		const store = new VectorStore();
+		const chunks: EmbeddedChunk[] = [
+			makeChunk("a", "function a() {}", new Array(384).fill(0.6)),
+			makeChunk("b", "function b() {}", new Array(384).fill(0.4)),
+		];
+		store.insert(chunks);
+
+		vi.mocked(embedText).mockClear();
+		const results = await multiPathHybridSearch(store, ["function a", "function a"], { limit: 5 });
+		expect(results.length).toBeGreaterThanOrEqual(1);
+		const ids = results.map((r) => r.chunk.id);
+		expect(ids).toContain("a");
+		expect(vi.mocked(embedText)).toHaveBeenCalledTimes(1);
+	});
+
+	it("does not apply definition bonus to unrelated chunks in a defining file", async () => {
+		const store = new VectorStore();
+		const unrelated = makeChunk("unrelated", "const x = 1;", new Array(384).fill(0.5));
+		unrelated.filePath = "src/a.ts";
+		const mention = makeChunk("mention", "function foo() { return 1; }", new Array(384).fill(0.5));
+		mention.filePath = "src/b.ts";
+		store.insert([unrelated, mention]);
+		store.setGraph({
+			"src/a.ts": { imports: [], definitions: ["foo"] },
+			"src/b.ts": { imports: [], definitions: [] },
+		});
+
+		const results = await multiPathHybridSearch(store, ["foo"], {
+			limit: 2,
+			preferenceAlpha: 0,
+		});
+		expect(results[0].chunk.id).toBe("mention");
 	});
 });

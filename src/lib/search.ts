@@ -3,6 +3,7 @@
  * keyword regex search, then reranks with cosine similarity.
  */
 
+import { embedText } from "./embedder";
 import { binarize, hammingDistance, cosineSimilarity } from "./quantize";
 import type { EmbeddedChunk } from "./embedder";
 import type { VectorStore, SearchResult } from "./vectorStore";
@@ -142,6 +143,7 @@ export function hybridSearch(
 	const SEED_COUNT = 20;
 	const EXPANSION_WEIGHT = 0.5; // Weight for expanded interactions
 	const graph = store.getGraph();
+	const allFiles = [...new Set(chunks.map((c) => c.filePath))];
 
 	const seenIds = new Set(candidates.map((c) => c[0]));
 
@@ -168,7 +170,7 @@ export function hybridSearch(
 			// Heuristic: check if any file in the graph ends with the import path + extension
 			// or if importPath is relative, resolve it relative to chunk.filePath
 
-			const targetFile = resolveImport(chunk.filePath, importPath, Object.keys(graph));
+			const targetFile = resolveImport(chunk.filePath, importPath, allFiles);
 			if (targetFile) {
 				const neighborChunks = store.getChunksByFile(targetFile);
 				for (const neighbor of neighborChunks) {
@@ -195,39 +197,212 @@ export function hybridSearch(
 	return reranked.slice(0, limit);
 }
 
+/** Extract identifiers from query for preference scoring (same pattern as keywordSearch). */
+function extractQuerySymbols(query: string): string[] {
+	const symbols = query.match(/[a-zA-Z_]\w+/g) ?? [];
+	return [...new Set(symbols)];
+}
+
+/**
+ * Compute a preference score for a chunk (definition + keyword overlap).
+ * Used to favor chunks that define symbols mentioned in the query.
+ */
+function computePreferenceScore(
+	chunk: EmbeddedChunk,
+	querySymbols: string[],
+	graph: Record<string, { imports: string[]; definitions: string[] }>
+): number {
+	if (querySymbols.length === 0) return 0;
+
+	let definitionBonus = 0;
+	const fileDefs = graph[chunk.filePath]?.definitions ?? [];
+	const symbolSet = new Set(querySymbols.map((s) => s.toLowerCase()));
+	// Chunk defines a query symbol if chunk.name matches or file-level definitions include it
+	if (chunk.name && symbolSet.has(chunk.name.toLowerCase())) {
+		definitionBonus = 1;
+	} else if (fileDefs.some((d) => symbolSet.has(d.toLowerCase()))) {
+		const mentioned = fileDefs.some((d) => {
+			if (!symbolSet.has(d.toLowerCase())) return false;
+			const regex = new RegExp(`\\b${escapeRegex(d)}\\b`, "i");
+			return regex.test(chunk.code);
+		});
+		definitionBonus = mentioned ? 0.6 : 0;
+	}
+
+	let keywordCount = 0;
+	for (const sym of querySymbols) {
+		const regex = new RegExp(`\\b${escapeRegex(sym)}\\b`, "gi");
+		if (regex.test(chunk.code)) keywordCount++;
+	}
+	const keywordRatio = keywordCount / querySymbols.length;
+
+	// Combine: definition is strong signal, keyword overlap helps
+	return Math.min(1, definitionBonus * 0.5 + keywordRatio * 0.5);
+}
+
+export interface MultiPathSearchOptions extends SearchOptions {
+	/** Weight for cosine vs preference in final rerank (default 0.7 = cosine dominates) */
+	preferenceAlpha?: number;
+}
+
+/**
+ * Multi-path hybrid search (CodeRAG-style): run retrieval for each query variant,
+ * fuse with RRF, then preference-aware rerank.
+ *
+ * @see Zhang et al., "CodeRAG: Finding Relevant and Necessary Knowledge for Retrieval-Augmented Repository-Level Code Completion", EMNLP 2025. https://arxiv.org/abs/2509.16112
+ */
+export async function multiPathHybridSearch(
+	store: VectorStore,
+	queryVariants: string[],
+	options: MultiPathSearchOptions = {}
+): Promise<SearchResult[]> {
+	const {
+		limit = 5,
+		coarseCandidates = 50,
+		rrfK = 60,
+		preferenceAlpha = 0.7,
+	} = options;
+
+	const uniqueVariants = [...new Set(queryVariants.map((q) => q.trim()).filter(Boolean))];
+	if (uniqueVariants.length === 0) return [];
+
+	const chunks = store.getAll();
+	if (chunks.length === 0) return [];
+
+	const chunkMap = new Map(chunks.map((c) => [c.id, c]));
+	const querySymbols = extractQuerySymbols(uniqueVariants[0]);
+
+	// Single path: no RRF, just hybridSearch + preference rerank
+	if (uniqueVariants.length === 1) {
+		const queryEmbedding = await embedText(uniqueVariants[0]);
+		const results = hybridSearch(store, queryEmbedding, uniqueVariants[0], {
+			limit,
+			coarseCandidates,
+			rrfK,
+		});
+		const graph = store.getGraph();
+		return applyPreferenceRerank(results, querySymbols, graph, limit, preferenceAlpha);
+	}
+
+	// Embed all variants in parallel
+	const embeddings = await Promise.all(uniqueVariants.map((q) => embedText(q)));
+
+	// Run hybridSearch per variant with a higher per-path limit so RRF has a good pool
+	const perPathLimit = Math.max(limit * 2, 10);
+	const pathResults = await Promise.all(
+		uniqueVariants.map((q, i) =>
+			hybridSearch(store, embeddings[i], q, {
+				limit: perPathLimit,
+				coarseCandidates,
+				rrfK,
+			})
+		)
+	);
+
+	// Convert each path to Map<chunkId, score> for RRF (score = cosine from SearchResult)
+	const scoreMaps = pathResults.map((results) => {
+		const m = new Map<string, number>();
+		results.forEach((r) => m.set(r.chunk.id, r.score));
+		return m;
+	});
+
+	const fusedScores = reciprocalRankFusion(scoreMaps, rrfK);
+	const rrfTopIds = [...fusedScores.entries()]
+		.sort((a, b) => b[1] - a[1])
+		.slice(0, coarseCandidates)
+		.map(([id]) => id);
+
+	// Build candidate results with cosine score from primary (first) query embedding
+	const primaryEmbedding = embeddings[0];
+	const candidates: SearchResult[] = [];
+	for (const id of rrfTopIds) {
+		const chunk = chunkMap.get(id) as EmbeddedChunk | undefined;
+		if (!chunk) continue;
+		const score = cosineSimilarity(primaryEmbedding, chunk.embedding);
+		candidates.push({ chunk, score, embedding: chunk.embedding });
+	}
+
+	const graph = store.getGraph();
+	return applyPreferenceRerank(candidates, querySymbols, graph, limit, preferenceAlpha);
+}
+
+/**
+ * Apply preference rerank: combine cosine score with definition/keyword preference.
+ */
+function applyPreferenceRerank(
+	results: SearchResult[],
+	querySymbols: string[],
+	graph: Record<string, { imports: string[]; definitions: string[] }>,
+	limit: number,
+	alpha: number
+): SearchResult[] {
+	if (querySymbols.length === 0) {
+		return results.slice(0, limit);
+	}
+
+	const scored = results.map((r) => {
+		const pref = computePreferenceScore(r.chunk as EmbeddedChunk, querySymbols, graph);
+		const finalScore = alpha * r.score + (1 - alpha) * pref;
+		return { ...r, score: finalScore };
+	});
+	scored.sort((a, b) => b.score - a.score);
+	return scored.slice(0, limit);
+}
+
 /**
  * Simple import resolver heuristic.
  * Tries to match `importPath` to a file in `allFiles`.
  */
 function resolveImport(currentFile: string, importPath: string, allFiles: string[]): string | null {
-	// 1. Exact match (rare for imports)
-	if (allFiles.includes(importPath)) return importPath;
+	const normalize = (p: string) => p.replace(/\\/g, "/");
+	const current = normalize(currentFile);
+	const requested = normalize(importPath);
+	const normalizedFiles = allFiles.map(normalize);
 
-	// 2. Normalize import path (remove quotes, handled by extractor)
-	// Handle relative imports
-	if (importPath.startsWith(".")) {
-		// This is tricky without a real path resolver.
-		// Let's try to match the filename at the end.
-		const basename = importPath.split("/").pop();
-		if (!basename) return null;
+	const hasExt = /\.[^/.]+$/.test(requested);
+	const extensions = [".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"];
+	const candidatePaths = new Set<string>();
 
-		// Find files that look like .../basename.ts or .../basename/index.ts
-		return allFiles.find(f => {
-			if (f.includes(basename)) {
-				// Very loose check: verify extensions
-				if (f.endsWith(`${basename}.ts`) || f.endsWith(`${basename}.tsx`) ||
-					f.endsWith(`${basename}.js`) || f.endsWith(`${basename}/index.ts`)) {
-					return true;
-				}
-			}
-			return false;
-		}) || null;
+	const addModuleCandidates = (base: string) => {
+		const clean = base.replace(/\/+$/, "");
+		candidatePaths.add(clean);
+		if (!hasExt) {
+			for (const ext of extensions) candidatePaths.add(`${clean}${ext}`);
+			for (const ext of extensions) candidatePaths.add(`${clean}/index${ext}`);
+		}
+	};
+
+	// 1. Relative imports: resolve against current file directory.
+	if (requested.startsWith(".")) {
+		const parts = current.split("/");
+		parts.pop(); // filename
+		for (const segment of requested.split("/")) {
+			if (!segment || segment === ".") continue;
+			if (segment === "..") parts.pop();
+			else parts.push(segment);
+		}
+		addModuleCandidates(parts.join("/"));
 	}
 
-	// 3. Absolute/Package imports
-	// Try to find a file that *ends with* the import path (e.g. "lib/utils" -> "src/lib/utils.ts")
-	return allFiles.find(f => {
-		const noExt = f.replace(/\.[^/.]+$/, "");
-		return noExt.endsWith(importPath);
-	}) || null;
+	// 2. Workspace absolute-like imports (e.g. src/lib/utils) and package-like suffixes.
+	addModuleCandidates(requested);
+
+	for (const candidate of candidatePaths) {
+		const exactIdx = normalizedFiles.indexOf(candidate);
+		if (exactIdx !== -1) return allFiles[exactIdx];
+	}
+
+	// 3. Fallback suffix match (for aliases) with longest match preference.
+	const suffixMatches = normalizedFiles
+		.map((f, idx) => ({ f, idx }))
+		.filter(({ f }) => {
+			const noExt = f.replace(/\.[^/.]+$/, "");
+			return noExt.endsWith(requested);
+		})
+		.sort((a, b) => b.f.length - a.f.length);
+	if (suffixMatches.length > 0) {
+		return allFiles[suffixMatches[0].idx];
+	}
+
+	return null;
 }
