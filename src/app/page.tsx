@@ -99,6 +99,8 @@ export default function LandingPage() {
 
   if (!gpuSupported) return <NoWebGPUScreen />;
 
+  const projectRepoUrl = "https://github.com/FloareDor/gitask";
+
   return (
     <div style={{ ...styles.wrapper, overflowX: "hidden" }}>
       {/* Settings - fixed top-right */}
@@ -150,9 +152,27 @@ export default function LandingPage() {
 
           {error && <p style={styles.error}>{error}</p>}
 
-          <a href="/evals" style={styles.evalsLink} className="evals-link">
-            Evals
-          </a>
+          <div style={styles.quickLinks}>
+            <a href="/evals" style={styles.evalsLink} className="evals-link">
+              Evals
+            </a>
+            <a
+              href={projectRepoUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              style={styles.starLink}
+              className="star-link"
+              aria-label="Star GitAsk on GitHub"
+              title="Open GitAsk on GitHub"
+            >
+              <span style={styles.starIcon}>Star</span>
+              <img
+                alt="GitHub stars"
+                src="https://img.shields.io/github/stars/FloareDor/gitask?style=social"
+                style={styles.starBadge}
+              />
+            </a>
+          </div>
 
           <div style={{
             ...styles.features,
@@ -313,6 +333,36 @@ const styles: Record<string, React.CSSProperties> = {
     border: "1px solid var(--border)",
     transition: "all 0.2s ease",
     background: "var(--bg-glass)",
+  },
+  quickLinks: {
+    display: "flex",
+    alignItems: "center",
+    gap: "10px",
+    flexWrap: "wrap",
+    justifyContent: "center",
+  },
+  starLink: {
+    fontSize: "13px",
+    color: "var(--text-primary)",
+    textDecoration: "none",
+    padding: "7px 12px",
+    borderRadius: "var(--radius-sm)",
+    border: "1px solid var(--border)",
+    transition: "all 0.2s ease",
+    background: "var(--bg-glass)",
+    display: "inline-flex",
+    alignItems: "center",
+    gap: "8px",
+  },
+  starIcon: {
+    fontSize: "12px",
+    fontWeight: 600,
+    letterSpacing: "0.01em",
+  },
+  starBadge: {
+    height: "20px",
+    width: "auto",
+    display: "block",
   },
   features: {
     display: "grid",

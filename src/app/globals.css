@@ -227,6 +227,11 @@ html, body {
   border-color: var(--border-hover);
 }
 
+.star-link:hover {
+  border-color: var(--border-hover);
+  transform: translateY(-1px);
+}
+
 /* Logo hover */
 header a[href="/"] {
   transition: opacity 0.2s ease;

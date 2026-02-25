@@ -54,6 +54,7 @@ export default function RepoPage({
 	const [showOverflow, setShowOverflow] = useState(false);
 	const [isMobile, setIsMobile] = useState(false);
 	const [coveEnabled, setCoveEnabled] = useState(false);
+	const projectRepoUrl = "https://github.com/FloareDor/gitask";
 	const completedWhileHiddenRef = useRef(false);
 	const indexStartTimeRef = useRef<number | null>(null);
 	const overflowRef = useRef<HTMLDivElement>(null);
@@ -450,6 +451,17 @@ ${context}`;
 					<span style={styles.repoText}>{repo}</span>
 				</a>
 				<div style={styles.headerActions}>
+					<a
+						href={projectRepoUrl}
+						target="_blank"
+						rel="noopener noreferrer"
+						className="btn btn-ghost star-link"
+						style={{ fontSize: "12px", padding: "6px 10px", textDecoration: "none" }}
+						title="Star GitAsk on GitHub"
+						aria-label="Star GitAsk on GitHub"
+					>
+						Star
+					</a>
 					<div
 						style={getStatusDotStyle(llmStatus)}
 						className={llmStatus === "loading" ? "pulse" : undefined}
