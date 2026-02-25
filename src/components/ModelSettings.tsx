@@ -249,6 +249,14 @@ export function ModelSettings() {
 						{!needsMigration && vaultState === "none" && (
 							<div style={styles.field}>
 								<label style={styles.label}>Add your API key (encrypted)</label>
+								<a
+									href="https://aistudio.google.com/app/apikey"
+									target="_blank"
+									rel="noopener noreferrer"
+									style={{ fontSize: 12, color: "var(--accent)", marginBottom: 4 }}
+								>
+									Get your Gemini API key →
+								</a>
 								<input
 									type="password"
 									placeholder="Paste your Gemini API Key"
