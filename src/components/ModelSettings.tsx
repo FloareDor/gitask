@@ -43,7 +43,7 @@ export function ModelSettings() {
 		setApiKeyInput("");
 		setPassphraseInput("");
 		setMigratePassphrase("");
-		setUsePasskey(false);
+		setUsePasskey(passkeySupported ?? false);
 	}, [isOpen]);
 
 	const canSave =
