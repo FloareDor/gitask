@@ -8,6 +8,7 @@ import { embedText } from "@/lib/embedder";
 import { initLLM, generate, getLLMStatus, onStatusChange, type LLMStatus, type ChatMessage } from "@/lib/llm";
 import { verifyAndRefine } from "@/lib/cove";
 import AstTreeView from "@/components/AstTreeView";
+import { ModelSettings } from "@/components/ModelSettings";
 import ReactMarkdown from "react-markdown";
 
 interface Message {
@@ -264,6 +265,7 @@ ${context}`;
 					<span style={styles.repoText}>{repo}</span>
 				</div>
 				<div style={styles.headerActions}>
+					<ModelSettings />
 					<div style={getStatusDotStyle(llmStatus)} title={`LLM: ${llmStatus}`} />
 					<span style={styles.statusText}>{llmStatus}</span>
 					<button

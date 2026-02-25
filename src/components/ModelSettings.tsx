@@ -167,10 +167,7 @@ export function ModelSettings() {
 		return (
 			<button
 				onClick={() => setIsOpen(true)}
-				style={{
-					...styles.settingsBtn,
-					borderColor: isGemini ? "var(--success)" : "var(--border)",
-				}}
+				style={styles.settingsBtn}
 				aria-label="Model settings"
 				title={isGemini ? "Using Gemini Cloud" : "Using Local LLM"}
 			>
