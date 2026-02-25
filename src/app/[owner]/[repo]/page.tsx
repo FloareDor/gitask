@@ -201,7 +201,6 @@ export default function RepoPage({
 				if (aborted) return;
 				if (typeof document !== "undefined" && document.hidden) {
 					completedWhileHiddenRef.current = true;
-					// Browser notification if permission granted
 					if (typeof Notification !== "undefined" && Notification.permission === "granted") {
 						try {
 							new Notification("GitAsk", {
@@ -214,7 +213,6 @@ export default function RepoPage({
 				}
 				safeSetState(setIsIndexed, true);
 
-				// Start loading LLM in background
 				initLLM((msg) => {
 					if (aborted) return;
 					setIndexProgress((prev) => ({
@@ -294,7 +292,6 @@ export default function RepoPage({
 		setIsGenerating(true);
 
 		try {
-			// 1. Query expansion + multi-path retrieval (CodeRAG-style)
 			const queryVariants = expandQuery(userMessage);
 			const results = await multiPathHybridSearch(storeRef.current, queryVariants, { limit: 5 });
 
@@ -306,9 +303,8 @@ export default function RepoPage({
 				}))
 			);
 
-			// 2. Build context (Gemini Flash has huge context, no truncation; MLC needs a limit)
 			const config = getLLMConfig();
-			const MAX_CONTEXT_CHARS = config.provider === "gemini" ? Infinity : 24_000; // MLC ~8K tokens
+			const MAX_CONTEXT_CHARS = config.provider === "gemini" ? Infinity : 24_000;
 			const rawContext = results
 				.map((r) => `### ${r.chunk.filePath} (score: ${r.score.toFixed(3)})\n\`\`\`\n${r.chunk.code}\n\`\`\``)
 				.join("\n\n");
@@ -327,9 +323,7 @@ export default function RepoPage({
 Code context:
 ${context}`;
 
-			// 3. Check if LLM is ready
 			if (getLLMStatus() !== "ready" && getLLMStatus() !== "generating") {
-				// LLM not ready yet — give a retrieval-only answer
 				setMessages((prev) => [
 					...prev,
 					{
@@ -341,7 +335,6 @@ ${context}`;
 				return;
 			}
 
-			// 4. Stream response (cap history to stay within token budget; Gemini has a large context, MLC does not)
 			const historyLimit = config.provider === "gemini" ? 10 : 6;
 			const recentHistory = messages.slice(-historyLimit);
 			const chatMessages: ChatMessage[] = [
@@ -362,7 +355,6 @@ ${context}`;
 				});
 			}
 
-			// 5. CoVe (optional, default OFF due to latency cost)
 			if (coveEnabled) {
 				try {
 					const refined = await verifyAndRefine(fullResponse, userMessage, storeRef.current);
@@ -392,7 +384,6 @@ ${context}`;
 			? Math.round((indexProgress.current / indexProgress.total) * 100)
 			: 0;
 
-	// Approx time remaining (only when we have meaningful progress)
 	const timeRemaining =
 		indexProgress &&
 		indexProgress.total > 0 &&
@@ -410,7 +401,7 @@ ${context}`;
 
 	return (
 		<div style={styles.layout}>
-			{/* Toast for return-to-tab notification */}
+			{/* Toast */}
 			{toastMessage && (
 				<div
 					role="status"
@@ -422,17 +413,20 @@ ${context}`;
 						transform: "translate(-50%, 0)",
 						padding: "12px 20px",
 						background: "var(--bg-card)",
-						border: "1px solid var(--border)",
-						borderRadius: "8px",
-						boxShadow: "0 4px 12px rgba(0,0,0,0.15)",
+						border: "2px solid var(--border-accent)",
+						borderRadius: "var(--radius)",
+						boxShadow: "4px 4px 0 var(--accent)",
 						fontSize: "14px",
+						fontWeight: 600,
 						zIndex: 1000,
 						animation: "toast-in 0.2s ease-out",
+						fontFamily: "var(--font-display)",
 					}}
 				>
 					{toastMessage}
 				</div>
 			)}
+
 			{/* Header */}
 			<header style={styles.header}>
 				<a href="/" style={styles.logo}>
@@ -456,22 +450,25 @@ ${context}`;
 						target="_blank"
 						rel="noopener noreferrer"
 						className="btn btn-ghost star-link"
-						style={{ fontSize: "12px", padding: "6px 10px", textDecoration: "none" }}
+						style={{ fontSize: "12px", padding: "5px 10px", textDecoration: "none" }}
 						title="Star GitAsk on GitHub"
 						aria-label="Star GitAsk on GitHub"
 					>
-						Star
+						★ Star
 					</a>
-					<div
-						style={getStatusDotStyle(llmStatus)}
-						className={llmStatus === "loading" ? "pulse" : undefined}
-						title={`LLM: ${llmStatus}`}
-					/>
-					{!isMobile && <span style={styles.statusText}>{llmStatus}</span>}
+					{/* LLM status indicator */}
+					<div style={styles.statusPill}>
+						<div
+							style={getStatusDotStyle(llmStatus)}
+							className={llmStatus === "loading" ? "pulse" : undefined}
+							title={`LLM: ${llmStatus}`}
+						/>
+						{!isMobile && <span style={styles.statusText}>{llmStatus}</span>}
+					</div>
 					{!isMobile && (
 						<button
 							className="btn btn-ghost"
-							style={{ fontSize: "12px", padding: "6px 12px" }}
+							style={{ fontSize: "12px", padding: "5px 10px" }}
 							onClick={() => setShowTokenInput(!showTokenInput)}
 							title="GitHub Personal Access Token for higher rate limits"
 						>
@@ -480,7 +477,7 @@ ${context}`;
 					)}
 					<button
 						className="btn btn-ghost"
-						style={{ fontSize: "12px", padding: "6px 12px" }}
+						style={{ fontSize: "12px", padding: "5px 10px" }}
 						onClick={() => setShowContext(!showContext)}
 						title="Retrieved context from last query"
 					>
@@ -490,9 +487,9 @@ ${context}`;
 						className="btn btn-ghost"
 						style={{
 							fontSize: "12px",
-							padding: "6px 12px",
+							padding: "5px 10px",
 							color: coveEnabled ? "var(--success)" : "var(--text-muted)",
-							borderColor: coveEnabled ? "rgba(34,197,94,0.4)" : undefined,
+							borderColor: coveEnabled ? "rgba(34,197,94,0.5)" : undefined,
 						}}
 						onClick={() => setCoveEnabled((v) => !v)}
 						title="Enable CoVe verification (adds ~2-4s latency)"
@@ -502,7 +499,7 @@ ${context}`;
 					{isIndexed && (
 						<button
 							className="btn btn-ghost"
-							style={{ fontSize: "12px", padding: "6px 12px" }}
+							style={{ fontSize: "12px", padding: "5px 10px" }}
 							onClick={() => setShowBrowse(!showBrowse)}
 							title="Browse all indexed content"
 						>
@@ -512,7 +509,7 @@ ${context}`;
 					<div ref={overflowRef} style={{ position: "relative" }}>
 						<button
 							className="btn btn-ghost"
-							style={{ fontSize: "12px", padding: "6px 10px" }}
+							style={{ fontSize: "12px", padding: "5px 10px" }}
 							onClick={() => setShowOverflow((v) => !v)}
 							title="More options"
 						>
@@ -524,20 +521,20 @@ ${context}`;
 								top: "calc(100% + 6px)",
 								right: 0,
 								background: "var(--bg-card)",
-								border: "1px solid var(--border)",
-								borderRadius: "var(--radius-sm)",
+								border: "2px solid var(--border)",
+								borderRadius: "var(--radius)",
+								boxShadow: "3px 3px 0 var(--accent)",
 								padding: "4px",
 								display: "flex",
 								flexDirection: "column",
 								gap: "2px",
 								zIndex: 20,
 								minWidth: "168px",
-								boxShadow: "0 4px 16px rgba(0,0,0,0.3)",
 							}}>
 								{owner && repo && (
 									<button
 										className="btn btn-ghost"
-										style={{ fontSize: "12px", padding: "6px 12px", color: "var(--text-muted)", justifyContent: "flex-start", width: "100%", border: "none" }}
+										style={{ fontSize: "12px", padding: "6px 12px", color: "var(--text-muted)", justifyContent: "flex-start", width: "100%", border: "none", boxShadow: "none" }}
 										onClick={() => { handleDeleteEmbeddings(); setShowOverflow(false); }}
 									>
 										🗑 Delete embeddings
@@ -546,7 +543,7 @@ ${context}`;
 								{isIndexed && (
 									<button
 										className="btn btn-ghost"
-										style={{ fontSize: "12px", padding: "6px 12px", justifyContent: "flex-start", width: "100%", border: "none" }}
+										style={{ fontSize: "12px", padding: "6px 12px", justifyContent: "flex-start", width: "100%", border: "none", boxShadow: "none" }}
 										onClick={() => { handleClearCacheAndReindex(); setShowOverflow(false); }}
 									>
 										🔄 Re-index
@@ -558,7 +555,7 @@ ${context}`;
 					{messages.length > 0 && (
 						<button
 							className="btn btn-ghost"
-							style={{ fontSize: "12px", padding: "6px 12px" }}
+							style={{ fontSize: "12px", padding: "5px 10px" }}
 							onClick={handleClearChat}
 						>
 							🗑 Clear
@@ -674,28 +671,30 @@ ${context}`;
 								style={{
 									...styles.message,
 									alignSelf: msg.role === "user" ? "flex-end" : "flex-start",
-									background:
-										msg.role === "user"
-											? "var(--accent)"
-											: "var(--bg-card)",
+									background: msg.role === "user" ? "var(--accent)" : "var(--bg-card)",
 									maxWidth: msg.role === "user" ? "70%" : "90%",
-									boxShadow: msg.role === "user" ? "0 2px 8px rgba(99, 102, 241, 0.2)" : "0 1px 3px rgba(0,0,0,0.15)",
+									border: msg.role === "user"
+										? "2px solid var(--accent)"
+										: "2px solid var(--border)",
+									boxShadow: msg.role === "user"
+										? "3px 3px 0 rgba(0,0,0,0.5)"
+										: "3px 3px 0 var(--bg-secondary)",
 								}}
-								className={msg.role === "assistant" ? "glass chat-message" : "chat-message"}
+								className="chat-message"
 							>
 								{msg.role === "assistant" ? (
-								<div style={{ ...styles.messageContent, whiteSpace: "normal" }} className="chat-markdown">
-									<ReactMarkdown>{msg.content || (isGenerating && i === messages.length - 1 ? "Thinking…" : "")}</ReactMarkdown>
-								</div>
-							) : (
-								<pre style={styles.messageContent}>{msg.content}</pre>
-							)}
+									<div style={{ ...styles.messageContent, whiteSpace: "normal" }} className="chat-markdown">
+										<ReactMarkdown>{msg.content || (isGenerating && i === messages.length - 1 ? "Thinking…" : "")}</ReactMarkdown>
+									</div>
+								) : (
+									<pre style={styles.messageContent}>{msg.content}</pre>
+								)}
 							</div>
 						))}
 						<div ref={chatEndRef} />
 					</div>
 
-					{/* Input */}
+					{/* Input bar */}
 					<form
 						onSubmit={(e) => {
 							e.preventDefault();
@@ -725,12 +724,12 @@ ${context}`;
 					</form>
 				</div>
 
-				{/* Browse drawer - all indexed content */}
+				{/* Browse drawer */}
 				{showBrowse && isIndexed && (
 					<aside style={{
 						...styles.browseDrawer,
 						...(isMobile && { position: "fixed" as const, inset: 0, width: "100%", minWidth: "unset", zIndex: 100, borderLeft: "none" }),
-					}} className="glass">
+					}}>
 						<IndexBrowser
 							chunks={storeRef.current.getAll()}
 							onClose={() => setShowBrowse(false)}
@@ -738,21 +737,21 @@ ${context}`;
 					</aside>
 				)}
 
-				{/* Context drawer - retrieved context from last query */}
+				{/* Context drawer */}
 				{showContext && contextChunks.length > 0 && (
 					<aside style={{
 						...styles.contextDrawer,
 						...(isMobile && { position: "fixed" as const, inset: 0, width: "100%", minWidth: "unset", zIndex: 100, borderLeft: "none" }),
-					}} className="glass">
+					}}>
 						<h3 style={styles.drawerTitle}>
 							Retrieved Context ({contextChunks.length} chunks)
 						</h3>
-						<p style={{ fontSize: "11px", color: "var(--text-muted)", marginBottom: "8px" }}>
-							Top results from hybrid search. Full code shown below.
+						<p style={{ fontSize: "11px", color: "var(--text-muted)", marginBottom: "8px", fontFamily: "var(--font-mono)" }}>
+							Top results from hybrid search
 						</p>
 						{contextMeta?.truncated && (
-							<div style={{ fontSize: "11px", color: "var(--warning)", background: "rgba(245,158,11,0.1)", padding: "8px", borderRadius: "6px", marginBottom: "8px" }}>
-								⚠ LLM context was truncated: {contextMeta.totalChars} chars → {contextMeta.maxChars.toLocaleString()} max. Model may not have seen all chunks.
+							<div style={{ fontSize: "11px", color: "var(--warning)", background: "rgba(245,158,11,0.08)", padding: "8px 10px", border: "2px solid rgba(245,158,11,0.3)", borderRadius: "var(--radius-sm)", marginBottom: "8px" }}>
+								⚠ LLM context truncated: {contextMeta.totalChars} chars → {contextMeta.maxChars.toLocaleString()} max
 							</div>
 						)}
 						{contextChunks.map((chunk, i) => (
@@ -767,7 +766,7 @@ ${context}`;
 									{chunk.code}
 								</pre>
 								{chunk.code.length > 500 && (
-									<span style={{ fontSize: "10px", color: "var(--text-muted)" }}>
+									<span style={{ fontSize: "10px", color: "var(--text-muted)", fontFamily: "var(--font-mono)" }}>
 										{chunk.code.length} chars
 									</span>
 								)}
@@ -797,6 +796,7 @@ function getStatusDotStyle(status: LLMStatus): React.CSSProperties {
 		width: "8px",
 		height: "8px",
 		borderRadius: "50%",
+		flexShrink: 0,
 		background:
 			status === "ready"
 				? "var(--success)"
@@ -818,18 +818,20 @@ const styles: Record<string, React.CSSProperties> = {
 	header: {
 		display: "flex",
 		alignItems: "center",
-		gap: "16px",
-		padding: "12px 24px",
-		borderBottom: "1px solid var(--border)",
+		gap: "12px",
+		padding: "10px 20px",
+		borderBottom: "2px solid var(--border)",
 		background: "var(--bg-secondary)",
 		position: "relative" as const,
 		zIndex: 10,
 	},
 	logo: {
-		fontWeight: 700,
+		fontWeight: 800,
 		fontSize: "16px",
 		color: "var(--accent)",
 		textDecoration: "none",
+		letterSpacing: "-0.02em",
+		fontFamily: "var(--font-display)",
 	},
 	repoName: {
 		display: "flex",
@@ -838,48 +840,61 @@ const styles: Record<string, React.CSSProperties> = {
 		flex: 1,
 		textDecoration: "none",
 		color: "inherit",
-		transition: "opacity 0.2s ease",
+		transition: "opacity 0.15s ease",
 		cursor: "pointer",
 	},
 	headerDivider: {
-		width: "1px",
+		width: "2px",
 		height: "20px",
 		background: "var(--border)",
-		margin: "0 12px",
+		margin: "0 4px",
 	},
-	ownerText: { color: "var(--text-secondary)", fontSize: "14px" },
+	ownerText: { color: "var(--text-secondary)", fontSize: "14px", fontWeight: 500 },
 	slash: { color: "var(--text-muted)", fontSize: "14px" },
-	repoText: { fontWeight: 600, fontSize: "14px" },
+	repoText: { fontWeight: 700, fontSize: "14px" },
 	headerActions: {
 		display: "flex",
 		alignItems: "center",
-		gap: "8px",
+		gap: "6px",
+		flexWrap: "wrap" as const,
+	},
+	statusPill: {
+		display: "inline-flex",
+		alignItems: "center",
+		gap: "6px",
+		padding: "4px 10px",
+		border: "2px solid var(--border)",
+		borderRadius: "var(--radius-sm)",
+		background: "var(--bg-card)",
 	},
 	statusText: {
 		fontSize: "12px",
 		color: "var(--text-secondary)",
-		minWidth: "60px",
+		minWidth: "56px",
+		fontFamily: "var(--font-mono)",
 	},
 	tokenBar: {
-		padding: "8px 24px",
-		borderBottom: "1px solid var(--border)",
+		padding: "8px 20px",
+		borderBottom: "2px solid var(--border)",
 		display: "flex",
 		gap: "8px",
+		background: "var(--bg-secondary)",
 	},
 	progressContainer: {
-		padding: "14px 24px",
+		padding: "12px 20px",
 		display: "flex",
 		flexDirection: "column",
 		gap: "8px",
 		background: "var(--bg-secondary)",
+		borderBottom: "2px solid var(--border)",
 	},
 	progressBar: {
-		height: "6px",
-		borderRadius: "3px",
+		height: "8px",
 	},
 	progressText: {
 		fontSize: "12px",
 		color: "var(--text-secondary)",
+		fontFamily: "var(--font-mono)",
 	},
 	content: {
 		display: "flex",
@@ -889,7 +904,7 @@ const styles: Record<string, React.CSSProperties> = {
 	astPanel: {
 		flex: 1,
 		overflow: "auto",
-		padding: "16px 24px",
+		padding: "16px 20px",
 	},
 	chatPanel: {
 		flex: 1,
@@ -920,13 +935,14 @@ const styles: Record<string, React.CSSProperties> = {
 	},
 	emptyStateIcon: {
 		fontSize: "40px",
-		opacity: 0.6,
+		opacity: 0.7,
 		lineHeight: 1,
 	},
 	emptyStateTitle: {
-		fontWeight: 600,
-		fontSize: "18px",
+		fontWeight: 800,
+		fontSize: "20px",
 		color: "var(--text-primary)",
+		fontFamily: "var(--font-display)",
 	},
 	emptyStateHint: {
 		color: "var(--text-muted)",
@@ -946,15 +962,15 @@ const styles: Record<string, React.CSSProperties> = {
 	chip: {
 		fontSize: "12px",
 		padding: "6px 14px",
-		borderRadius: "9999px",
+		borderRadius: "var(--radius-sm)",
 		whiteSpace: "nowrap" as const,
+		fontWeight: 500,
 	},
 	message: {
 		padding: "14px 18px",
 		borderRadius: "var(--radius)",
 		fontSize: "14px",
 		lineHeight: 1.65,
-		transition: "box-shadow 0.2s ease",
 	},
 	messageContent: {
 		fontFamily: "var(--font-sans)",
@@ -967,8 +983,8 @@ const styles: Record<string, React.CSSProperties> = {
 	inputBar: {
 		display: "flex",
 		gap: "12px",
-		padding: "16px 24px",
-		borderTop: "1px solid var(--border)",
+		padding: "14px 20px",
+		borderTop: "2px solid var(--border)",
 		background: "var(--bg-secondary)",
 		flexShrink: 0,
 		maxWidth: "900px",
@@ -976,41 +992,48 @@ const styles: Record<string, React.CSSProperties> = {
 		width: "100%",
 	},
 	chatInput: { flex: 1 },
-	sendBtn: { flexShrink: 0 },
+	sendBtn: {
+		flexShrink: 0,
+		fontFamily: "var(--font-display)",
+		fontWeight: 700,
+	},
 	browseDrawer: {
 		width: "480px",
 		minWidth: "400px",
 		overflow: "hidden",
 		padding: "20px",
-		borderLeft: "1px solid var(--border)",
+		borderLeft: "2px solid var(--border)",
 		display: "flex",
 		flexDirection: "column",
+		background: "var(--bg-card)",
 	},
 	contextDrawer: {
 		width: "360px",
 		minWidth: "280px",
 		overflow: "auto",
 		padding: "20px",
-		borderLeft: "1px solid var(--border)",
+		borderLeft: "2px solid var(--border)",
 		display: "flex",
 		flexDirection: "column",
-		gap: "16px",
+		gap: "14px",
+		background: "var(--bg-card)",
 	},
 	drawerTitle: {
-		fontSize: "13px",
-		fontWeight: 600,
+		fontSize: "12px",
+		fontWeight: 700,
 		color: "var(--text-muted)",
 		textTransform: "uppercase" as const,
-		letterSpacing: "0.05em",
+		letterSpacing: "0.08em",
+		fontFamily: "var(--font-display)",
 	},
 	contextItem: {
 		display: "flex",
 		flexDirection: "column",
 		gap: "8px",
 		padding: "12px",
-		background: "var(--bg-glass)",
-		borderRadius: "var(--radius-sm)",
-		border: "1px solid var(--border)",
+		background: "var(--bg-secondary)",
+		border: "2px solid var(--border)",
+		borderRadius: "var(--radius)",
 	},
 	contextMeta: {
 		display: "flex",
@@ -1021,9 +1044,11 @@ const styles: Record<string, React.CSSProperties> = {
 		fontSize: "12px",
 		fontFamily: "var(--font-mono)",
 		color: "var(--accent)",
+		fontWeight: 500,
 	},
 	score: {
 		fontSize: "11px",
 		color: "var(--text-muted)",
+		fontFamily: "var(--font-mono)",
 	},
 };

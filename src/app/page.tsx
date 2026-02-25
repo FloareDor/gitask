@@ -16,16 +16,20 @@ function NoWebGPUScreen() {
       padding: "24px",
       textAlign: "center" as const,
     }}>
-      <div className="glass" style={{
+      <div style={{
         maxWidth: "380px",
-        padding: "48px 40px",
+        padding: "40px 36px",
         display: "flex",
         flexDirection: "column" as const,
         alignItems: "center",
         gap: "16px",
+        background: "var(--bg-card)",
+        border: "2px solid var(--border)",
+        borderRadius: "var(--radius)",
+        boxShadow: "var(--shadow-brutal)",
       }}>
-        <span style={{ fontSize: "52px", lineHeight: 1 }}>💻</span>
-        <h2 style={{ fontSize: "22px", fontWeight: 700, letterSpacing: "-0.02em" }}>
+        <span style={{ fontSize: "48px", lineHeight: 1 }}>💻</span>
+        <h2 style={{ fontSize: "22px", fontWeight: 800, letterSpacing: "-0.02em", fontFamily: "var(--font-display)" }}>
           WebGPU not supported
         </h2>
         <p style={{ fontSize: "14px", color: "var(--text-secondary)", lineHeight: 1.65 }}>
@@ -82,7 +86,6 @@ export default function LandingPage() {
     e.preventDefault();
     setError("");
 
-    // Parse GitHub URL
     const match = url.match(
       /(?:https?:\/\/)?(?:www\.)?github\.com\/([^\/]+)\/([^\/\s]+)/
     );
@@ -108,15 +111,16 @@ export default function LandingPage() {
         <ModelSettings />
       </div>
 
-      {/* Gradient orbs for visual flair */}
-      <div style={styles.orbPurple} />
-      <div style={styles.orbBlue} />
+      {/* Decorative corner accent lines */}
+      <div style={styles.cornerTL} />
+      <div style={styles.cornerBR} />
 
       <main style={styles.main}>
         <div className="fade-in" style={styles.hero}>
+          {/* Badge */}
           <div style={styles.badge}>
             <span style={styles.badgeDot} className="pulse" />
-            Client-side • Free
+            Client-side · Free · No server
           </div>
 
           <h1 style={styles.title}>
@@ -125,32 +129,34 @@ export default function LandingPage() {
           </h1>
 
           <p style={styles.subtitle}>
-            Browser-native RAG. Embeddings, retrieval, and storage, all on-device
-            via WebGPU. No server. API keys encrypted locally.
+            Browser-native RAG. Embeddings, retrieval, and storage — all on-device
+            via WebGPU. API keys encrypted locally.
           </p>
 
-          <form
-            onSubmit={handleSubmit}
-            style={{
-              ...styles.form,
-              ...(isMobile && { flexDirection: "column" as const }),
-            }}
-          >
-            <input
-              className="input"
-              type="text"
-              placeholder="Paste a GitHub URL (e.g. https://github.com/facebook/react)"
-              value={url}
-              onChange={(e) => setUrl(e.target.value)}
-              style={styles.urlInput}
-              id="repo-url-input"
-            />
-            <button type="submit" className="btn btn-primary" id="go-btn">
-              Ask →
-            </button>
-          </form>
-
-          {error && <p style={styles.error}>{error}</p>}
+          {/* Search form */}
+          <div style={styles.formWrapper}>
+            <form
+              onSubmit={handleSubmit}
+              style={{
+                ...styles.form,
+                ...(isMobile && { flexDirection: "column" as const }),
+              }}
+            >
+              <input
+                className="input"
+                type="text"
+                placeholder="https://github.com/owner/repo"
+                value={url}
+                onChange={(e) => setUrl(e.target.value)}
+                style={styles.urlInput}
+                id="repo-url-input"
+              />
+              <button type="submit" className="btn btn-primary" id="go-btn" style={styles.goBtn}>
+                Ask →
+              </button>
+            </form>
+            {error && <p style={styles.error}>{error}</p>}
+          </div>
 
           <div style={styles.quickLinks}>
             <a href="/evals" style={styles.evalsLink} className="evals-link">
@@ -165,7 +171,7 @@ export default function LandingPage() {
               aria-label="Star GitAsk on GitHub"
               title="Open GitAsk on GitHub"
             >
-              <span style={styles.starIcon}>Star</span>
+              <span style={styles.starIcon}>★ Star</span>
               <img
                 alt="GitHub stars"
                 src="https://img.shields.io/github/stars/FloareDor/gitask?style=social"
@@ -174,6 +180,7 @@ export default function LandingPage() {
             </a>
           </div>
 
+          {/* Feature cards */}
           <div style={{
             ...styles.features,
             ...(isMobile && { gridTemplateColumns: "1fr" }),
@@ -191,7 +198,7 @@ export default function LandingPage() {
             ].map((f, i) => (
               <div
                 key={f.label}
-                className="glass"
+                className="feature-card"
                 style={{
                   ...styles.featureCard,
                   ...(!isMobile && { gridColumn: i < 3 ? "span 2" : "span 3" }),
@@ -204,6 +211,7 @@ export default function LandingPage() {
             ))}
           </div>
         </div>
+
         {/* Architecture Diagram Section */}
         <section
           ref={howSectionRef}
@@ -232,33 +240,35 @@ const styles: Record<string, React.CSSProperties> = {
     position: "relative",
     overflow: "hidden",
   },
-  orbPurple: {
+  /* Decorative corner lines — neobrutalism geometric accent */
+  cornerTL: {
     position: "absolute",
-    top: "-20%",
-    left: "-10%",
-    width: "600px",
-    height: "600px",
-    borderRadius: "50%",
-    background: "radial-gradient(circle, rgba(99,102,241,0.15) 0%, transparent 70%)",
-    filter: "blur(60px)",
+    top: 0,
+    left: 0,
+    width: "220px",
+    height: "220px",
+    borderRight: "2px solid #2d2d42",
+    borderBottom: "2px solid #2d2d42",
+    borderBottomRightRadius: "0",
     pointerEvents: "none",
+    opacity: 0.5,
   },
-  orbBlue: {
+  cornerBR: {
     position: "absolute",
-    bottom: "-20%",
-    right: "-10%",
-    width: "500px",
-    height: "500px",
-    borderRadius: "50%",
-    background: "radial-gradient(circle, rgba(59,130,246,0.12) 0%, transparent 70%)",
-    filter: "blur(60px)",
+    bottom: 0,
+    right: 0,
+    width: "220px",
+    height: "220px",
+    borderLeft: "2px solid #2d2d42",
+    borderTop: "2px solid #2d2d42",
     pointerEvents: "none",
+    opacity: 0.5,
   },
   main: {
     position: "relative",
     zIndex: 1,
     width: "100%",
-    maxWidth: "800px",
+    maxWidth: "820px",
     padding: "40px 24px",
     textAlign: "center",
   },
@@ -266,32 +276,36 @@ const styles: Record<string, React.CSSProperties> = {
     display: "flex",
     flexDirection: "column",
     alignItems: "center",
-    gap: "24px",
+    gap: "28px",
   },
   badge: {
     display: "inline-flex",
     alignItems: "center",
     gap: "8px",
     padding: "6px 16px",
-    borderRadius: "9999px",
+    borderRadius: "2px",
     fontSize: "12px",
-    fontWeight: 500,
+    fontWeight: 600,
+    letterSpacing: "0.04em",
+    textTransform: "uppercase" as const,
     color: "var(--text-secondary)",
-    background: "var(--bg-glass)",
-    border: "1px solid var(--border)",
+    background: "var(--bg-card)",
+    border: "2px solid var(--border)",
+    fontFamily: "var(--font-mono)",
   },
   badgeDot: {
-    width: "6px",
-    height: "6px",
+    width: "7px",
+    height: "7px",
     borderRadius: "50%",
     background: "var(--success)",
     display: "inline-block",
   },
   title: {
-    fontSize: "clamp(2rem, 5vw, 3.2rem)",
-    fontWeight: 700,
-    lineHeight: 1.15,
-    letterSpacing: "-0.02em",
+    fontSize: "clamp(2rem, 5vw, 3.4rem)",
+    fontWeight: 800,
+    lineHeight: 1.1,
+    letterSpacing: "-0.03em",
+    fontFamily: "var(--font-display)",
   },
   gradient: {
     background: "linear-gradient(135deg, var(--accent), #a78bfa, #60a5fa)",
@@ -301,18 +315,31 @@ const styles: Record<string, React.CSSProperties> = {
   subtitle: {
     fontSize: "16px",
     color: "var(--text-secondary)",
-    lineHeight: 1.6,
-    maxWidth: "560px",
+    lineHeight: 1.65,
+    maxWidth: "540px",
+  },
+  formWrapper: {
+    width: "100%",
+    maxWidth: "620px",
+    display: "flex",
+    flexDirection: "column" as const,
+    gap: "10px",
   },
   form: {
     display: "flex",
     gap: "12px",
     width: "100%",
-    maxWidth: "600px",
-    marginTop: "8px",
   },
   urlInput: {
     flex: 1,
+    fontSize: "15px",
+  },
+  goBtn: {
+    flexShrink: 0,
+    padding: "12px 24px",
+    fontSize: "15px",
+    fontFamily: "var(--font-display)",
+    fontWeight: 700,
   },
   settingsFixed: {
     position: "fixed",
@@ -323,41 +350,48 @@ const styles: Record<string, React.CSSProperties> = {
   error: {
     color: "var(--error)",
     fontSize: "13px",
+    textAlign: "left" as const,
+    fontFamily: "var(--font-mono)",
+    padding: "8px 12px",
+    background: "rgba(239,68,68,0.08)",
+    border: "2px solid rgba(239,68,68,0.3)",
+    borderRadius: "var(--radius-sm)",
   },
   evalsLink: {
     fontSize: "13px",
+    fontWeight: 600,
     color: "var(--text-secondary)",
     textDecoration: "none",
     padding: "8px 16px",
     borderRadius: "var(--radius-sm)",
-    border: "1px solid var(--border)",
-    transition: "all 0.2s ease",
-    background: "var(--bg-glass)",
+    border: "2px solid var(--border)",
+    transition: "all 0.1s ease",
+    background: "var(--bg-card)",
   },
   quickLinks: {
     display: "flex",
     alignItems: "center",
     gap: "10px",
-    flexWrap: "wrap",
+    flexWrap: "wrap" as const,
     justifyContent: "center",
   },
   starLink: {
     fontSize: "13px",
+    fontWeight: 600,
     color: "var(--text-primary)",
     textDecoration: "none",
     padding: "7px 12px",
     borderRadius: "var(--radius-sm)",
-    border: "1px solid var(--border)",
-    transition: "all 0.2s ease",
-    background: "var(--bg-glass)",
+    border: "2px solid var(--border)",
+    transition: "all 0.1s ease",
+    background: "var(--bg-card)",
     display: "inline-flex",
     alignItems: "center",
     gap: "8px",
   },
   starIcon: {
-    fontSize: "12px",
-    fontWeight: 600,
-    letterSpacing: "0.01em",
+    fontSize: "13px",
+    fontWeight: 700,
   },
   starBadge: {
     height: "20px",
@@ -369,15 +403,21 @@ const styles: Record<string, React.CSSProperties> = {
     gridTemplateColumns: "repeat(6, 1fr)",
     gap: "12px",
     width: "100%",
-    marginTop: "32px",
+    marginTop: "16px",
   },
   featureCard: {
     display: "flex",
-    flexDirection: "column",
+    flexDirection: "column" as const,
     alignItems: "center",
     gap: "6px",
-    padding: "20px 12px",
-    textAlign: "center",
+    padding: "20px 16px",
+    textAlign: "center" as const,
+    background: "var(--bg-card)",
+    border: "2px solid var(--border)",
+    borderRadius: "var(--radius)",
+    boxShadow: "3px 3px 0 var(--accent)",
+    transition: "transform 0.1s ease, box-shadow 0.1s ease, border-color 0.1s ease",
+    cursor: "default",
   },
   featureIcon: {
     fontSize: "22px",
@@ -386,30 +426,33 @@ const styles: Record<string, React.CSSProperties> = {
   },
   featureLabel: {
     fontSize: "13px",
-    fontWeight: 600,
+    fontWeight: 700,
+    fontFamily: "var(--font-display)",
   },
   featureDesc: {
     fontSize: "12px",
     color: "var(--text-secondary)",
+    lineHeight: 1.5,
   },
   howSection: {
     width: "100%",
-    marginTop: "128px",
+    marginTop: "120px",
     opacity: 0,
-    transform: "translateY(28px)",
-    transition: "opacity 0.55s ease, transform 0.55s ease",
+    transform: "translateY(24px)",
+    transition: "opacity 0.5s ease, transform 0.5s ease",
   },
   howSectionVisible: {
     opacity: 1,
     transform: "translateY(0)",
   },
   howHeader: {
-    textAlign: "center",
-    marginBottom: "24px",
+    textAlign: "center" as const,
+    marginBottom: "28px",
   },
   howTitle: {
     fontSize: "clamp(1.5rem, 2.4vw, 2rem)",
-    fontWeight: 700,
+    fontWeight: 800,
     letterSpacing: "-0.02em",
+    fontFamily: "var(--font-display)",
   },
 };

@@ -169,150 +169,117 @@ export function ModelSettings() {
 				onClick={() => setIsOpen(true)}
 				style={styles.settingsBtn}
 				aria-label="Model settings"
-				title={isGemini ? "Using Gemini Cloud" : "Using Local LLM"}
 			>
-				<span style={{ opacity: 0.8 }}>⚙</span> Settings
+				<span style={{
+					...styles.dot,
+					background: isGemini ? "#a78bfa" : "var(--success)",
+				}} />
+				{isGemini ? "gemini" : "local"}
 			</button>
 		);
 	}
 
 	return (
-		<div style={styles.overlay}>
-			<div style={styles.modal} className="glass">
-				<h2 style={styles.title}>Model Settings</h2>
-
-				<div style={styles.field}>
-					<label style={styles.label}>LLM Provider</label>
-					<div style={styles.toggleGroup}>
-						<button
-							style={{
-								...styles.toggleBtn,
-								...(config.provider === "mlc" ? styles.activeBtn : {}),
-							}}
-							onClick={() => setConfig({ ...config, provider: "mlc" })}
-						>
-							Local (MLC WebGPU)
-						</button>
-						<button
-							style={{
-								...styles.toggleBtn,
-								...(config.provider === "gemini" ? styles.activeBtn : {}),
-							}}
-							onClick={() => setConfig({ ...config, provider: "gemini" })}
-						>
-							Cloud (Gemini API)
-						</button>
-					</div>
-					<p style={styles.hint}>
-						{config.provider === "mlc"
-							? "Runs privately in your browser. Needs ~4GB VRAM. Downloads ~3GB model once."
-							: "Runs on Google Cloud using Gemini 2.5 Flash. Fast, no download required."}
-					</p>
+		<div style={styles.overlay} onClick={(e) => { if (e.target === e.currentTarget) setIsOpen(false); }}>
+			<div style={styles.modal}>
+				<div style={styles.modalTop}>
+					<span style={styles.modalTitle}>llm</span>
+					<button onClick={() => setIsOpen(false)} style={styles.closeBtn} aria-label="Close">✕</button>
 				</div>
 
+				{/* Provider toggle */}
+				<div style={styles.toggleRow}>
+					<button
+						style={{ ...styles.toggleBtn, ...(config.provider === "mlc" ? styles.toggleBtnActive : {}) }}
+						onClick={() => setConfig({ ...config, provider: "mlc" })}
+					>
+						local
+					</button>
+					<button
+						style={{ ...styles.toggleBtn, ...(config.provider === "gemini" ? styles.toggleBtnActive : {}) }}
+						onClick={() => setConfig({ ...config, provider: "gemini" })}
+					>
+						gemini
+					</button>
+				</div>
+				<p style={styles.hint}>
+					{config.provider === "mlc" ? (
+						<>runs in your browser via{" "}
+							<a href="https://github.com/mlc-ai/web-llm" target="_blank" rel="noopener noreferrer" style={{ color: "var(--accent)" }}>web-llm</a>
+							{" "}— needs ~4GB VRAM, downloads once</>
+					) : (
+						"google cloud, fast, no download — needs your API key"
+					)}
+				</p>
+
+				{/* Gemini key fields */}
 				{config.provider === "gemini" && (
 					<div style={styles.geminiSection}>
 						{hasDefaultKey && (
-							<p style={styles.hint}>
-								A shared key is available. Adding your own gives you higher rate limits and keeps your requests private.
-							</p>
+							<p style={styles.hint}>a shared key is set up. add your own for better rate limits.</p>
 						)}
 
 						{needsMigration && (
 							<div style={styles.field}>
-								<label style={styles.label}>
-									Migrate your existing API key (one-time)
-								</label>
+								<label style={styles.label}>secure your existing key</label>
 								<input
 									type="password"
-									placeholder="Enter passphrase (min 8 chars) to secure your key"
+									placeholder="passphrase (min 8 chars)"
 									value={migratePassphrase}
 									onChange={(e) => setMigratePassphrase(e.target.value)}
 									style={styles.input}
 								/>
-								<button
-									onClick={handleMigrate}
-									style={styles.saveBtn}
-									disabled={
-										reloading || migratePassphrase.length < 8
-									}
-								>
-									{reloading ? "Migrating..." : "Migrate & Save"}
+								<button onClick={handleMigrate} style={styles.saveBtn} disabled={reloading || migratePassphrase.length < 8}>
+									{reloading ? "saving..." : "migrate"}
 								</button>
 							</div>
 						)}
 
 						{!needsMigration && vaultState === "none" && (
 							<div style={styles.field}>
-								<label style={styles.label}>Add your API key (encrypted)</label>
-								<a
-									href="https://aistudio.google.com/app/apikey"
-									target="_blank"
-									rel="noopener noreferrer"
-									style={{ fontSize: 12, color: "var(--accent)", marginBottom: 4 }}
-								>
-									Get your Free Gemini API key →
+								<a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer" style={styles.accentLink}>
+									get a free API key →
 								</a>
 								<input
 									type="password"
-									placeholder="Paste your Gemini API Key"
+									placeholder="paste API key"
 									value={apiKeyInput}
 									onChange={(e) => setApiKeyInput(e.target.value)}
 									style={styles.input}
 								/>
-								{passkeySupported ? (
-									<p style={styles.hint}>
-										Secured with fingerprint / passkey
-									</p>
-								) : (
+								{!passkeySupported && (
 									<input
 										type="password"
-										placeholder="Passphrase (min 8 chars) to encrypt"
+										placeholder="passphrase to encrypt it (min 8 chars)"
 										value={passphraseInput}
 										onChange={(e) => setPassphraseInput(e.target.value)}
 										style={styles.input}
 									/>
 								)}
 								<p style={styles.hint}>
-									Encrypted in your browser. Never sent to our server.{" "}
-									<a
-										href="https://www.npmjs.com/package/byok-vault"
-										target="_blank"
-										rel="noopener noreferrer"
-										style={{ color: "var(--accent)", textDecoration: "none" }}
-									>
-										Secured by byok-vault
-									</a>
+									stays in your browser, secured by{" "}
+									<a href="https://www.npmjs.com/package/byok-vault" target="_blank" rel="noopener noreferrer" style={{ color: "var(--accent)" }}>byok-vault</a>
 								</p>
 							</div>
 						)}
 
 						{vaultState === "locked" && !needsMigration && (
 							<div style={styles.field}>
-								<label style={styles.label}>Unlock API key</label>
 								{isPasskeyEnrolled ? (
-									<button
-										onClick={handleUnlockWithPasskey}
-										style={styles.saveBtn}
-										disabled={reloading}
-									>
-										{reloading ? "Unlocking..." : "Unlock with fingerprint"}
+									<button onClick={handleUnlockWithPasskey} style={styles.saveBtn} disabled={reloading}>
+										{reloading ? "unlocking..." : "unlock with fingerprint"}
 									</button>
 								) : (
 									<>
 										<input
 											type="password"
-											placeholder="Enter passphrase"
+											placeholder="passphrase"
 											value={passphraseInput}
 											onChange={(e) => setPassphraseInput(e.target.value)}
 											style={styles.input}
 										/>
-										<button
-											onClick={handleUnlock}
-											style={styles.saveBtn}
-											disabled={reloading || passphraseInput.length < 8}
-										>
-											{reloading ? "Unlocking..." : "Unlock"}
+										<button onClick={handleUnlock} style={styles.saveBtn} disabled={reloading || passphraseInput.length < 8}>
+											{reloading ? "unlocking..." : "unlock"}
 										</button>
 									</>
 								)}
@@ -321,44 +288,22 @@ export function ModelSettings() {
 
 						{vaultState === "unlocked" && (
 							<div style={styles.field}>
-								<p style={{ ...styles.hint, color: "var(--success)" }}>
-									API key stored (encrypted)
-								</p>
+								<p style={{ ...styles.hint, color: "var(--success)" }}>key saved</p>
 								<div style={{ display: "flex", gap: 8 }}>
-									<button
-										onClick={handleLock}
-										style={styles.cancelBtn}
-									>
-										Lock
-									</button>
-									<button
-										onClick={handleResetKeys}
-										style={styles.cancelBtn}
-									>
-										Reset keys
-									</button>
+									<button onClick={handleLock} style={styles.cancelBtn}>lock</button>
+									<button onClick={handleResetKeys} style={styles.cancelBtn}>remove key</button>
 								</div>
 							</div>
 						)}
 					</div>
 				)}
 
-				{reloading && <div style={styles.status}>{statusMsg}</div>}
+				{reloading && <p style={styles.status}>{statusMsg}</p>}
 
 				<div style={styles.actions}>
-					<button
-						onClick={() => setIsOpen(false)}
-						style={styles.cancelBtn}
-						disabled={reloading}
-					>
-						Cancel
-					</button>
-					<button
-						onClick={handleSave}
-						style={styles.saveBtn}
-						disabled={reloading || !canSave}
-					>
-						{reloading ? "Saving & Reloading..." : "Save & Reload"}
+					<button onClick={() => setIsOpen(false)} style={styles.cancelBtn} disabled={reloading}>cancel</button>
+					<button onClick={handleSave} style={styles.saveBtn} disabled={reloading || !canSave}>
+						{reloading ? "saving..." : "save"}
 					</button>
 				</div>
 			</div>
@@ -368,128 +313,170 @@ export function ModelSettings() {
 
 const styles: Record<string, React.CSSProperties> = {
 	settingsBtn: {
-		// position: "fixed", // Removed for inline placement
-		// top: "20px",
-		// right: "20px",
-		background: "var(--bg-glass)",
-		border: "1px solid var(--border)",
-		padding: "8px 16px",
-		borderRadius: "20px",
+		display: "inline-flex",
+		alignItems: "center",
+		gap: "7px",
+		background: "var(--bg-card)",
+		border: "2px solid var(--border)",
+		borderRadius: "3px",
 		cursor: "pointer",
-		zIndex: 50,
+		padding: "6px 12px",
 		fontSize: "13px",
-		color: "var(--text)",
-		fontWeight: 500,
-		transition: "all 0.2s",
+		fontWeight: 600,
+		color: "var(--text-secondary)",
+		boxShadow: "2px 2px 0 var(--accent)",
+		transition: "transform 0.1s ease, box-shadow 0.1s ease",
+		fontFamily: "var(--font-sans)",
+	},
+	dot: {
+		width: "7px",
+		height: "7px",
+		borderRadius: "50%",
+		flexShrink: 0,
+		display: "inline-block",
 	},
 	overlay: {
 		position: "fixed",
-		top: 0,
-		left: 0,
-		right: 0,
-		bottom: 0,
-		background: "rgba(0,0,0,0.6)",
+		top: 0, left: 0, right: 0, bottom: 0,
+		background: "rgba(0,0,0,0.7)",
 		display: "flex",
 		alignItems: "center",
 		justifyContent: "center",
 		zIndex: 100,
-		backdropFilter: "blur(4px)",
 	},
 	modal: {
-		width: "400px",
-		maxWidth: "90%",
-		padding: "24px",
-		background: "#111",
-		borderRadius: "16px",
-		border: "1px solid var(--border)",
+		width: "380px",
+		maxWidth: "92vw",
+		background: "var(--bg-card)",
+		border: "2px solid var(--border)",
+		borderRadius: "4px",
+		boxShadow: "5px 5px 0 var(--accent)",
 		display: "flex",
 		flexDirection: "column",
-		gap: "20px",
+		gap: "16px",
+		padding: "20px",
 	},
-	title: {
-		fontSize: "20px",
+	modalTop: {
+		display: "flex",
+		alignItems: "center",
+		justifyContent: "space-between",
+	},
+	modalTitle: {
+		fontSize: "18px",
+		fontWeight: 800,
+		fontFamily: "var(--font-display)",
+		letterSpacing: "-0.01em",
+		color: "var(--text-primary)",
+	},
+	closeBtn: {
+		background: "transparent",
+		border: "2px solid var(--border)",
+		borderRadius: "2px",
+		color: "var(--text-muted)",
+		cursor: "pointer",
+		fontSize: "12px",
+		fontWeight: 700,
+		width: "28px",
+		height: "28px",
+		display: "flex",
+		alignItems: "center",
+		justifyContent: "center",
+		flexShrink: 0,
+	},
+	toggleRow: {
+		display: "flex",
+		border: "2px solid var(--border)",
+		borderRadius: "2px",
+		overflow: "hidden",
+	},
+	toggleBtn: {
+		flex: 1,
+		padding: "9px",
+		border: "none",
+		background: "transparent",
+		color: "var(--text-muted)",
+		cursor: "pointer",
+		fontSize: "13px",
 		fontWeight: 600,
+		fontFamily: "var(--font-sans)",
+		transition: "background 0.1s ease, color 0.1s ease",
+	},
+	toggleBtnActive: {
+		background: "var(--accent)",
+		color: "#fff",
+	},
+	hint: {
+		fontSize: "12px",
+		color: "var(--text-muted)",
 		margin: 0,
+		lineHeight: 1.5,
+	},
+	geminiSection: {
+		display: "flex",
+		flexDirection: "column",
+		gap: "10px",
+		paddingTop: "4px",
+		borderTop: "2px solid var(--border)",
 	},
 	field: {
 		display: "flex",
 		flexDirection: "column",
 		gap: "8px",
 	},
-	geminiSection: {
-		display: "flex",
-		flexDirection: "column",
-		gap: "16px",
-	},
 	label: {
-		fontSize: "14px",
-		fontWeight: 500,
+		fontSize: "12px",
+		fontWeight: 600,
 		color: "var(--text-secondary)",
 	},
-	toggleGroup: {
-		display: "flex",
-		gap: "8px",
-		background: "#222",
-		padding: "4px",
-		borderRadius: "8px",
-	},
-	toggleBtn: {
-		flex: 1,
-		padding: "8px",
-		borderRadius: "6px",
-		border: "none",
-		background: "transparent",
-		color: "#888",
-		cursor: "pointer",
-		fontSize: "13px",
-		fontWeight: 500,
-		transition: "all 0.2s",
-	},
-	activeBtn: {
-		background: "var(--accent)",
-		color: "#fff",
-	},
-	hint: {
+	accentLink: {
 		fontSize: "12px",
-		color: "#666",
-		margin: 0,
-		lineHeight: "1.4",
+		color: "var(--accent)",
+		textDecoration: "none",
 	},
 	input: {
 		width: "100%",
-		padding: "10px",
-		borderRadius: "8px",
-		border: "1px solid #333",
-		background: "#000",
-		color: "#fff",
-		fontSize: "14px",
+		padding: "9px 12px",
+		borderRadius: "2px",
+		border: "2px solid var(--border)",
+		background: "var(--bg-secondary)",
+		color: "var(--text-primary)",
+		fontSize: "13px",
+		fontFamily: "var(--font-sans)",
+		outline: "none",
 	},
 	status: {
-		fontSize: "13px",
+		fontSize: "12px",
 		color: "var(--accent)",
-		textAlign: "center",
+		margin: 0,
 	},
 	actions: {
 		display: "flex",
 		justifyContent: "flex-end",
-		gap: "12px",
-		marginTop: "8px",
+		gap: "8px",
+		paddingTop: "4px",
+		borderTop: "2px solid var(--border)",
 	},
 	cancelBtn: {
 		background: "transparent",
-		border: "none",
-		color: "#888",
+		border: "2px solid var(--border)",
+		borderRadius: "2px",
+		color: "var(--text-secondary)",
 		cursor: "pointer",
-		fontSize: "14px",
+		fontSize: "13px",
+		fontWeight: 600,
+		padding: "7px 14px",
+		fontFamily: "var(--font-sans)",
 	},
 	saveBtn: {
 		background: "var(--accent)",
 		color: "white",
-		border: "none",
-		padding: "8px 16px",
-		borderRadius: "8px",
+		border: "2px solid var(--accent)",
+		borderRadius: "2px",
+		padding: "7px 16px",
 		cursor: "pointer",
-		fontSize: "14px",
-		fontWeight: 500,
+		fontSize: "13px",
+		fontWeight: 700,
+		fontFamily: "var(--font-sans)",
+		boxShadow: "2px 2px 0 rgba(0,0,0,0.4)",
 	},
 };
