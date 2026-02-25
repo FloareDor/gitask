@@ -24,7 +24,6 @@ export function ModelSettings() {
 	const [apiKeyInput, setApiKeyInput] = useState("");
 	const [passphraseInput, setPassphraseInput] = useState("");
 	const [migratePassphrase, setMigratePassphrase] = useState("");
-	const [usePasskey, setUsePasskey] = useState(false);
 
 	const vault = getGeminiVault();
 	const vaultState = vault?.getState() ?? "none";
@@ -43,7 +42,6 @@ export function ModelSettings() {
 		setApiKeyInput("");
 		setPassphraseInput("");
 		setMigratePassphrase("");
-		setUsePasskey(passkeySupported ?? false);
 	}, [isOpen]);
 
 	const canSave =
@@ -51,7 +49,7 @@ export function ModelSettings() {
 		hasDefaultKey ||
 		canUseVault ||
 		(apiKeyInput.trim() &&
-			(usePasskey || passphraseInput.length >= 8));
+			(passkeySupported || passphraseInput.length >= 8));
 
 	const handleMigrate = async () => {
 		if (!config.apiKey || migratePassphrase.length < 8 || !vault) return;
@@ -135,7 +133,7 @@ export function ModelSettings() {
 				apiKeyInput.trim() &&
 				vault
 			) {
-				if (usePasskey) {
+				if (passkeySupported) {
 					await vault.setConfigWithPasskey(
 						{ apiKey: apiKeyInput.trim(), provider: "gemini" },
 						{ rpName: "GitAsk", userName: "user" }
@@ -258,29 +256,11 @@ export function ModelSettings() {
 									onChange={(e) => setApiKeyInput(e.target.value)}
 									style={styles.input}
 								/>
-								{passkeySupported && (
-									<div style={styles.toggleGroup}>
-										<button
-											style={{
-												...styles.toggleBtn,
-												...(!usePasskey ? styles.activeBtn : {}),
-											}}
-											onClick={() => setUsePasskey(false)}
-										>
-											Passphrase
-										</button>
-										<button
-											style={{
-												...styles.toggleBtn,
-												...(usePasskey ? styles.activeBtn : {}),
-											}}
-											onClick={() => setUsePasskey(true)}
-										>
-											Fingerprint / Passkey
-										</button>
-									</div>
-								)}
-								{!usePasskey && (
+								{passkeySupported ? (
+									<p style={styles.hint}>
+										Secured with fingerprint / passkey
+									</p>
+								) : (
 									<input
 										type="password"
 										placeholder="Passphrase (min 8 chars) to encrypt"
