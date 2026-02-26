@@ -15,6 +15,7 @@ export interface AblationResultEntry {
 		keywordSearch: boolean;
 		rrfFusion: boolean;
 		cosineRerank: boolean;
+		queryExpansion?: boolean;
 	};
 }
 
@@ -25,7 +26,7 @@ export const ABLATION_RESULTS: AblationResultEntry[] = [
 			"Binary quantization (Hamming) → Keyword search → RRF fusion → Cosine reranking",
 		avgRecallAt5: 1.0,
 		avgMRR: 1.0,
-		avgLatencyUs: 522,
+		avgLatencyUs: 1860,
 		features: {
 			binaryQuantization: true,
 			keywordSearch: true,
@@ -39,7 +40,7 @@ export const ABLATION_RESULTS: AblationResultEntry[] = [
 			"Full cosine vector search (float32) → Keyword search → RRF fusion → Cosine reranking",
 		avgRecallAt5: 1.0,
 		avgMRR: 1.0,
-		avgLatencyUs: 290,
+		avgLatencyUs: 1837,
 		features: {
 			binaryQuantization: false,
 			keywordSearch: true,
@@ -53,7 +54,7 @@ export const ABLATION_RESULTS: AblationResultEntry[] = [
 			"Binary quantization (Hamming) → Cosine reranking only (no keyword, no RRF)",
 		avgRecallAt5: 1.0,
 		avgMRR: 1.0,
-		avgLatencyUs: 242,
+		avgLatencyUs: 1824,
 		features: {
 			binaryQuantization: true,
 			keywordSearch: false,
@@ -67,12 +68,27 @@ export const ABLATION_RESULTS: AblationResultEntry[] = [
 			"Binary quantization (Hamming) → Keyword search → RRF fusion → RRF-order output (no cosine reranking)",
 		avgRecallAt5: 0.967,
 		avgMRR: 0.867,
-		avgLatencyUs: 325,
+		avgLatencyUs: 1814,
 		features: {
 			binaryQuantization: true,
 			keywordSearch: true,
 			rrfFusion: true,
 			cosineRerank: false,
+		},
+	},
+	{
+		config: "CodeRAG Multi-Path",
+		description:
+			"Query expansion → per-variant hybrid search → path-level RRF → preference reranking (cosine)",
+		avgRecallAt5: 1.0,
+		avgMRR: 1.0,
+		avgLatencyUs: 2914,
+		features: {
+			binaryQuantization: true,
+			keywordSearch: true,
+			rrfFusion: true,
+			cosineRerank: true,
+			queryExpansion: true,
 		},
 	},
 ];

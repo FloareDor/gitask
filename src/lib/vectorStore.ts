@@ -26,6 +26,16 @@ export interface PartialProgress {
 	textChunkCounts?: Record<string, number>;
 	fileChunkRanges?: [string, { start: number; end: number }][];
 	dependencyGraph?: Record<string, { imports: string[]; definitions: string[] }>;
+	directoryStats?: Record<string, {
+		fileCount: number;
+		totalChars: number;
+		files: Array<{
+			path: string;
+			charCount: number;
+			chunkCount: number;
+			hasLargeFileSummary: boolean;
+		}>;
+	}>;
 	lastProcessedFileIndex?: number;
 	embeddedSoFar?: EmbeddedChunk[];
 }
