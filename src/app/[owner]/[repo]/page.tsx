@@ -304,21 +304,33 @@ export default function RepoPage({
 			);
 
 			const config = getLLMConfig();
-			const MAX_CONTEXT_CHARS = config.provider === "gemini" ? Infinity : 24_000;
+			const MAX_CONTEXT_CHARS = config.provider === "gemini" ? 300_000 : 24_000;
+			const MAX_CONTEXT_EST_TOKENS = config.provider === "gemini" ? 75_000 : 6_000;
 			const rawContext = results
 				.map((r) => `### ${r.chunk.filePath} (score: ${r.score.toFixed(3)})\n\`\`\`\n${r.chunk.code}\n\`\`\``)
 				.join("\n\n");
-			const contextTruncated = rawContext.length > MAX_CONTEXT_CHARS;
+			const estimatedTokens = Math.ceil(rawContext.length / 4);
+			const contextTruncated =
+				rawContext.length > MAX_CONTEXT_CHARS ||
+				estimatedTokens > MAX_CONTEXT_EST_TOKENS;
 			const context = contextTruncated
-				? rawContext.slice(0, MAX_CONTEXT_CHARS) + "\n...(truncated)"
+				? rawContext.slice(0, MAX_CONTEXT_CHARS) +
+				`\n...(truncated: estimated ${estimatedTokens.toLocaleString()} tokens)`
 				: rawContext;
 			setContextMeta({ truncated: contextTruncated, totalChars: rawContext.length, maxChars: MAX_CONTEXT_CHARS });
 
 			const personality = config.provider === "gemini"
-				? "Answer like a senior engineer: direct, human, simple English. Use correct technical terms but no fluff or filler phrases. Cite file paths naturally. If the context does not cover the question, say so plainly."
+				? "Answer as a direct, helpful code assistant: direct, human, simple English. Use correct technical terms but no fluff or filler phrases. Cite file paths naturally. If the context does not cover the question, say so plainly."
 				: "Be concise. Cite file paths when relevant. Say if the context does not cover the question.";
 
 			const systemPrompt = `You are GitAsk, a code assistant for the ${owner}/${repo} repository. ${personality}
+
+Epistemic contract:
+- Only put facts in "Known" when explicitly supported by context.
+- Put plausible interpretations in "Inferred".
+- Put missing coverage or uncertainty in "Unknown".
+- If the context is sampled or summarized, do not imply full-file coverage.
+- Include evidence pointers as file paths and line ranges or sample labels when possible.
 
 Code context:
 ${context}`;
