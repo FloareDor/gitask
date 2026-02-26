@@ -12,10 +12,15 @@ import {
 	prioritiseFiles,
 } from "./github";
 import { chunkCode, chunkFromTree, type CodeChunk } from "./chunker";
-import { detectLanguage } from "./chunker";
+import { CHUNKING_LIMITS, detectLanguage } from "./chunker";
 import { embedChunks, initEmbedder, type EmbeddedChunk } from "./embedder";
 import { VectorStore } from "./vectorStore";
 import { extractDependencies, extractSymbolsFromTree } from "./graph";
+import {
+	createDirectorySummaryChunks,
+	updateDirectoryStats,
+	type DirectoryStatsMap,
+} from "./directorySummary";
 
 export interface AstNode {
 	filePath: string;
@@ -54,6 +59,12 @@ export class IndexAbortError extends Error {
 function checkAborted(signal?: AbortSignal): void {
 	if (signal?.aborted) throw new IndexAbortError();
 }
+
+const DIRECTORY_SUMMARY_LIMITS = {
+	maxFilesPerDir: 120,
+	maxCharsPerDir: 400_000,
+	maxSummaryChars: CHUNKING_LIMITS.MAX_CHUNK_CHARS,
+} as const;
 
 /**
  * Index an entire repository.
@@ -131,6 +142,7 @@ export async function indexRepository(
 	let textChunkCounts: Record<string, number>;
 	let fileChunkRanges: Map<string, { start: number; end: number }>;
 	let dependencyGraph: Record<string, { imports: string[]; definitions: string[] }>;
+	let directoryStats: DirectoryStatsMap;
 	let startFileIndex: number;
 
 	if (partial?.phase === "embedding" && partial.allChunks && partial.embeddedSoFar != null) {
@@ -140,6 +152,7 @@ export async function indexRepository(
 		textChunkCounts = partial.textChunkCounts ?? {};
 		fileChunkRanges = new Map(partial.fileChunkRanges ?? []);
 		dependencyGraph = partial.dependencyGraph ?? {};
+		directoryStats = partial.directoryStats ?? {};
 		startFileIndex = totalFiles; // Skip chunking
 	} else if (partial?.phase === "chunking" && partial.allChunks && partial.indexablePaths && partial.lastProcessedFileIndex != null) {
 		// Resume chunking
@@ -148,6 +161,7 @@ export async function indexRepository(
 		textChunkCounts = partial.textChunkCounts ?? {};
 		fileChunkRanges = new Map(partial.fileChunkRanges ?? []);
 		dependencyGraph = partial.dependencyGraph ?? {};
+		directoryStats = partial.directoryStats ?? {};
 		startFileIndex = partial.lastProcessedFileIndex + 1;
 	} else {
 		// Fresh start
@@ -156,6 +170,7 @@ export async function indexRepository(
 		textChunkCounts = {};
 		fileChunkRanges = new Map();
 		dependencyGraph = {};
+		directoryStats = {};
 		startFileIndex = 0;
 	}
 
@@ -230,6 +245,13 @@ export async function indexRepository(
 
 			fileChunkRanges.set(file.path, { start: chunkStart, end: chunkEnd });
 			textChunkCounts[file.path] = chunks.length;
+			updateDirectoryStats(
+				directoryStats,
+				file.path,
+				content.length,
+				chunks.length,
+				chunks.some((chunk) => chunk.nodeType === "file_summary")
+			);
 		} catch {
 			// Skip files that fail to fetch
 			console.warn(`Skipped ${file.path}`);
@@ -257,11 +279,20 @@ export async function indexRepository(
 			textChunkCounts: { ...textChunkCounts },
 			fileChunkRanges: [...fileChunkRanges.entries()],
 			dependencyGraph: { ...dependencyGraph },
+			directoryStats: { ...directoryStats },
 			lastProcessedFileIndex: i,
 		});
 	}
 
 	checkAborted(signal);
+
+	const directorySummaryChunks = createDirectorySummaryChunks(
+		directoryStats,
+		DIRECTORY_SUMMARY_LIMITS
+	);
+	if (directorySummaryChunks.length > 0) {
+		allChunks.push(...directorySummaryChunks);
+	}
 
 	// 6. Embed chunks (or resume from embeddedSoFar)
 	const embeddedSoFar: EmbeddedChunk[] = partial?.phase === "embedding" && partial.embeddedSoFar
@@ -280,6 +311,7 @@ export async function indexRepository(
 		textChunkCounts: { ...textChunkCounts },
 		fileChunkRanges: [...fileChunkRanges.entries()],
 		dependencyGraph: { ...dependencyGraph },
+		directoryStats: { ...directoryStats },
 		embeddedSoFar: [...embeddedSoFar],
 	});
 
@@ -353,6 +385,7 @@ export async function indexRepository(
 					textChunkCounts: { ...textChunkCounts },
 					fileChunkRanges: [...fileChunkRanges.entries()],
 					dependencyGraph: { ...dependencyGraph },
+					directoryStats: { ...directoryStats },
 					embeddedSoFar: soFar,
 				}).catch(console.warn);
 			}

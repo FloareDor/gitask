@@ -4,7 +4,7 @@
  */
 
 import { describe, it, expect } from "vitest";
-import { chunkByText, chunkCode, detectLanguage } from "./chunker";
+import { CHUNKING_LIMITS, chunkByText, chunkCode, detectLanguage } from "./chunker";
 
 describe("detectLanguage", () => {
 	it("detects JavaScript", () => {
@@ -52,6 +52,15 @@ describe("chunkByText", () => {
 		const chunks = chunkByText("empty.txt", "");
 		expect(chunks.length).toBe(0);
 	});
+
+	it("never emits oversized chunks for huge single-line text", () => {
+		const huge = "x".repeat(CHUNKING_LIMITS.MAX_CHUNK_CHARS * 2 + 123);
+		const chunks = chunkByText("huge.txt", huge);
+		expect(chunks.length).toBeGreaterThan(1);
+		for (const chunk of chunks) {
+			expect(chunk.code.length).toBeLessThanOrEqual(CHUNKING_LIMITS.MAX_CHUNK_CHARS);
+		}
+	});
 });
 
 describe("chunkCode", () => {
@@ -74,5 +83,21 @@ describe("chunkCode", () => {
 		// IDs should be unique
 		const ids = new Set(chunks.map((c) => c.id));
 		expect(ids.size).toBe(chunks.length);
+	});
+
+	it("summarizes oversized json files with bounded samples", () => {
+		const vocab = Array.from({ length: 5_000 }, (_, i) => `tok_${i}`);
+		const json = JSON.stringify(vocab);
+		const chunks = chunkCode("assets/vocab.json", json);
+
+		expect(chunks.length).toBe(1);
+		expect(chunks[0].nodeType).toBe("file_summary");
+		expect(chunks[0].code).toContain("[LARGE_FILE_SUMMARY]");
+		expect(chunks[0].code).toContain("known:");
+		expect(chunks[0].code).toContain("inferred:");
+		expect(chunks[0].code).toContain("unknown:");
+		expect(chunks[0].code).toContain("evidence:");
+		expect(chunks[0].code).toContain("\"head\"");
+		expect(chunks[0].code.length).toBeLessThanOrEqual(CHUNKING_LIMITS.MAX_CHUNK_CHARS);
 	});
 });

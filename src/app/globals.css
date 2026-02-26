@@ -269,6 +269,13 @@ html, body {
   border-color: var(--border-accent);
 }
 
+.evals-back:hover {
+  color: var(--text-primary);
+  border-color: var(--border-accent);
+  box-shadow: var(--shadow-brutal-sm);
+  transform: translate(-1px, -1px);
+}
+
 /* Logo hover */
 header a[href="/"] {
   transition: opacity 0.15s ease;

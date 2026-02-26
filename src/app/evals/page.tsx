@@ -13,7 +13,7 @@ export default function EvalsPage() {
 		<div style={styles.page}>
 			<div style={styles.container}>
 				{/* Nav */}
-				<a href="/" style={styles.back}>← back</a>
+				<a href="/" style={styles.back} className="evals-back">← back</a>
 
 				{/* Title */}
 				<h1 style={styles.h1}>Ablation Study</h1>
@@ -71,6 +71,7 @@ export default function EvalsPage() {
 									<th style={styles.thC}>Keyword</th>
 									<th style={styles.thC}>RRF</th>
 									<th style={styles.thC}>Rerank</th>
+									<th style={styles.thC}>Multi-Path</th>
 								</tr>
 							</thead>
 							<tbody>
@@ -104,6 +105,7 @@ export default function EvalsPage() {
 											<td style={styles.tdC}>{r.features.keywordSearch ? "✓" : "—"}</td>
 											<td style={styles.tdC}>{r.features.rrfFusion ? "✓" : "—"}</td>
 											<td style={styles.tdC}>{r.features.cosineRerank ? "✓" : "—"}</td>
+											<td style={styles.tdC}>{r.features.queryExpansion ? "✓" : "—"}</td>
 										</tr>
 									);
 								})}
@@ -180,12 +182,13 @@ export default function EvalsPage() {
 						<li><strong>Reranking matters most.</strong> Only config that hurts quality. Don't skip it.</li>
 						<li><strong>Quantization is free accuracy.</strong> 32× less storage, same recall.</li>
 						<li><strong>Hybrid search is cheap insurance.</strong> Catches exact symbol names vectors miss.</li>
+						<li><strong>CodeRAG multi-path matches the full pipeline</strong> in recall but costs ~57% more latency — worth it for hard queries.</li>
 						<li><strong>CoVe helps on hard questions.</strong> Adds 2–4s latency. Best as opt-in.</li>
 					</ul>
 				</section>
 
 				<footer style={styles.footer}>
-					GitAsk · 30 chunks · 15 queries · Vitest · Feb 2026
+					GitAsk · 30 chunks · 15 queries · 5 configs · Vitest · Feb 2026
 				</footer>
 			</div>
 		</div>
@@ -201,16 +204,16 @@ function Bar({ label, value, max, unit, fmt, bad }: {
 	const display = fmt ? fmt(value) : `${value.toFixed(value >= 100 ? 0 : 1)}${unit}`;
 	return (
 		<div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-			<span style={{ fontSize: "11px", color: "var(--text-secondary)", width: "90px", flexShrink: 0 }}>{label}</span>
-			<div style={{ flex: 1, height: "6px", borderRadius: "3px", background: "var(--bg-secondary)", overflow: "hidden" }}>
+			<span style={{ fontSize: "11px", color: "var(--text-secondary)", width: "90px", flexShrink: 0, fontFamily: "var(--font-mono)" }}>{label}</span>
+			<div style={{ flex: 1, height: "8px", borderRadius: 0, background: "var(--bg-secondary)", border: "2px solid var(--border)", overflow: "hidden" }}>
 				<div style={{
-					height: "100%", borderRadius: "3px",
+					height: "100%", borderRadius: 0,
 					width: `${(value / max) * 100}%`,
 					background: bad ? "var(--error)" : "var(--accent)",
 					transition: "width 0.4s ease",
 				}} />
 			</div>
-			<span style={{ fontSize: "12px", fontFamily: "var(--font-mono)", width: "55px", textAlign: "right" as const, color: bad ? "var(--error)" : "var(--text-primary)" }}>
+			<span style={{ fontSize: "12px", fontFamily: "var(--font-mono)", width: "55px", textAlign: "right" as const, color: bad ? "var(--error)" : "var(--text-primary)", fontWeight: 600 }}>
 				{display}
 			</span>
 		</div>
@@ -230,20 +233,31 @@ const styles: Record<string, React.CSSProperties> = {
 		gap: "36px",
 	},
 	back: {
+		alignSelf: "flex-start" as const,
 		fontSize: "13px",
-		color: "var(--text-muted)",
+		fontWeight: 600,
+		color: "var(--text-secondary)",
 		textDecoration: "none",
+		padding: "7px 14px",
+		border: "2px solid var(--border)",
+		borderRadius: "var(--radius-sm)",
+		background: "var(--bg-card)",
+		fontFamily: "var(--font-display)",
+		boxShadow: "2px 2px 0 var(--bg-secondary)",
+		transition: "all 0.1s ease",
 	},
 	h1: {
 		fontSize: "28px",
-		fontWeight: 700,
-		letterSpacing: "-0.02em",
+		fontWeight: 800,
+		letterSpacing: "-0.03em",
 		marginTop: "-20px",
+		fontFamily: "var(--font-display)",
 	},
 	lead: {
 		fontSize: "15px",
 		color: "var(--text-secondary)",
 		marginTop: "-24px",
+		lineHeight: 1.6,
 	},
 	section: {
 		display: "flex",
@@ -252,15 +266,20 @@ const styles: Record<string, React.CSSProperties> = {
 	},
 	h2: {
 		fontSize: "16px",
-		fontWeight: 600,
-		borderBottom: "1px solid var(--border)",
+		fontWeight: 700,
+		borderBottom: "2px solid var(--border)",
 		paddingBottom: "8px",
+		fontFamily: "var(--font-display)",
+		letterSpacing: "-0.01em",
 	},
 	h3: {
 		fontSize: "13px",
-		fontWeight: 600,
+		fontWeight: 700,
 		color: "var(--text-secondary)",
 		marginBottom: "4px",
+		fontFamily: "var(--font-display)",
+		letterSpacing: "0.02em",
+		textTransform: "uppercase" as const,
 	},
 	muted: {
 		fontSize: "13px",
@@ -277,10 +296,14 @@ const styles: Record<string, React.CSSProperties> = {
 	metricCard: {
 		display: "flex",
 		flexDirection: "column",
-		gap: "2px",
-		paddingLeft: "12px",
-		borderLeft: "2px solid var(--border)",
+		gap: "4px",
+		padding: "12px 14px",
+		border: "2px solid var(--border)",
+		borderLeft: "3px solid var(--accent)",
+		borderRadius: "var(--radius)",
+		background: "var(--bg-card)",
 		fontSize: "13px",
+		boxShadow: "3px 3px 0 var(--bg-secondary)",
 	},
 
 	// Table
@@ -289,60 +312,72 @@ const styles: Record<string, React.CSSProperties> = {
 		width: "100%",
 		borderCollapse: "collapse" as const,
 		fontSize: "13px",
+		border: "2px solid var(--border)",
 	},
 	th: {
 		textAlign: "left" as const,
 		padding: "8px 10px",
 		borderBottom: "2px solid var(--border)",
 		color: "var(--text-muted)",
-		fontSize: "11px",
+		fontSize: "10px",
 		textTransform: "uppercase" as const,
-		letterSpacing: "0.04em",
-		fontWeight: 500,
+		letterSpacing: "0.08em",
+		fontWeight: 700,
+		fontFamily: "var(--font-mono)",
+		background: "var(--bg-secondary)",
 	},
 	thR: {
 		textAlign: "right" as const,
 		padding: "8px 10px",
 		borderBottom: "2px solid var(--border)",
 		color: "var(--text-muted)",
-		fontSize: "11px",
+		fontSize: "10px",
 		textTransform: "uppercase" as const,
-		letterSpacing: "0.04em",
-		fontWeight: 500,
+		letterSpacing: "0.08em",
+		fontWeight: 700,
+		fontFamily: "var(--font-mono)",
+		background: "var(--bg-secondary)",
 	},
 	thC: {
 		textAlign: "center" as const,
 		padding: "8px 10px",
 		borderBottom: "2px solid var(--border)",
 		color: "var(--text-muted)",
-		fontSize: "11px",
+		fontSize: "10px",
 		textTransform: "uppercase" as const,
-		letterSpacing: "0.04em",
-		fontWeight: 500,
+		letterSpacing: "0.08em",
+		fontWeight: 700,
+		fontFamily: "var(--font-mono)",
+		background: "var(--bg-secondary)",
 	},
-	td: { padding: "10px 10px" },
+	td: { padding: "10px 10px", borderBottom: "1px solid var(--border)" },
 	tdR: {
 		padding: "10px 10px",
 		textAlign: "right" as const,
 		fontFamily: "var(--font-mono)",
 		fontWeight: 600,
 		fontSize: "13px",
+		borderBottom: "1px solid var(--border)",
 	},
 	tdC: {
 		padding: "10px 10px",
 		textAlign: "center" as const,
 		color: "var(--text-muted)",
+		fontFamily: "var(--font-mono)",
+		borderBottom: "1px solid var(--border)",
 	},
 	tag: {
 		fontSize: "9px",
-		padding: "1px 5px",
-		borderRadius: "3px",
+		padding: "2px 6px",
+		borderRadius: "2px",
 		background: "var(--accent)",
 		color: "white",
-		fontWeight: 600,
+		fontWeight: 700,
 		textTransform: "uppercase" as const,
 		marginRight: "6px",
 		verticalAlign: "middle",
+		fontFamily: "var(--font-mono)",
+		letterSpacing: "0.06em",
 	},
 
 	// Bars
@@ -354,7 +389,12 @@ const styles: Record<string, React.CSSProperties> = {
 	barGroup: {
 		display: "flex",
 		flexDirection: "column",
-		gap: "8px",
+		gap: "10px",
+		padding: "16px",
+		border: "2px solid var(--border)",
+		borderRadius: "var(--radius)",
+		background: "var(--bg-card)",
+		boxShadow: "3px 3px 0 var(--bg-secondary)",
 	},
 
 	// Storage
@@ -365,48 +405,54 @@ const styles: Record<string, React.CSSProperties> = {
 		flexWrap: "wrap" as const,
 	},
 	storageBox: {
-		padding: "14px 20px",
-		borderRadius: "var(--radius-sm)",
-		border: "1px solid var(--border)",
-		background: "var(--bg-secondary)",
+		padding: "16px 24px",
+		border: "2px solid var(--border)",
+		borderRadius: "var(--radius)",
+		background: "var(--bg-card)",
+		boxShadow: "3px 3px 0 var(--bg-secondary)",
 		display: "flex",
 		flexDirection: "column",
 		alignItems: "center",
 		gap: "2px",
 	},
 	bigNum: {
-		fontSize: "24px",
-		fontWeight: 700,
+		fontSize: "26px",
+		fontWeight: 800,
 		fontFamily: "var(--font-mono)",
+		letterSpacing: "-0.02em",
 	},
 	arrow: {
 		fontSize: "20px",
-		color: "var(--text-muted)",
+		color: "var(--accent)",
+		fontWeight: 700,
 	},
 	compressionTag: {
 		fontSize: "12px",
-		fontWeight: 600,
+		fontWeight: 700,
 		color: "var(--success)",
-		padding: "3px 8px",
-		borderRadius: "4px",
-		border: "1px solid rgba(34,197,94,0.3)",
+		padding: "4px 10px",
+		borderRadius: "2px",
+		border: "2px solid rgba(34,197,94,0.4)",
 		background: "rgba(34,197,94,0.08)",
+		fontFamily: "var(--font-mono)",
+		boxShadow: "2px 2px 0 rgba(34,197,94,0.2)",
 	},
 
 	// CoVe
 	coveGrid: {
 		display: "grid",
 		gridTemplateColumns: "1fr 1fr",
-		gap: "10px",
+		gap: "12px",
 	},
 	coveItem: {
 		display: "flex",
 		flexDirection: "column",
-		gap: "4px",
-		padding: "12px",
-		borderRadius: "var(--radius-sm)",
-		background: "var(--bg-secondary)",
-		border: "1px solid var(--border)",
+		gap: "6px",
+		padding: "14px",
+		border: "2px solid var(--border)",
+		borderRadius: "var(--radius)",
+		background: "var(--bg-card)",
+		boxShadow: "3px 3px 0 var(--bg-secondary)",
 	},
 
 	// Bottom line
@@ -422,10 +468,11 @@ const styles: Record<string, React.CSSProperties> = {
 	},
 
 	footer: {
-		textAlign: "center",
+		textAlign: "center" as const,
 		fontSize: "11px",
 		color: "var(--text-muted)",
 		paddingTop: "12px",
-		borderTop: "1px solid var(--border)",
+		borderTop: "2px solid var(--border)",
+		fontFamily: "var(--font-mono)",
 	},
 };
