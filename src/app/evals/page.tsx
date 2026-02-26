@@ -71,6 +71,7 @@ export default function EvalsPage() {
 									<th style={styles.thC}>Keyword</th>
 									<th style={styles.thC}>RRF</th>
 									<th style={styles.thC}>Rerank</th>
+									<th style={styles.thC}>Multi-Path</th>
 								</tr>
 							</thead>
 							<tbody>
@@ -104,6 +105,7 @@ export default function EvalsPage() {
 											<td style={styles.tdC}>{r.features.keywordSearch ? "✓" : "—"}</td>
 											<td style={styles.tdC}>{r.features.rrfFusion ? "✓" : "—"}</td>
 											<td style={styles.tdC}>{r.features.cosineRerank ? "✓" : "—"}</td>
+											<td style={styles.tdC}>{r.features.queryExpansion ? "✓" : "—"}</td>
 										</tr>
 									);
 								})}
@@ -180,12 +182,13 @@ export default function EvalsPage() {
 						<li><strong>Reranking matters most.</strong> Only config that hurts quality. Don't skip it.</li>
 						<li><strong>Quantization is free accuracy.</strong> 32× less storage, same recall.</li>
 						<li><strong>Hybrid search is cheap insurance.</strong> Catches exact symbol names vectors miss.</li>
+						<li><strong>CodeRAG multi-path matches the full pipeline</strong> in recall but costs ~57% more latency — worth it for hard queries.</li>
 						<li><strong>CoVe helps on hard questions.</strong> Adds 2–4s latency. Best as opt-in.</li>
 					</ul>
 				</section>
 
 				<footer style={styles.footer}>
-					GitAsk · 30 chunks · 15 queries · Vitest · Feb 2026
+					GitAsk · 30 chunks · 15 queries · 5 configs · Vitest · Feb 2026
 				</footer>
 			</div>
 		</div>
