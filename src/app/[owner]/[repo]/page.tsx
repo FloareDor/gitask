@@ -6,6 +6,7 @@ import { indexRepository, IndexAbortError, type IndexProgress, type AstNode } fr
 import { VectorStore } from "@/lib/vectorStore";
 import { multiPathHybridSearch } from "@/lib/search";
 import { expandQuery } from "@/lib/queryExpansion";
+import { buildScopedContext, defaultLimitsForProvider } from "@/lib/contextAssembly";
 import { initLLM, generate, getLLMStatus, getLLMConfig, onStatusChange, type LLMStatus, type ChatMessage } from "@/lib/llm";
 import { verifyAndRefine } from "@/lib/cove";
 import AstTreeView from "@/components/AstTreeView";
@@ -22,6 +23,7 @@ interface ContextChunk {
 	filePath: string;
 	code: string;
 	score: number;
+	nodeType: string;
 }
 
 export default function RepoPage({
@@ -41,7 +43,14 @@ export default function RepoPage({
 	const [input, setInput] = useState("");
 	const [isGenerating, setIsGenerating] = useState(false);
 	const [contextChunks, setContextChunks] = useState<ContextChunk[]>([]);
-	const [contextMeta, setContextMeta] = useState<{ truncated: boolean; totalChars: number; maxChars: number } | null>(null);
+	const [contextMeta, setContextMeta] = useState<{
+		truncated: boolean;
+		totalChars: number;
+		maxChars: number;
+		estimatedTokens: number;
+		maxTokens: number;
+		compactionStage: "none" | "file" | "directory" | "repo" | "truncated";
+	} | null>(null);
 	const [showContext, setShowContext] = useState(false);
 	const [showBrowse, setShowBrowse] = useState(false);
 	const [token, setToken] = useState("");
@@ -300,24 +309,18 @@ export default function RepoPage({
 					filePath: r.chunk.filePath,
 					code: r.chunk.code,
 					score: r.score,
+					nodeType: r.chunk.nodeType,
 				}))
 			);
 
 			const config = getLLMConfig();
-			const MAX_CONTEXT_CHARS = config.provider === "gemini" ? 300_000 : 24_000;
-			const MAX_CONTEXT_EST_TOKENS = config.provider === "gemini" ? 75_000 : 6_000;
-			const rawContext = results
-				.map((r) => `### ${r.chunk.filePath} (score: ${r.score.toFixed(3)})\n\`\`\`\n${r.chunk.code}\n\`\`\``)
-				.join("\n\n");
-			const estimatedTokens = Math.ceil(rawContext.length / 4);
-			const contextTruncated =
-				rawContext.length > MAX_CONTEXT_CHARS ||
-				estimatedTokens > MAX_CONTEXT_EST_TOKENS;
-			const context = contextTruncated
-				? rawContext.slice(0, MAX_CONTEXT_CHARS) +
-				`\n...(truncated: estimated ${estimatedTokens.toLocaleString()} tokens)`
-				: rawContext;
-			setContextMeta({ truncated: contextTruncated, totalChars: rawContext.length, maxChars: MAX_CONTEXT_CHARS });
+			const limits = defaultLimitsForProvider(config.provider);
+			const assembled = buildScopedContext(
+				results.map((r) => ({ chunk: r.chunk, score: r.score })),
+				limits
+			);
+			const context = assembled.context;
+			setContextMeta(assembled.meta);
 
 			const personality = config.provider === "gemini"
 				? "Answer as a direct, helpful code assistant: direct, human, simple English. Use correct technical terms but no fluff or filler phrases. Cite file paths naturally. If the context does not cover the question, say so plainly."
@@ -761,9 +764,9 @@ ${context}`;
 						<p style={{ fontSize: "11px", color: "var(--text-muted)", marginBottom: "8px", fontFamily: "var(--font-mono)" }}>
 							Top results from hybrid search
 						</p>
-						{contextMeta?.truncated && (
+						{contextMeta && contextMeta.compactionStage !== "none" && (
 							<div style={{ fontSize: "11px", color: "var(--warning)", background: "rgba(245,158,11,0.08)", padding: "8px 10px", border: "2px solid rgba(245,158,11,0.3)", borderRadius: "var(--radius-sm)", marginBottom: "8px" }}>
-								⚠ LLM context truncated: {contextMeta.totalChars} chars → {contextMeta.maxChars.toLocaleString()} max
+								⚠ LLM context compacted ({contextMeta.compactionStage}): {contextMeta.totalChars} chars / ~{contextMeta.estimatedTokens.toLocaleString()} tokens → {contextMeta.maxChars.toLocaleString()} chars / {contextMeta.maxTokens.toLocaleString()} token budget
 							</div>
 						)}
 						{contextChunks.map((chunk, i) => (
