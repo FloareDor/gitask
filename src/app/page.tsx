@@ -10,10 +10,12 @@ import { useRouter } from "next/navigation";
 const CHAT_STORAGE_PREFIX = "gitask-chat-";
 
 interface SavedChatEntry {
-  key: string;
+  id: string;
+  storageKey: string;
   owner: string;
   repo: string;
-  chatCount: number;
+  chatId: string | null;
+  messageCount: number;
   lastUpdated: number;
   label: string;
 }
@@ -27,11 +29,11 @@ function buildChatLabel(messages: Array<{ role?: string; content?: string }>, fa
   return compact.length > 36 ? `${compact.slice(0, 36)}...` : compact;
 }
 
-function parseSavedChatEntry(key: string, raw: string): SavedChatEntry | null {
-  if (!key.startsWith(CHAT_STORAGE_PREFIX)) return null;
+function parseSavedChatEntries(key: string, raw: string): SavedChatEntry[] {
+  if (!key.startsWith(CHAT_STORAGE_PREFIX)) return [];
   const repoPath = key.slice(CHAT_STORAGE_PREFIX.length);
   const slashIndex = repoPath.indexOf("/");
-  if (slashIndex <= 0 || slashIndex >= repoPath.length - 1) return null;
+  if (slashIndex <= 0 || slashIndex >= repoPath.length - 1) return [];
 
   const owner = repoPath.slice(0, slashIndex);
   const repo = repoPath.slice(slashIndex + 1);
@@ -52,40 +54,43 @@ function parseSavedChatEntry(key: string, raw: string): SavedChatEntry | null {
     // Legacy format: Message[]
     if (Array.isArray(parsed)) {
       const messages = parsed;
-      if (messages.length === 0) return null;
-      return {
-        key,
-        owner,
-        repo,
-        chatCount: 1,
-        lastUpdated: 0,
-        label: buildChatLabel(messages, "Chat 1"),
-      };
+      if (messages.length === 0) return [];
+      return [
+        {
+          id: `${key}::legacy`,
+          storageKey: key,
+          owner,
+          repo,
+          chatId: null,
+          messageCount: messages.length,
+          lastUpdated: 0,
+          label: buildChatLabel(messages, "Chat 1"),
+        },
+      ];
     }
 
-    if (!parsed || !Array.isArray(parsed.sessions) || parsed.sessions.length === 0) return null;
-    const sessions = parsed.sessions.filter((session) => Array.isArray(session.messages) && session.messages.length > 0);
-    if (sessions.length === 0) return null;
-
-    const active = sessions.find((session) => session.chat_id === parsed.activeChatId) ?? sessions[0];
-    const activeMessages = Array.isArray(active.messages) ? active.messages : [];
-    const lastUpdated = sessions.reduce((maxTs, session) => {
-      const ts = typeof session.updatedAt === "number" ? session.updatedAt : 0;
-      return Math.max(maxTs, ts);
-    }, 0);
-
-    return {
-      key,
-      owner,
-      repo,
-      chatCount: sessions.length,
-      lastUpdated,
-      label: typeof active.title === "string" && active.title.trim().length > 0
-        ? active.title
-        : buildChatLabel(activeMessages, "Recent chat"),
-    };
+    if (!parsed || !Array.isArray(parsed.sessions) || parsed.sessions.length === 0) return [];
+    return parsed.sessions
+      .filter((session) => session && typeof session.chat_id === "string")
+      .map((session, index) => {
+        const messages = Array.isArray(session.messages) ? session.messages : [];
+        const fallbackTitle = `Chat ${index + 1}`;
+        const label = typeof session.title === "string" && session.title.trim().length > 0
+          ? session.title
+          : buildChatLabel(messages, fallbackTitle);
+        return {
+          id: `${key}::${session.chat_id}`,
+          storageKey: key,
+          owner,
+          repo,
+          chatId: session.chat_id ?? null,
+          messageCount: messages.length,
+          lastUpdated: typeof session.updatedAt === "number" ? session.updatedAt : 0,
+          label,
+        };
+      });
   } catch {
-    return null;
+    return [];
   }
 }
 
@@ -142,8 +147,7 @@ export default function LandingPage() {
       if (!key.startsWith(CHAT_STORAGE_PREFIX)) continue;
       const raw = localStorage.getItem(key);
       if (!raw) continue;
-      const parsed = parseSavedChatEntry(key, raw);
-      if (parsed) entries.push(parsed);
+      entries.push(...parseSavedChatEntries(key, raw));
     }
 
     entries.sort((a, b) => {
@@ -235,15 +239,76 @@ export default function LandingPage() {
     router.push(`/${owner}/${repo}`);
   }
 
-  function handleOpenSavedChat(owner: string, repo: string) {
-    router.push(`/${owner}/${repo}`);
+  function handleOpenSavedChat(chat: SavedChatEntry) {
+    if (typeof window !== "undefined" && chat.chatId) {
+      try {
+        const raw = localStorage.getItem(chat.storageKey);
+        if (raw) {
+          const parsed = JSON.parse(raw) as { activeChatId?: string; sessions?: unknown[] };
+          if (parsed && Array.isArray(parsed.sessions)) {
+            localStorage.setItem(
+              chat.storageKey,
+              JSON.stringify({
+                ...parsed,
+                activeChatId: chat.chatId,
+              })
+            );
+          }
+        }
+      } catch {
+        // Ignore storage parse/write failures and continue routing.
+      }
+    }
+    router.push(`/${chat.owner}/${chat.repo}`);
   }
 
-  function handleDeleteSavedChat(storageKey: string) {
+  function handleDeleteSavedChat(chat: SavedChatEntry) {
     if (typeof window !== "undefined") {
       const confirmed = window.confirm("Delete local chats for this repository?");
       if (!confirmed) return;
-      localStorage.removeItem(storageKey);
+      if (!chat.chatId) {
+        localStorage.removeItem(chat.storageKey);
+        loadSavedChats();
+        return;
+      }
+      try {
+        const raw = localStorage.getItem(chat.storageKey);
+        if (!raw) {
+          loadSavedChats();
+          return;
+        }
+        const parsed = JSON.parse(raw) as {
+          activeChatId?: string;
+          sessions?: Array<{
+            chat_id?: string;
+            title?: string;
+            updatedAt?: number;
+            messages?: Array<{ role?: string; content?: string }>;
+          }>;
+        };
+        if (!parsed || !Array.isArray(parsed.sessions)) {
+          localStorage.removeItem(chat.storageKey);
+          loadSavedChats();
+          return;
+        }
+        const nextSessions = parsed.sessions.filter((session) => session.chat_id !== chat.chatId);
+        if (nextSessions.length === 0) {
+          localStorage.removeItem(chat.storageKey);
+        } else {
+          const nextActive = nextSessions.some((session) => session.chat_id === parsed.activeChatId)
+            ? parsed.activeChatId
+            : nextSessions[0].chat_id;
+          localStorage.setItem(
+            chat.storageKey,
+            JSON.stringify({
+              activeChatId: nextActive,
+              sessions: nextSessions,
+            })
+          );
+        }
+      } catch {
+        localStorage.removeItem(chat.storageKey);
+      }
       loadSavedChats();
     }
   }
@@ -253,8 +318,9 @@ export default function LandingPage() {
     if (typeof window !== "undefined") {
       const confirmed = window.confirm("Delete all local chats across repositories?");
       if (!confirmed) return;
-      for (const entry of savedChats) {
-        localStorage.removeItem(entry.key);
+      const keys = new Set(savedChats.map((entry) => entry.storageKey));
+      for (const key of keys) {
+        localStorage.removeItem(key);
       }
       setSavedChats([]);
     }
@@ -355,24 +421,24 @@ export default function LandingPage() {
               </div>
               <div style={styles.savedChatsList}>
                 {savedChats.map((chat) => (
-                  <div key={chat.key} style={styles.savedChatRow}>
+                  <div key={chat.id} style={styles.savedChatRow}>
                     <button
                       type="button"
                       className="btn btn-ghost"
                       style={styles.savedChatOpenBtn}
-                      onClick={() => handleOpenSavedChat(chat.owner, chat.repo)}
+                      onClick={() => handleOpenSavedChat(chat)}
                       title={`Open ${chat.owner}/${chat.repo}`}
                     >
                       {chat.owner}/{chat.repo}
                     </button>
                     <span style={styles.savedChatMeta}>
-                      {chat.chatCount} chat{chat.chatCount === 1 ? "" : "s"} · {chat.label}
+                      {chat.label} · {chat.messageCount} msg{chat.messageCount === 1 ? "" : "s"}
                     </span>
                     <button
                       type="button"
                       className="btn btn-ghost"
                       style={styles.savedChatDeleteBtn}
-                      onClick={() => handleDeleteSavedChat(chat.key)}
+                      onClick={() => handleDeleteSavedChat(chat)}
                       title="Delete local chats for this repo"
                     >
                       Delete
