@@ -148,7 +148,7 @@ export default function LandingPage() {
           </h1>
 
           <p style={styles.subtitle}>
-            Browser-native RAG. Embeddings, retrieval, and storage — all on-device
+            Browser-native RAG. Embeddings, retrieval, and storage. All on-device
             via WebGPU. API keys encrypted locally.
           </p>
 
