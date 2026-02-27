@@ -244,14 +244,13 @@ export default function RepoPage({
 		if (!chatLoadedRef.current || !activeChatId) return;
 		const active = chatSessions.find((session) => session.chat_id === activeChatId);
 		const nextMessages = active?.messages ?? [];
-		if (!areMessagesEqual(messages, nextMessages)) {
-			setMessages(nextMessages);
-		}
-	}, [chatSessions, activeChatId, messages]);
+		setMessages((prev) => (areMessagesEqual(prev, nextMessages) ? prev : nextMessages));
+	}, [chatSessions, activeChatId]);
 
 	// Persist visible messages to the active chat.
 	useEffect(() => {
-		if (!chatLoadedRef.current || !activeChatId) return;
+		// Avoid per-token session rewrites while streaming; persist once generation settles.
+		if (!chatLoadedRef.current || !activeChatId || isGenerating) return;
 		const trimmed = messages.slice(-50);
 		setChatSessions((prev) => {
 			let changed = false;
@@ -271,7 +270,7 @@ export default function RepoPage({
 			});
 			return changed ? next : prev;
 		});
-	}, [messages, activeChatId]);
+	}, [messages, activeChatId, isGenerating]);
 
 	// Persist all chats for this repo.
 	useEffect(() => {
@@ -291,8 +290,8 @@ export default function RepoPage({
 
 	// Auto-scroll chat
 	useEffect(() => {
-		chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
-	}, [messages]);
+		chatEndRef.current?.scrollIntoView({ behavior: isGenerating ? "auto" : "smooth" });
+	}, [messages, isGenerating]);
 
 	// Listen for visibility change — show toast when user returns after indexing completed in background
 	useEffect(() => {
@@ -920,9 +919,13 @@ ${context}`;
 								className="chat-message"
 							>
 								{msg.role === "assistant" ? (
-									<div style={{ ...styles.messageContent, whiteSpace: "normal" }} className="chat-markdown">
-										<ReactMarkdown>{msg.content || (isGenerating && i === messages.length - 1 ? "Thinking…" : "")}</ReactMarkdown>
-									</div>
+									isGenerating && i === messages.length - 1 ? (
+										<pre style={styles.messageContent}>{msg.content || "Thinking..."}</pre>
+									) : (
+										<div style={{ ...styles.messageContent, whiteSpace: "normal" }} className="chat-markdown">
+											<ReactMarkdown>{msg.content}</ReactMarkdown>
+										</div>
+									)
 								) : (
 									<pre style={styles.messageContent}>{msg.content}</pre>
 								)}
