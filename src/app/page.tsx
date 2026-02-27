@@ -159,8 +159,8 @@ export default function LandingPage() {
           </div>
 
           <div style={styles.quickLinks}>
-            <a href="/evals" style={styles.evalsLink} className="evals-link">
-              Evals
+            <a href="/ablation" style={styles.evalsLink} className="evals-link">
+              Ablation
             </a>
             <a
               href={projectRepoUrl}
