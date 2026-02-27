@@ -285,12 +285,15 @@ export default function RepoPage({
 		try {
 			await storeRef.current.clearCache(owner, repo);
 			storeRef.current.clear();
+			if (chatStorageKey) {
+				try { localStorage.removeItem(chatStorageKey); } catch { }
+			}
 			router.push("/");
 		} catch (err) {
 			console.error("Failed to delete embeddings:", err);
 			setToastMessage("Failed to delete embeddings.");
 		}
-	}, [owner, repo, router]);
+	}, [owner, repo, router, chatStorageKey]);
 
 	const handleSend = useCallback(async (overrideText?: string) => {
 		const userMessage = (overrideText ?? input).trim();
