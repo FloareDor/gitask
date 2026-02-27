@@ -20,6 +20,22 @@ export interface TreeResponse {
 	truncated: boolean;
 }
 
+async function readGitHubErrorMessage(res: Response): Promise<string> {
+	try {
+		const data = await res.json();
+		if (data && typeof data.message === "string" && data.message.trim().length > 0) {
+			return data.message;
+		}
+	} catch {
+		// Ignore JSON parsing failures and fall back to status text.
+	}
+	return res.statusText || "Unknown GitHub API error";
+}
+
+function privateRepoGuidance(owner: string, repo: string): string {
+	return `Repository "${owner}/${repo}" was not found. It may be private. Add a GitHub Personal Access Token in "GH Token" (with repository read access) and try again, or verify the owner/repo name.`;
+}
+
 function headers(token?: string): HeadersInit {
 	const h: Record<string, string> = {
 		Accept: "application/vnd.github.v3+json",
@@ -41,7 +57,23 @@ export async function fetchRepoTree(
 	const repoRes = await fetch(`${API_BASE}/repos/${owner}/${repo}`, {
 		headers: headers(token),
 	});
-	if (!repoRes.ok) throw new Error(`GitHub API error: ${repoRes.status} ${repoRes.statusText}`);
+	if (!repoRes.ok) {
+		const details = await readGitHubErrorMessage(repoRes);
+		if (repoRes.status === 404) {
+			throw new Error(privateRepoGuidance(owner, repo));
+		}
+		if (repoRes.status === 401) {
+			throw new Error(
+				`GitHub token was rejected (401). Update your token in "GH Token" and try again.`
+			);
+		}
+		if (repoRes.status === 403) {
+			throw new Error(
+				`GitHub API access was denied or rate-limited (403). Add a personal token in "GH Token" and try again.`
+			);
+		}
+		throw new Error(`GitHub API error (${repoRes.status}): ${details}`);
+	}
 	const repoData = await repoRes.json();
 	const defaultBranch: string = repoData.default_branch;
 
@@ -50,7 +82,23 @@ export async function fetchRepoTree(
 		`${API_BASE}/repos/${owner}/${repo}/git/trees/${defaultBranch}?recursive=1`,
 		{ headers: headers(token) }
 	);
-	if (!treeRes.ok) throw new Error(`GitHub Tree API error: ${treeRes.status}`);
+	if (!treeRes.ok) {
+		const details = await readGitHubErrorMessage(treeRes);
+		if (treeRes.status === 404) {
+			throw new Error(privateRepoGuidance(owner, repo));
+		}
+		if (treeRes.status === 401) {
+			throw new Error(
+				`GitHub token was rejected while reading repository tree (401). Update your token in "GH Token" and try again.`
+			);
+		}
+		if (treeRes.status === 403) {
+			throw new Error(
+				`GitHub blocked tree access (403), often due to rate limits or missing permissions. Add a personal token in "GH Token" and try again.`
+			);
+		}
+		throw new Error(`GitHub Tree API error (${treeRes.status}): ${details}`);
+	}
 	const treeData = await treeRes.json();
 
 	const files: RepoFile[] = (treeData.tree as any[])

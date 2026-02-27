@@ -26,6 +26,57 @@ interface ContextChunk {
 	nodeType: string;
 }
 
+interface ChatSession {
+	chat_id: string;
+	title: string;
+	messages: Message[];
+	updatedAt: number;
+}
+
+function makeChatId(): string {
+	return `chat_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function makeNewChat(label = "New Chat"): ChatSession {
+	return {
+		chat_id: makeChatId(),
+		title: label,
+		messages: [],
+		updatedAt: Date.now(),
+	};
+}
+
+function areMessagesEqual(a: Message[], b: Message[]): boolean {
+	if (a.length !== b.length) return false;
+	for (let i = 0; i < a.length; i++) {
+		if (a[i].role !== b[i].role || a[i].content !== b[i].content) return false;
+	}
+	return true;
+}
+
+function deriveChatTitle(messages: Message[], fallback: string): string {
+	const firstUserMessage = messages.find(
+		(msg) => msg.role === "user" && msg.content.trim().length > 0
+	);
+	if (!firstUserMessage) return fallback;
+	const compact = firstUserMessage.content.trim().replace(/\s+/g, " ");
+	return compact.length > 40 ? `${compact.slice(0, 40)}...` : compact;
+}
+
+function shouldSuggestGitHubToken(errorMessage: string): boolean {
+	const message = errorMessage.toLowerCase();
+	return (
+		message.includes("private") ||
+		message.includes("not found") ||
+		message.includes("token") ||
+		message.includes("rate limit") ||
+		message.includes("denied") ||
+		message.includes("permission") ||
+		message.includes("403") ||
+		message.includes("401")
+	);
+}
+
 export default function RepoPage({
 	params,
 }: {
@@ -39,6 +90,8 @@ export default function RepoPage({
 	const [isIndexed, setIsIndexed] = useState(false);
 	const [llmStatus, setLlmStatus] = useState<LLMStatus>("idle");
 	const [messages, setMessages] = useState<Message[]>([]);
+	const [chatSessions, setChatSessions] = useState<ChatSession[]>([]);
+	const [activeChatId, setActiveChatId] = useState<string | null>(null);
 	const chatStorageKey = owner && repo ? `gitask-chat-${owner}/${repo}` : null;
 	const [input, setInput] = useState("");
 	const [isGenerating, setIsGenerating] = useState(false);
@@ -67,6 +120,8 @@ export default function RepoPage({
 	const completedWhileHiddenRef = useRef(false);
 	const indexStartTimeRef = useRef<number | null>(null);
 	const overflowRef = useRef<HTMLDivElement>(null);
+	const chatLoadedRef = useRef(false);
+	const pendingChatSwitchRef = useRef<string | null>(null);
 
 	const storeRef = useRef(new VectorStore());
 	const chatEndRef = useRef<HTMLDivElement>(null);
@@ -110,37 +165,148 @@ export default function RepoPage({
 		}
 	}, [coveEnabled]);
 
-	// Load chat history from localStorage
+	// Load per-repo chat sessions from localStorage.
+	// Supports migration from legacy Message[] format.
 	useEffect(() => {
+		chatLoadedRef.current = false;
+		setMessages([]);
+		setChatSessions([]);
+		setActiveChatId(null);
+
 		if (!chatStorageKey) return;
+
 		try {
 			const saved = localStorage.getItem(chatStorageKey);
 			if (saved) {
-				const parsed = JSON.parse(saved) as Message[];
-				if (Array.isArray(parsed) && parsed.length > 0) {
-					setMessages(parsed);
+				const parsed = JSON.parse(saved) as
+					| Message[]
+					| { sessions?: ChatSession[]; activeChatId?: string };
+
+				// Legacy format: plain Message[] for one chat.
+				if (Array.isArray(parsed)) {
+					const legacyMessages = parsed.slice(-50);
+					const migrated = makeNewChat("Chat 1");
+					migrated.messages = legacyMessages;
+					migrated.title = deriveChatTitle(legacyMessages, "Chat 1");
+					setChatSessions([migrated]);
+					pendingChatSwitchRef.current = migrated.chat_id;
+					setActiveChatId(migrated.chat_id);
+					setMessages(legacyMessages);
+					chatLoadedRef.current = true;
+					return;
+				}
+
+				// New format: { sessions, activeChatId }
+				if (parsed && Array.isArray(parsed.sessions) && parsed.sessions.length > 0) {
+					const sessions = parsed.sessions
+						.filter((session) => session && typeof session.chat_id === "string")
+						.map((session, index) => {
+							const safeMessages = Array.isArray(session.messages)
+								? session.messages.slice(-50)
+								: [];
+							const fallbackTitle = `Chat ${index + 1}`;
+							return {
+								chat_id: session.chat_id,
+								title: typeof session.title === "string"
+									? session.title
+									: deriveChatTitle(safeMessages, fallbackTitle),
+								messages: safeMessages,
+								updatedAt: typeof session.updatedAt === "number"
+									? session.updatedAt
+									: Date.now(),
+							};
+						});
+
+					if (sessions.length > 0) {
+						const selectedId = sessions.some((session) => session.chat_id === parsed.activeChatId)
+							? (parsed.activeChatId as string)
+							: sessions[0].chat_id;
+						const selected = sessions.find((session) => session.chat_id === selectedId);
+						setChatSessions(sessions);
+						pendingChatSwitchRef.current = selectedId;
+						setActiveChatId(selectedId);
+						setMessages(selected?.messages ?? []);
+						chatLoadedRef.current = true;
+						return;
+					}
 				}
 			}
 		} catch {
 			// Ignore corrupted data
 		}
+
+		const fresh = makeNewChat("Chat 1");
+		setChatSessions([fresh]);
+		pendingChatSwitchRef.current = fresh.chat_id;
+		setActiveChatId(fresh.chat_id);
+		setMessages([]);
+		chatLoadedRef.current = true;
 	}, [chatStorageKey]);
 
-	// Save chat history to localStorage (capped at 50 messages)
+	// Keep visible messages aligned with active chat.
 	useEffect(() => {
-		if (!chatStorageKey || messages.length === 0) return;
+		if (!chatLoadedRef.current || !activeChatId) return;
+		const active = chatSessions.find((session) => session.chat_id === activeChatId);
+		const nextMessages = active?.messages ?? [];
+		setMessages((prev) => (areMessagesEqual(prev, nextMessages) ? prev : nextMessages));
+	}, [chatSessions, activeChatId]);
+
+	// Persist visible messages to the active chat.
+	useEffect(() => {
+		// Avoid per-token session rewrites while streaming; persist once generation settles.
+		if (!chatLoadedRef.current || !activeChatId || isGenerating) return;
+
+		// Skip one persist cycle when switching chats so we never write stale messages into the target chat.
+		if (pendingChatSwitchRef.current === activeChatId) {
+			const active = chatSessions.find((session) => session.chat_id === activeChatId);
+			const activeMessages = active?.messages ?? [];
+			if (areMessagesEqual(messages, activeMessages)) {
+				pendingChatSwitchRef.current = null;
+			}
+			return;
+		}
+
+		const trimmed = messages.slice(-50);
+		setChatSessions((prev) => {
+			let changed = false;
+			const next = prev.map((session) => {
+				if (session.chat_id !== activeChatId) return session;
+				const nextTitle = deriveChatTitle(trimmed, session.title || "New Chat");
+				if (areMessagesEqual(session.messages, trimmed) && session.title === nextTitle) {
+					return session;
+				}
+				changed = true;
+				return {
+					...session,
+					title: nextTitle,
+					messages: trimmed,
+					updatedAt: Date.now(),
+				};
+			});
+			return changed ? next : prev;
+		});
+	}, [messages, activeChatId, isGenerating, chatSessions]);
+
+	// Persist all chats for this repo.
+	useEffect(() => {
+		if (!chatStorageKey || !chatLoadedRef.current || chatSessions.length === 0) return;
 		try {
-			const toSave = messages.slice(-50);
-			localStorage.setItem(chatStorageKey, JSON.stringify(toSave));
+			localStorage.setItem(
+				chatStorageKey,
+				JSON.stringify({
+					activeChatId,
+					sessions: chatSessions,
+				})
+			);
 		} catch {
 			// Storage full or unavailable — silently skip
 		}
-	}, [messages, chatStorageKey]);
+	}, [chatStorageKey, chatSessions, activeChatId]);
 
 	// Auto-scroll chat
 	useEffect(() => {
-		chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
-	}, [messages]);
+		chatEndRef.current?.scrollIntoView({ behavior: isGenerating ? "auto" : "smooth" });
+	}, [messages, isGenerating]);
 
 	// Listen for visibility change — show toast when user returns after indexing completed in background
 	useEffect(() => {
@@ -233,9 +399,13 @@ export default function RepoPage({
 				}).catch(console.error);
 			} catch (err) {
 				if (err instanceof IndexAbortError || aborted) return;
+				const errorMessage = err instanceof Error ? err.message : String(err);
+				if (shouldSuggestGitHubToken(errorMessage)) {
+					safeSetState(setShowTokenInput, true);
+				}
 				safeSetState(setIndexProgress, {
 					phase: "done",
-					message: `Error: ${err instanceof Error ? err.message : String(err)}`,
+					message: `Error: ${errorMessage}`,
 					current: 0,
 					total: 0,
 				});
@@ -255,11 +425,95 @@ export default function RepoPage({
 	}, []);
 
 	const handleClearChat = useCallback(() => {
+		if (!activeChatId) return;
 		setMessages([]);
-		if (chatStorageKey) {
-			try { localStorage.removeItem(chatStorageKey); } catch { }
+		setChatSessions((prev) =>
+			prev.map((session) =>
+				session.chat_id === activeChatId
+					? {
+						...session,
+						messages: [],
+						title: "Chat 1",
+						updatedAt: Date.now(),
+					}
+					: session
+			)
+		);
+		setContextChunks([]);
+		setContextMeta(null);
+		setToastMessage("Chat cleared.");
+	}, [activeChatId]);
+
+	const handleCreateChat = useCallback(() => {
+		const fresh = makeNewChat(`Chat ${chatSessions.length + 1}`);
+		setChatSessions((prev) => [fresh, ...prev]);
+		pendingChatSwitchRef.current = fresh.chat_id;
+		setActiveChatId(fresh.chat_id);
+		setMessages([]);
+		setInput("");
+		setContextChunks([]);
+		setContextMeta(null);
+	}, [chatSessions.length]);
+
+	const handleSelectChat = useCallback((chatId: string) => {
+		if (!chatId || chatId === activeChatId) return;
+		const target = chatSessions.find((session) => session.chat_id === chatId);
+		pendingChatSwitchRef.current = chatId;
+		setActiveChatId(chatId);
+		setMessages(target?.messages ?? []);
+		setInput("");
+		setContextChunks([]);
+		setContextMeta(null);
+	}, [activeChatId, chatSessions]);
+
+	const handleDeleteActiveChat = useCallback(async () => {
+		if (!activeChatId) return;
+		const current = chatSessions.find((session) => session.chat_id === activeChatId);
+		const isLastChat = chatSessions.length <= 1;
+		const confirmMessage = isLastChat
+			? `Delete "${current?.title ?? "this chat"}"? This is the last chat for ${owner}/${repo}, so indexed files will also be removed.`
+			: `Delete "${current?.title ?? "this chat"}"?`;
+		const confirmed = typeof window === "undefined" || window.confirm(confirmMessage);
+		if (!confirmed) return;
+
+		if (isLastChat) {
+			try {
+				if (chatStorageKey) {
+					try {
+						localStorage.removeItem(chatStorageKey);
+					} catch {
+						// Ignore localStorage failures.
+					}
+				}
+				if (owner && repo) {
+					await storeRef.current.clearCache(owner, repo);
+					storeRef.current.clear();
+				}
+			} catch (err) {
+				console.error("Failed to clear indexed files for last chat deletion:", err);
+			}
+			setChatSessions([]);
+			setActiveChatId(null);
+			setMessages([]);
+			setContextChunks([]);
+			setContextMeta(null);
+			setInput("");
+			router.push("/");
+			return;
 		}
-	}, [chatStorageKey]);
+
+		const currentIndex = chatSessions.findIndex((session) => session.chat_id === activeChatId);
+		const nextSessions = chatSessions.filter((session) => session.chat_id !== activeChatId);
+		const fallback = nextSessions[Math.max(0, currentIndex - 1)] ?? nextSessions[0] ?? null;
+
+		setChatSessions(nextSessions);
+		setActiveChatId(fallback?.chat_id ?? null);
+		setMessages(fallback?.messages ?? []);
+		setInput("");
+		setContextChunks([]);
+		setContextMeta(null);
+		router.push("/");
+	}, [activeChatId, chatSessions, chatStorageKey, owner, repo, router]);
 
 	const handleClearCacheAndReindex = useCallback(async () => {
 		if (!owner || !repo) return;
@@ -416,6 +670,8 @@ ${context}`;
 					return formatTimeRemaining(remainingMs);
 				})()
 			: null;
+
+	const orderedChatSessions = [...chatSessions].sort((a, b) => b.updatedAt - a.updatedAt);
 
 	return (
 		<div style={styles.layout}>
@@ -656,6 +912,37 @@ ${context}`;
 					...styles.chatPanel,
 					display: !isIndexed && astNodes.length > 0 ? "none" : "flex",
 				}}>
+					<div style={styles.chatToolbar}>
+						<select
+							value={activeChatId ?? ""}
+							onChange={(e) => handleSelectChat(e.target.value)}
+							style={styles.chatSelect}
+							aria-label="Select chat session"
+						>
+							{orderedChatSessions.map((session) => (
+								<option key={session.chat_id} value={session.chat_id}>
+									{session.title}
+								</option>
+							))}
+						</select>
+						<button
+							className="btn btn-ghost"
+							style={styles.chatToolbarBtn}
+							onClick={handleCreateChat}
+							type="button"
+						>
+							+ New Chat
+						</button>
+						<button
+							className="btn btn-ghost"
+							style={styles.chatToolbarBtn}
+							onClick={handleDeleteActiveChat}
+							type="button"
+							title={chatSessions.length <= 1 ? "Delete messages in current chat" : "Delete current chat"}
+						>
+							🗑 Delete Chat
+						</button>
+					</div>
 					<div style={styles.messageList}>
 						{messages.length === 0 && isIndexed && (
 							<div style={styles.emptyState}>
@@ -701,9 +988,13 @@ ${context}`;
 								className="chat-message"
 							>
 								{msg.role === "assistant" ? (
-									<div style={{ ...styles.messageContent, whiteSpace: "normal" }} className="chat-markdown">
-										<ReactMarkdown>{msg.content || (isGenerating && i === messages.length - 1 ? "Thinking…" : "")}</ReactMarkdown>
-									</div>
+									isGenerating && i === messages.length - 1 ? (
+										<pre style={styles.messageContent}>{msg.content || "Thinking..."}</pre>
+									) : (
+										<div style={{ ...styles.messageContent, whiteSpace: "normal" }} className="chat-markdown">
+											<ReactMarkdown>{msg.content}</ReactMarkdown>
+										</div>
+									)
 								) : (
 									<pre style={styles.messageContent}>{msg.content}</pre>
 								)}
@@ -929,6 +1220,33 @@ const styles: Record<string, React.CSSProperties> = {
 		display: "flex",
 		flexDirection: "column",
 		overflow: "hidden",
+	},
+	chatToolbar: {
+		display: "flex",
+		alignItems: "center",
+		gap: "8px",
+		padding: "10px 20px",
+		borderBottom: "2px solid var(--border)",
+		background: "var(--bg-secondary)",
+		maxWidth: "900px",
+		margin: "0 auto",
+		width: "100%",
+	},
+	chatSelect: {
+		flex: 1,
+		minWidth: "160px",
+		maxWidth: "360px",
+		padding: "8px 10px",
+		borderRadius: "var(--radius-sm)",
+		border: "2px solid var(--border)",
+		background: "var(--bg-card)",
+		color: "var(--text-primary)",
+		fontSize: "12px",
+		fontFamily: "var(--font-mono)",
+	},
+	chatToolbarBtn: {
+		fontSize: "12px",
+		padding: "6px 10px",
 	},
 	messageList: {
 		flex: 1,
