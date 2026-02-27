@@ -269,7 +269,7 @@ html, body {
   border-color: var(--border-accent);
 }
 
-.evals-back:hover {
+.ablation-back:hover {
   color: var(--text-primary);
   border-color: var(--border-accent);
   box-shadow: var(--shadow-brutal-sm);

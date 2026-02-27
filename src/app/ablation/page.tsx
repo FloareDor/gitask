@@ -4,7 +4,7 @@ import { ABLATION_RESULTS } from "@/lib/eval-results";
 
 const DATASET_BADGE = `${DATASET_META.name} — ${DATASET_META.queryCount} queries — ${DATASET_META.chunkCount} candidates — human-labeled`;
 
-export default function EvalsPage() {
+export default function AblationPage() {
   const bestRecall = Math.max(...ABLATION_RESULTS.map((r) => r.avgRecallAt5));
   const bestMRR = Math.max(...ABLATION_RESULTS.map((r) => r.avgMRR));
   const bestNdcg = Math.max(...ABLATION_RESULTS.map((r) => r.avgNdcgAt10));
@@ -13,7 +13,7 @@ export default function EvalsPage() {
   return (
     <main style={styles.page}>
       <div style={styles.container}>
-        <a href="/" style={styles.back} className="evals-back">
+        <a href="/" style={styles.back} className="ablation-back">
           ← back
         </a>
 
@@ -35,7 +35,7 @@ export default function EvalsPage() {
           <div style={styles.tableCard}>
             <div style={styles.tableTopBar}>
               <span style={styles.tableBarLabel}>Results</span>
-              <span style={styles.tableBarHint}>hover config name for description</span>
+              <span style={styles.tableBarHint}>hover row for description</span>
             </div>
             <div style={styles.tableScroll}>
               <table style={styles.table}>
@@ -132,7 +132,7 @@ export default function EvalsPage() {
         </section>
 
         <footer style={styles.footer}>
-          <span>GitAsk evals</span>
+          <span>gitask</span>
           <span style={styles.footerSep}>·</span>
           <span>{ABLATION_RESULTS.length} configs</span>
           <span style={styles.footerSep}>·</span>
