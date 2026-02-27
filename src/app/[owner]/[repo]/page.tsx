@@ -426,12 +426,25 @@ export default function RepoPage({
 	}, [chatSessions.length]);
 
 	const handleDeleteActiveChat = useCallback(() => {
-		if (!activeChatId || chatSessions.length <= 1) return;
+		if (!activeChatId) return;
 		const current = chatSessions.find((session) => session.chat_id === activeChatId);
-		const confirmed =
-			typeof window === "undefined" ||
-			window.confirm(`Delete "${current?.title ?? "this chat"}"?`);
+		const isLastChat = chatSessions.length <= 1;
+		const confirmMessage = isLastChat
+			? `Delete all messages in "${current?.title ?? "this chat"}"?`
+			: `Delete "${current?.title ?? "this chat"}"?`;
+		const confirmed = typeof window === "undefined" || window.confirm(confirmMessage);
 		if (!confirmed) return;
+
+		if (isLastChat) {
+			const reset = makeNewChat("Chat 1");
+			setChatSessions([reset]);
+			setActiveChatId(reset.chat_id);
+			setMessages([]);
+			setInput("");
+			setContextChunks([]);
+			setContextMeta(null);
+			return;
+		}
 
 		const currentIndex = chatSessions.findIndex((session) => session.chat_id === activeChatId);
 		const nextSessions = chatSessions.filter((session) => session.chat_id !== activeChatId);
@@ -868,8 +881,7 @@ ${context}`;
 							style={styles.chatToolbarBtn}
 							onClick={handleDeleteActiveChat}
 							type="button"
-							disabled={chatSessions.length <= 1}
-							title={chatSessions.length <= 1 ? "At least one chat must remain" : "Delete current chat"}
+							title={chatSessions.length <= 1 ? "Delete messages in current chat" : "Delete current chat"}
 						>
 							🗑 Delete Chat
 						</button>
