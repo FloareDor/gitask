@@ -1,11 +1,12 @@
 /**
  * WebGPU Embedding Pipeline using Transformers.js
  *
- * Runs a quantised embedding model on the user's GPU via WebGPU,
+ * Runs a quantized embedding model on the user's GPU via WebGPU,
  * with automatic fallback to WASM if WebGPU is unavailable.
  */
 
 import type { CodeChunk } from "./chunker";
+import { detectWebGPUAvailability } from "./webgpu";
 
 export interface EmbeddedChunk extends CodeChunk {
 	embedding: number[];
@@ -17,8 +18,8 @@ let embedPipeline: any = null;
 let pipelinePromise: Promise<void> | null = null;
 
 /**
- * Initialise the embedding model.
- * Call once — subsequent calls are no-ops.
+ * Initialize the embedding model.
+ * Call once; subsequent calls are no-ops.
  */
 export async function initEmbedder(
 	onProgress?: (msg: string) => void
@@ -27,9 +28,9 @@ export async function initEmbedder(
 	if (pipelinePromise) return pipelinePromise;
 
 	pipelinePromise = (async () => {
-		onProgress?.("Loading embedding model…");
+		onProgress?.("Loading embedding model...");
 
-		// Dynamic import so this doesn't break SSR
+		// Dynamic import so this does not break SSR
 		const { pipeline, env } = await import("@huggingface/transformers");
 
 		// Disable local model check (we always download from HF)
@@ -45,13 +46,12 @@ export async function initEmbedder(
 		}
 
 		// Detect WebGPU, fall back to WASM
-		const hasWebGPU =
-			typeof navigator !== "undefined" &&
-			"gpu" in navigator &&
-			(await (navigator as any).gpu?.requestAdapter?.()) != null;
-
-		const device = hasWebGPU ? "webgpu" : "wasm";
-		console.info(`🚀 Embedder using device: ${device.toUpperCase()}`);
+		const availability = await detectWebGPUAvailability();
+		const device = availability.supported ? "webgpu" : "wasm";
+		console.info(`Embedder using device: ${device.toUpperCase()}`);
+		if (!availability.supported) {
+			console.info(`WebGPU fallback reason: ${availability.reason}`);
+		}
 		onProgress?.(`Using device: ${device}`);
 
 		embedPipeline = await pipeline(
@@ -72,7 +72,7 @@ export async function initEmbedder(
 }
 
 /**
- * Embed a single text string. Returns the mean-pooled, normalised vector.
+ * Embed a single text string. Returns the mean-pooled, normalized vector.
  */
 export async function embedText(text: string): Promise<number[]> {
 	if (!embedPipeline) {
@@ -108,7 +108,7 @@ export async function embedChunks(
 
 		const batch = chunks.slice(i, i + batchSize);
 
-		// Process batch sequentially (transformers.js doesn't support true batching in browser)
+		// Process batch sequentially (transformers.js does not support true batching in browser)
 		for (const chunk of batch) {
 			const embedding = await embedText(chunk.code);
 			results.push({ ...chunk, embedding });

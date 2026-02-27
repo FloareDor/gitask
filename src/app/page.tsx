@@ -3,6 +3,7 @@
 import { ArchitectureDiagram } from "@/components/ArchitectureDiagram";
 import { ModelSettings } from "@/components/ModelSettings";
 import { STORAGE_COMPARISON } from "@/lib/eval-results";
+import { detectWebGPUAvailability } from "@/lib/webgpu";
 import { useEffect, useState, useRef } from "react";
 import { useRouter } from "next/navigation";
 
@@ -34,8 +35,8 @@ function NoWebGPUScreen() {
         </h2>
         <p style={{ fontSize: "14px", color: "var(--text-secondary)", lineHeight: 1.65 }}>
           This app needs WebGPU to run embeddings in your browser. Try{" "}
-          <strong style={{ color: "var(--text-primary)" }}>Chrome or Edge on a desktop</strong>{" "}
-          for the full experience.
+          <strong style={{ color: "var(--text-primary)" }}>Chrome 121+ (Android) or desktop Chrome/Edge</strong>.
+          Also make sure you are on <strong style={{ color: "var(--text-primary)" }}>HTTPS</strong>.
         </p>
       </div>
     </div>
@@ -52,7 +53,25 @@ export default function LandingPage() {
   const router = useRouter();
 
   useEffect(() => {
-    if (!("gpu" in navigator)) setGpuSupported(false);
+    let cancelled = false;
+    (async () => {
+      const availability = await Promise.race([
+        detectWebGPUAvailability(),
+        new Promise<{ supported: true; reason: "ok" }>((resolve) =>
+          setTimeout(() => resolve({ supported: true, reason: "ok" }), 1500)
+        ),
+      ]);
+      if (cancelled) return;
+
+      setGpuSupported(availability.supported);
+      if (!availability.supported) {
+        console.info("WebGPU unavailable:", availability.reason, availability.error ?? "");
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   useEffect(() => {
@@ -194,7 +213,7 @@ export default function LandingPage() {
                 label: "Binary Quantization",
                 desc: `${STORAGE_COMPARISON.compressionRatio}x smaller index. ${STORAGE_COMPARISON.float32TotalKB.toFixed(0)}KB → ${STORAGE_COMPARISON.binaryTotalKB.toFixed(0)}KB for ${STORAGE_COMPARISON.exampleRepoChunks} chunks.`,
               },
-              { icon: "🔐", label: "Encrypted Key Vault", desc: "API keys stored locally, locked by passkey" },
+              { icon: "🔐", label: "Your Key, Your Browser", desc: "API key encrypted and stored locally. Never touches a server." },
             ].map((f, i) => (
               <div
                 key={f.label}
