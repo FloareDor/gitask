@@ -4,8 +4,90 @@ import { ArchitectureDiagram } from "@/components/ArchitectureDiagram";
 import { ModelSettings } from "@/components/ModelSettings";
 import { STORAGE_COMPARISON } from "@/lib/eval-results";
 import { detectWebGPUAvailability } from "@/lib/webgpu";
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState, useRef, useCallback } from "react";
 import { useRouter } from "next/navigation";
+
+const CHAT_STORAGE_PREFIX = "gitask-chat-";
+
+interface SavedChatEntry {
+  key: string;
+  owner: string;
+  repo: string;
+  chatCount: number;
+  lastUpdated: number;
+  label: string;
+}
+
+function buildChatLabel(messages: Array<{ role?: string; content?: string }>, fallback: string): string {
+  const firstUserMessage = messages.find(
+    (m) => m?.role === "user" && typeof m.content === "string" && m.content.trim().length > 0
+  );
+  if (!firstUserMessage || !firstUserMessage.content) return fallback;
+  const compact = firstUserMessage.content.trim().replace(/\s+/g, " ");
+  return compact.length > 36 ? `${compact.slice(0, 36)}...` : compact;
+}
+
+function parseSavedChatEntry(key: string, raw: string): SavedChatEntry | null {
+  if (!key.startsWith(CHAT_STORAGE_PREFIX)) return null;
+  const repoPath = key.slice(CHAT_STORAGE_PREFIX.length);
+  const slashIndex = repoPath.indexOf("/");
+  if (slashIndex <= 0 || slashIndex >= repoPath.length - 1) return null;
+
+  const owner = repoPath.slice(0, slashIndex);
+  const repo = repoPath.slice(slashIndex + 1);
+
+  try {
+    const parsed = JSON.parse(raw) as
+      | Array<{ role?: string; content?: string }>
+      | {
+          activeChatId?: string;
+          sessions?: Array<{
+            chat_id?: string;
+            title?: string;
+            updatedAt?: number;
+            messages?: Array<{ role?: string; content?: string }>;
+          }>;
+        };
+
+    // Legacy format: Message[]
+    if (Array.isArray(parsed)) {
+      const messages = parsed;
+      if (messages.length === 0) return null;
+      return {
+        key,
+        owner,
+        repo,
+        chatCount: 1,
+        lastUpdated: 0,
+        label: buildChatLabel(messages, "Chat 1"),
+      };
+    }
+
+    if (!parsed || !Array.isArray(parsed.sessions) || parsed.sessions.length === 0) return null;
+    const sessions = parsed.sessions.filter((session) => Array.isArray(session.messages) && session.messages.length > 0);
+    if (sessions.length === 0) return null;
+
+    const active = sessions.find((session) => session.chat_id === parsed.activeChatId) ?? sessions[0];
+    const activeMessages = Array.isArray(active.messages) ? active.messages : [];
+    const lastUpdated = sessions.reduce((maxTs, session) => {
+      const ts = typeof session.updatedAt === "number" ? session.updatedAt : 0;
+      return Math.max(maxTs, ts);
+    }, 0);
+
+    return {
+      key,
+      owner,
+      repo,
+      chatCount: sessions.length,
+      lastUpdated,
+      label: typeof active.title === "string" && active.title.trim().length > 0
+        ? active.title
+        : buildChatLabel(activeMessages, "Recent chat"),
+    };
+  } catch {
+    return null;
+  }
+}
 
 function NoWebGPUScreen() {
   return (
@@ -46,11 +128,30 @@ function NoWebGPUScreen() {
 export default function LandingPage() {
   const [url, setUrl] = useState("");
   const [error, setError] = useState("");
+  const [savedChats, setSavedChats] = useState<SavedChatEntry[]>([]);
   const [isHowVisible, setIsHowVisible] = useState(false);
   const [gpuSupported, setGpuSupported] = useState(true);
   const [isMobile, setIsMobile] = useState(false);
   const howSectionRef = useRef<HTMLElement>(null);
   const router = useRouter();
+
+  const loadSavedChats = useCallback(() => {
+    if (typeof window === "undefined") return;
+    const entries: SavedChatEntry[] = [];
+    for (const key of Object.keys(localStorage)) {
+      if (!key.startsWith(CHAT_STORAGE_PREFIX)) continue;
+      const raw = localStorage.getItem(key);
+      if (!raw) continue;
+      const parsed = parseSavedChatEntry(key, raw);
+      if (parsed) entries.push(parsed);
+    }
+
+    entries.sort((a, b) => {
+      if (a.lastUpdated !== b.lastUpdated) return b.lastUpdated - a.lastUpdated;
+      return `${a.owner}/${a.repo}`.localeCompare(`${b.owner}/${b.repo}`);
+    });
+    setSavedChats(entries);
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -101,6 +202,21 @@ export default function LandingPage() {
     return () => observer.disconnect();
   }, []);
 
+  useEffect(() => {
+    loadSavedChats();
+    const handleVisibility = () => {
+      if (document.visibilityState === "visible") loadSavedChats();
+    };
+    window.addEventListener("focus", loadSavedChats);
+    window.addEventListener("storage", loadSavedChats);
+    document.addEventListener("visibilitychange", handleVisibility);
+    return () => {
+      window.removeEventListener("focus", loadSavedChats);
+      window.removeEventListener("storage", loadSavedChats);
+      document.removeEventListener("visibilitychange", handleVisibility);
+    };
+  }, [loadSavedChats]);
+
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError("");
@@ -117,6 +233,31 @@ export default function LandingPage() {
     const owner = match[1];
     const repo = match[2].replace(/\.git$/, "");
     router.push(`/${owner}/${repo}`);
+  }
+
+  function handleOpenSavedChat(owner: string, repo: string) {
+    router.push(`/${owner}/${repo}`);
+  }
+
+  function handleDeleteSavedChat(storageKey: string) {
+    if (typeof window !== "undefined") {
+      const confirmed = window.confirm("Delete local chats for this repository?");
+      if (!confirmed) return;
+      localStorage.removeItem(storageKey);
+      loadSavedChats();
+    }
+  }
+
+  function handleDeleteAllSavedChats() {
+    if (savedChats.length === 0) return;
+    if (typeof window !== "undefined") {
+      const confirmed = window.confirm("Delete all local chats across repositories?");
+      if (!confirmed) return;
+      for (const entry of savedChats) {
+        localStorage.removeItem(entry.key);
+      }
+      setSavedChats([]);
+    }
   }
 
   if (!gpuSupported) return <NoWebGPUScreen />;
@@ -198,6 +339,49 @@ export default function LandingPage() {
               />
             </a>
           </div>
+
+          {savedChats.length > 0 && (
+            <div style={styles.savedChatsCard}>
+              <div style={styles.savedChatsHeader}>
+                <strong style={styles.savedChatsTitle}>Recent Chats</strong>
+                <button
+                  type="button"
+                  className="btn btn-ghost"
+                  style={styles.savedChatsClearAllBtn}
+                  onClick={handleDeleteAllSavedChats}
+                >
+                  Clear all chats
+                </button>
+              </div>
+              <div style={styles.savedChatsList}>
+                {savedChats.map((chat) => (
+                  <div key={chat.key} style={styles.savedChatRow}>
+                    <button
+                      type="button"
+                      className="btn btn-ghost"
+                      style={styles.savedChatOpenBtn}
+                      onClick={() => handleOpenSavedChat(chat.owner, chat.repo)}
+                      title={`Open ${chat.owner}/${chat.repo}`}
+                    >
+                      {chat.owner}/{chat.repo}
+                    </button>
+                    <span style={styles.savedChatMeta}>
+                      {chat.chatCount} chat{chat.chatCount === 1 ? "" : "s"} · {chat.label}
+                    </span>
+                    <button
+                      type="button"
+                      className="btn btn-ghost"
+                      style={styles.savedChatDeleteBtn}
+                      onClick={() => handleDeleteSavedChat(chat.key)}
+                      title="Delete local chats for this repo"
+                    >
+                      Delete
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           {/* Feature cards */}
           <div style={{
@@ -452,6 +636,79 @@ const styles: Record<string, React.CSSProperties> = {
     fontSize: "12px",
     color: "var(--text-secondary)",
     lineHeight: 1.5,
+  },
+  savedChatsCard: {
+    width: "100%",
+    maxWidth: "620px",
+    border: "2px solid var(--border)",
+    borderRadius: "var(--radius)",
+    background: "var(--bg-card)",
+    boxShadow: "3px 3px 0 var(--accent)",
+    padding: "12px",
+    display: "flex",
+    flexDirection: "column" as const,
+    gap: "8px",
+  },
+  savedChatsHeader: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: "10px",
+  },
+  savedChatsTitle: {
+    fontSize: "13px",
+    fontFamily: "var(--font-display)",
+    letterSpacing: "0.04em",
+    textTransform: "uppercase" as const,
+    color: "var(--text-secondary)",
+  },
+  savedChatsClearAllBtn: {
+    fontSize: "11px",
+    padding: "4px 8px",
+    color: "var(--text-muted)",
+  },
+  savedChatsList: {
+    display: "flex",
+    flexDirection: "column" as const,
+    gap: "6px",
+  },
+  savedChatRow: {
+    display: "grid",
+    gridTemplateColumns: "minmax(160px, auto) 1fr auto",
+    alignItems: "center",
+    gap: "8px",
+    border: "2px solid var(--border)",
+    borderRadius: "var(--radius-sm)",
+    background: "var(--bg-secondary)",
+    padding: "8px",
+  },
+  savedChatOpenBtn: {
+    justifyContent: "flex-start",
+    width: "100%",
+    fontSize: "12px",
+    padding: "6px 8px",
+    border: "none",
+    boxShadow: "none",
+    color: "var(--accent)",
+    fontFamily: "var(--font-mono)",
+    fontWeight: 700,
+    minWidth: 0,
+  },
+  savedChatMeta: {
+    fontSize: "11px",
+    color: "var(--text-muted)",
+    fontFamily: "var(--font-mono)",
+    textAlign: "left" as const,
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap" as const,
+  },
+  savedChatDeleteBtn: {
+    fontSize: "11px",
+    padding: "6px 8px",
+    color: "var(--error)",
+    border: "none",
+    boxShadow: "none",
   },
   howSection: {
     width: "100%",
