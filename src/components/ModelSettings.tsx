@@ -216,7 +216,7 @@ export function ModelSettings() {
 				{config.provider === "gemini" && (
 					<div style={styles.geminiSection}>
 						{hasDefaultKey && (
-							<p style={styles.hint}>a shared key is set up. add your own for better rate limits.</p>
+							<p style={styles.hint}>a shared key is set up. add your own key for better rate limits.</p>
 						)}
 
 						{needsMigration && (
