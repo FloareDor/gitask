@@ -65,9 +65,9 @@
   display: flex;
   align-items: center;
   width: 100%;
-  justify-content: center;
+  justify-content: flex-start;
   overflow-x: auto;
-  padding: 4px 0 8px;
+  padding: 4px 16px 8px;
   /* hide scrollbar but allow scroll */
   scrollbar-width: none;
 }
