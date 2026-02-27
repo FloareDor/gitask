@@ -26,6 +26,20 @@ interface ContextChunk {
 	nodeType: string;
 }
 
+function shouldSuggestGitHubToken(errorMessage: string): boolean {
+	const message = errorMessage.toLowerCase();
+	return (
+		message.includes("private") ||
+		message.includes("not found") ||
+		message.includes("token") ||
+		message.includes("rate limit") ||
+		message.includes("denied") ||
+		message.includes("permission") ||
+		message.includes("403") ||
+		message.includes("401")
+	);
+}
+
 export default function RepoPage({
 	params,
 }: {
@@ -233,9 +247,13 @@ export default function RepoPage({
 				}).catch(console.error);
 			} catch (err) {
 				if (err instanceof IndexAbortError || aborted) return;
+				const errorMessage = err instanceof Error ? err.message : String(err);
+				if (shouldSuggestGitHubToken(errorMessage)) {
+					safeSetState(setShowTokenInput, true);
+				}
 				safeSetState(setIndexProgress, {
 					phase: "done",
-					message: `Error: ${err instanceof Error ? err.message : String(err)}`,
+					message: `Error: ${errorMessage}`,
 					current: 0,
 					total: 0,
 				});
