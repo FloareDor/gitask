@@ -121,6 +121,7 @@ export default function RepoPage({
 	const indexStartTimeRef = useRef<number | null>(null);
 	const overflowRef = useRef<HTMLDivElement>(null);
 	const chatLoadedRef = useRef(false);
+	const pendingChatSwitchRef = useRef<string | null>(null);
 
 	const storeRef = useRef(new VectorStore());
 	const chatEndRef = useRef<HTMLDivElement>(null);
@@ -188,6 +189,7 @@ export default function RepoPage({
 					migrated.messages = legacyMessages;
 					migrated.title = deriveChatTitle(legacyMessages, "Chat 1");
 					setChatSessions([migrated]);
+					pendingChatSwitchRef.current = migrated.chat_id;
 					setActiveChatId(migrated.chat_id);
 					setMessages(legacyMessages);
 					chatLoadedRef.current = true;
@@ -221,6 +223,7 @@ export default function RepoPage({
 							: sessions[0].chat_id;
 						const selected = sessions.find((session) => session.chat_id === selectedId);
 						setChatSessions(sessions);
+						pendingChatSwitchRef.current = selectedId;
 						setActiveChatId(selectedId);
 						setMessages(selected?.messages ?? []);
 						chatLoadedRef.current = true;
@@ -234,6 +237,7 @@ export default function RepoPage({
 
 		const fresh = makeNewChat("Chat 1");
 		setChatSessions([fresh]);
+		pendingChatSwitchRef.current = fresh.chat_id;
 		setActiveChatId(fresh.chat_id);
 		setMessages([]);
 		chatLoadedRef.current = true;
@@ -251,6 +255,17 @@ export default function RepoPage({
 	useEffect(() => {
 		// Avoid per-token session rewrites while streaming; persist once generation settles.
 		if (!chatLoadedRef.current || !activeChatId || isGenerating) return;
+
+		// Skip one persist cycle when switching chats so we never write stale messages into the target chat.
+		if (pendingChatSwitchRef.current === activeChatId) {
+			const active = chatSessions.find((session) => session.chat_id === activeChatId);
+			const activeMessages = active?.messages ?? [];
+			if (areMessagesEqual(messages, activeMessages)) {
+				pendingChatSwitchRef.current = null;
+			}
+			return;
+		}
+
 		const trimmed = messages.slice(-50);
 		setChatSessions((prev) => {
 			let changed = false;
@@ -270,7 +285,7 @@ export default function RepoPage({
 			});
 			return changed ? next : prev;
 		});
-	}, [messages, activeChatId, isGenerating]);
+	}, [messages, activeChatId, isGenerating, chatSessions]);
 
 	// Persist all chats for this repo.
 	useEffect(() => {
@@ -432,12 +447,24 @@ export default function RepoPage({
 	const handleCreateChat = useCallback(() => {
 		const fresh = makeNewChat(`Chat ${chatSessions.length + 1}`);
 		setChatSessions((prev) => [fresh, ...prev]);
+		pendingChatSwitchRef.current = fresh.chat_id;
 		setActiveChatId(fresh.chat_id);
 		setMessages([]);
 		setInput("");
 		setContextChunks([]);
 		setContextMeta(null);
 	}, [chatSessions.length]);
+
+	const handleSelectChat = useCallback((chatId: string) => {
+		if (!chatId || chatId === activeChatId) return;
+		const target = chatSessions.find((session) => session.chat_id === chatId);
+		pendingChatSwitchRef.current = chatId;
+		setActiveChatId(chatId);
+		setMessages(target?.messages ?? []);
+		setInput("");
+		setContextChunks([]);
+		setContextMeta(null);
+	}, [activeChatId, chatSessions]);
 
 	const handleDeleteActiveChat = useCallback(async () => {
 		if (!activeChatId) return;
@@ -888,7 +915,7 @@ ${context}`;
 					<div style={styles.chatToolbar}>
 						<select
 							value={activeChatId ?? ""}
-							onChange={(e) => setActiveChatId(e.target.value)}
+							onChange={(e) => handleSelectChat(e.target.value)}
 							style={styles.chatSelect}
 							aria-label="Select chat session"
 						>
