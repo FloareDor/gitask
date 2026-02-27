@@ -410,10 +410,24 @@ export default function RepoPage({
 	}, []);
 
 	const handleClearChat = useCallback(() => {
+		if (!activeChatId) return;
 		setMessages([]);
+		setChatSessions((prev) =>
+			prev.map((session) =>
+				session.chat_id === activeChatId
+					? {
+						...session,
+						messages: [],
+						title: "Chat 1",
+						updatedAt: Date.now(),
+					}
+					: session
+			)
+		);
 		setContextChunks([]);
 		setContextMeta(null);
-	}, []);
+		setToastMessage("Chat cleared.");
+	}, [activeChatId]);
 
 	const handleCreateChat = useCallback(() => {
 		const fresh = makeNewChat(`Chat ${chatSessions.length + 1}`);
@@ -425,24 +439,39 @@ export default function RepoPage({
 		setContextMeta(null);
 	}, [chatSessions.length]);
 
-	const handleDeleteActiveChat = useCallback(() => {
+	const handleDeleteActiveChat = useCallback(async () => {
 		if (!activeChatId) return;
 		const current = chatSessions.find((session) => session.chat_id === activeChatId);
 		const isLastChat = chatSessions.length <= 1;
 		const confirmMessage = isLastChat
-			? `Delete all messages in "${current?.title ?? "this chat"}"?`
+			? `Delete "${current?.title ?? "this chat"}"? This is the last chat for ${owner}/${repo}, so indexed files will also be removed.`
 			: `Delete "${current?.title ?? "this chat"}"?`;
 		const confirmed = typeof window === "undefined" || window.confirm(confirmMessage);
 		if (!confirmed) return;
 
 		if (isLastChat) {
-			const reset = makeNewChat("Chat 1");
-			setChatSessions([reset]);
-			setActiveChatId(reset.chat_id);
+			try {
+				if (chatStorageKey) {
+					try {
+						localStorage.removeItem(chatStorageKey);
+					} catch {
+						// Ignore localStorage failures.
+					}
+				}
+				if (owner && repo) {
+					await storeRef.current.clearCache(owner, repo);
+					storeRef.current.clear();
+				}
+			} catch (err) {
+				console.error("Failed to clear indexed files for last chat deletion:", err);
+			}
+			setChatSessions([]);
+			setActiveChatId(null);
 			setMessages([]);
-			setInput("");
 			setContextChunks([]);
 			setContextMeta(null);
+			setInput("");
+			router.push("/");
 			return;
 		}
 
@@ -456,7 +485,8 @@ export default function RepoPage({
 		setInput("");
 		setContextChunks([]);
 		setContextMeta(null);
-	}, [activeChatId, chatSessions]);
+		router.push("/");
+	}, [activeChatId, chatSessions, chatStorageKey, owner, repo, router]);
 
 	const handleClearCacheAndReindex = useCallback(async () => {
 		if (!owner || !repo) return;
