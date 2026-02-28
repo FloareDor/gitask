@@ -7,6 +7,7 @@ import { VectorStore } from "@/lib/vectorStore";
 import { multiPathHybridSearch } from "@/lib/search";
 import { expandQuery } from "@/lib/queryExpansion";
 import { buildScopedContext, defaultLimitsForProvider } from "@/lib/contextAssembly";
+import { fetchRepoTree } from "@/lib/github";
 import { initLLM, generate, getLLMStatus, getLLMConfig, onStatusChange, type LLMStatus, type ChatMessage } from "@/lib/llm";
 import { verifyAndRefine } from "@/lib/cove";
 import AstTreeView from "@/components/AstTreeView";
@@ -77,6 +78,21 @@ function shouldSuggestGitHubToken(errorMessage: string): boolean {
 	);
 }
 
+function shouldPromptForLLMSettings(errorMessage: string): boolean {
+	const message = errorMessage.toLowerCase();
+	return (
+		message.includes("gemini") ||
+		message.includes("api key") ||
+		message.includes("authentication") ||
+		message.includes("unauthorized") ||
+		message.includes("invalid") ||
+		message.includes("rejected") ||
+		message.includes("permission") ||
+		message.includes("forbidden") ||
+		message.includes("unlock")
+	);
+}
+
 export default function RepoPage({
 	params,
 }: {
@@ -116,12 +132,15 @@ export default function RepoPage({
 	const [showOverflow, setShowOverflow] = useState(false);
 	const [isMobile, setIsMobile] = useState(false);
 	const [coveEnabled, setCoveEnabled] = useState(false);
+	const [indexedSha, setIndexedSha] = useState<string | null>(null);
+	const [repoStale, setRepoStale] = useState(false);
 	const projectRepoUrl = "https://github.com/FloareDor/gitask";
 	const completedWhileHiddenRef = useRef(false);
 	const indexStartTimeRef = useRef<number | null>(null);
 	const overflowRef = useRef<HTMLDivElement>(null);
 	const chatLoadedRef = useRef(false);
 	const pendingChatSwitchRef = useRef<string | null>(null);
+	const staleNoticeShownRef = useRef(false);
 
 	const storeRef = useRef(new VectorStore());
 	const chatEndRef = useRef<HTMLDivElement>(null);
@@ -140,6 +159,12 @@ export default function RepoPage({
 			setRepo(p.repo);
 		});
 	}, [params]);
+
+	useEffect(() => {
+		setIndexedSha(null);
+		setRepoStale(false);
+		staleNoticeShownRef.current = false;
+	}, [owner, repo]);
 
 	// Listen to LLM status
 	useEffect(() => {
@@ -360,7 +385,7 @@ export default function RepoPage({
 
 		(async () => {
 			try {
-				await indexRepository(
+				const result = await indexRepository(
 					owner,
 					repo,
 					storeRef.current,
@@ -387,6 +412,9 @@ export default function RepoPage({
 					}
 				}
 				safeSetState(setIsIndexed, true);
+				safeSetState(setIndexedSha, result.sha);
+				safeSetState(setRepoStale, false);
+				staleNoticeShownRef.current = false;
 
 				initLLM((msg) => {
 					if (aborted) return;
@@ -417,6 +445,40 @@ export default function RepoPage({
 			controller.abort();
 		};
 	}, [owner, repo, token, reindexKey]);
+
+	// Detect upstream repo changes and flag stale context.
+	useEffect(() => {
+		if (!owner || !repo || !isIndexed || !indexedSha) return;
+		let cancelled = false;
+
+		const checkForStaleContext = async () => {
+			try {
+				const latest = await fetchRepoTree(owner, repo, token || undefined);
+				if (cancelled) return;
+				const isStale = latest.sha !== indexedSha;
+				setRepoStale(isStale);
+				if (isStale && !staleNoticeShownRef.current) {
+					staleNoticeShownRef.current = true;
+					setToastMessage("Repository changed on GitHub. Re-index for fresh context.");
+				}
+				if (!isStale) {
+					staleNoticeShownRef.current = false;
+				}
+			} catch {
+				// Ignore transient network/rate-limit errors while stale polling.
+			}
+		};
+
+		void checkForStaleContext();
+		const intervalId = window.setInterval(() => {
+			void checkForStaleContext();
+		}, 120_000);
+
+		return () => {
+			cancelled = true;
+			window.clearInterval(intervalId);
+		};
+	}, [owner, repo, isIndexed, indexedSha, token]);
 
 	const handleRequestNotificationPermission = useCallback(async () => {
 		if (typeof Notification === "undefined") return;
@@ -521,6 +583,9 @@ export default function RepoPage({
 			await storeRef.current.clearCache(owner, repo);
 			storeRef.current.clear();
 			setIsIndexed(false);
+			setIndexedSha(null);
+			setRepoStale(false);
+			staleNoticeShownRef.current = false;
 			setIndexProgress(null);
 			setAstNodes([]);
 			setTextChunkCounts({});
@@ -539,6 +604,9 @@ export default function RepoPage({
 		try {
 			await storeRef.current.clearCache(owner, repo);
 			storeRef.current.clear();
+			setIndexedSha(null);
+			setRepoStale(false);
+			staleNoticeShownRef.current = false;
 			if (chatStorageKey) {
 				try { localStorage.removeItem(chatStorageKey); } catch { }
 			}
@@ -642,10 +710,26 @@ ${context}`;
 				}
 			}
 		} catch (err) {
-			setMessages((prev) => [
-				...prev,
-				{ role: "assistant", content: `Error: ${err instanceof Error ? err.message : String(err)}` },
-			]);
+			const errorMessage = err instanceof Error ? err.message : String(err);
+			if (shouldPromptForLLMSettings(errorMessage)) {
+				setToastMessage("LLM authentication failed. Open LLM Settings to update your Gemini key.");
+				if (typeof window !== "undefined") {
+					window.dispatchEvent(new Event("gitask-open-llm-settings"));
+				}
+			}
+			setMessages((prev) => {
+				// Replace pending assistant placeholder when generation fails mid-stream.
+				const next = [...prev];
+				if (
+					next.length > 0 &&
+					next[next.length - 1].role === "assistant" &&
+					next[next.length - 1].content === ""
+				) {
+					next[next.length - 1] = { role: "assistant", content: `Error: ${errorMessage}` };
+					return next;
+				}
+				return [...next, { role: "assistant", content: `Error: ${errorMessage}` }];
+			});
 		} finally {
 			setIsGenerating(false);
 		}
@@ -780,6 +864,16 @@ ${context}`;
 							📂 Browse
 						</button>
 					)}
+					{isIndexed && (
+						<button
+							className="btn btn-ghost"
+							style={{ fontSize: "12px", padding: "5px 10px" }}
+							onClick={() => { void handleClearCacheAndReindex(); }}
+							title="Rebuild repository index from latest GitHub state"
+						>
+							↻ Re-index
+						</button>
+					)}
 					<div ref={overflowRef} style={{ position: "relative" }}>
 						<button
 							className="btn btn-ghost"
@@ -851,6 +945,22 @@ ${context}`;
 						onChange={(e) => setToken(e.target.value)}
 						style={{ flex: 1, fontSize: "13px" }}
 					/>
+				</div>
+			)}
+
+			{isIndexed && repoStale && (
+				<div style={styles.staleBanner}>
+					<span style={styles.staleBannerText}>
+						This repository has new commits on GitHub. Current context may be stale.
+					</span>
+					<button
+						type="button"
+						className="btn btn-primary"
+						style={styles.staleBannerBtn}
+						onClick={() => { void handleClearCacheAndReindex(); }}
+					>
+						Re-index Now
+					</button>
 				</div>
 			)}
 
@@ -1188,6 +1298,25 @@ const styles: Record<string, React.CSSProperties> = {
 		display: "flex",
 		gap: "8px",
 		background: "var(--bg-secondary)",
+	},
+	staleBanner: {
+		display: "flex",
+		alignItems: "center",
+		justifyContent: "space-between",
+		gap: "12px",
+		padding: "10px 20px",
+		background: "rgba(245,158,11,0.08)",
+		borderBottom: "2px solid rgba(245,158,11,0.35)",
+	},
+	staleBannerText: {
+		fontSize: "12px",
+		color: "var(--warning)",
+		fontFamily: "var(--font-mono)",
+	},
+	staleBannerBtn: {
+		fontSize: "12px",
+		padding: "5px 10px",
+		flexShrink: 0,
 	},
 	progressContainer: {
 		padding: "12px 20px",

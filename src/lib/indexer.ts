@@ -40,6 +40,13 @@ export type IndexProgress = {
 	estimatedSizeBytes?: number;
 };
 
+export interface IndexResult {
+	sha: string;
+	fromCache: boolean;
+	treeTruncated: boolean;
+	indexedFiles: number;
+}
+
 /** Estimate IndexedDB storage: 384-dim embeddings + metadata per chunk */
 function estimateStorageBytes(chunkCount: number): number {
 	const EMBEDDING_DIM = 384;
@@ -78,7 +85,7 @@ export async function indexRepository(
 	onProgress?: (progress: IndexProgress) => void,
 	token?: string,
 	signal?: AbortSignal
-): Promise<void> {
+): Promise<IndexResult> {
 	checkAborted(signal);
 
 	// 1. Fetch tree
@@ -91,6 +98,13 @@ export async function indexRepository(
 
 	const tree = await fetchRepoTree(owner, repo, token);
 	checkAborted(signal);
+
+	// Fail fast on truncated trees to avoid stale/partial context from incomplete repository views.
+	if (tree.truncated) {
+		throw new Error(
+			"Repository tree is truncated by GitHub API. Indexing stopped to avoid partial context. Add a GitHub token with repo read access and retry."
+		);
+	}
 
 	// 1.5 Init Tree-Sitter (dynamic import to avoid bundling fs/promises)
 	// eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -123,7 +137,12 @@ export async function indexRepository(
 			current: store.size,
 			total: store.size,
 		});
-		return;
+		return {
+			sha: tree.sha,
+			fromCache: true,
+			treeTruncated: tree.truncated,
+			indexedFiles: tree.files.length,
+		};
 	}
 
 	store.clear();
@@ -418,4 +437,11 @@ export async function indexRepository(
 		total: embedded.length,
 		estimatedSizeBytes: estimatedBytes,
 	});
+
+	return {
+		sha: tree.sha,
+		fromCache: false,
+		treeTruncated: tree.truncated,
+		indexedFiles: totalFiles,
+	};
 }
