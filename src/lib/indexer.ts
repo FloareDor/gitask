@@ -206,7 +206,8 @@ export async function indexRepository(
 	for (let i = startFileIndex; i < indexableFiles.length; i++) {
 		const file = indexableFiles[i];
 		try {
-			const content = await fetchFileContent(owner, repo, file.path, token);
+			// Fetch each file from the exact commit snapshot resolved during tree fetch.
+			const content = await fetchFileContent(owner, repo, file.path, token, tree.sha);
 			const lang = detectLanguage(file.path);
 
 
