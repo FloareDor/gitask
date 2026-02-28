@@ -6,9 +6,12 @@ import {
 	setLLMConfig,
 	reloadLLM,
 	hasLegacyApiKey,
+	hasGeminiLocalApiKey,
+	setGeminiLocalApiKey,
 	type LLMConfig,
+	type GeminiStorageMode,
 } from "@/lib/llm";
-import { getGeminiVault } from "@/lib/gemini-vault";
+import { getGeminiVault, isGeminiVaultSupported } from "@/lib/gemini-vault";
 import {
 	BYOKVaultError,
 	createBrowserPasskeyAdapter,
@@ -24,21 +27,28 @@ export function ModelSettings() {
 	const [apiKeyInput, setApiKeyInput] = useState("");
 	const [passphraseInput, setPassphraseInput] = useState("");
 	const [migratePassphrase, setMigratePassphrase] = useState("");
+	const [hasLocalKey, setHasLocalKey] = useState(false);
 
 	const vault = getGeminiVault();
 	const vaultState = vault?.getState() ?? "none";
 	const canUseVault = vault?.canCall() ?? false;
+	const vaultSupported = isGeminiVaultSupported();
+	const storageMode: GeminiStorageMode =
+		config.geminiStorage === "local" ? "local" : "vault";
+	const bypassEnabled = storageMode === "local";
 	const passkeySupported =
 		typeof window !== "undefined" && createBrowserPasskeyAdapter().isSupported();
 	const isPasskeyEnrolled = vault?.isPasskeyEnrolled() ?? false;
 	const needsMigration =
 		config.provider === "gemini" &&
+		storageMode === "vault" &&
 		hasLegacyApiKey(config) &&
 		vaultState === "none";
 
 	useEffect(() => {
 		setConfig(getLLMConfig());
 		setHasDefaultKey(!!process.env.NEXT_PUBLIC_HAS_GEMINI_KEY);
+		setHasLocalKey(hasGeminiLocalApiKey());
 		setApiKeyInput("");
 		setPassphraseInput("");
 		setMigratePassphrase("");
@@ -51,12 +61,23 @@ export function ModelSettings() {
 		return () => window.removeEventListener("gitask-open-llm-settings", openHandler);
 	}, []);
 
-	const canSave =
-		config.provider !== "gemini" ||
-		hasDefaultKey ||
-		canUseVault ||
-		(apiKeyInput.trim() &&
-			(passkeySupported || passphraseInput.length >= 8));
+	useEffect(() => {
+		if (config.provider !== "gemini") return;
+		if (vaultSupported || storageMode === "local") return;
+		setConfig((prev) => ({ ...prev, geminiStorage: "local" }));
+	}, [config.provider, storageMode, vaultSupported]);
+
+	const canSave = (() => {
+		if (config.provider !== "gemini") return true;
+		if (hasDefaultKey) return true;
+		if (storageMode === "local") return hasLocalKey || apiKeyInput.trim().length > 0;
+		if (!vaultSupported) return false;
+		if (canUseVault) return true;
+		return (
+			apiKeyInput.trim().length > 0 &&
+			(passkeySupported || passphraseInput.length >= 8)
+		);
+	})();
 
 	const handleMigrate = async () => {
 		if (!config.apiKey || migratePassphrase.length < 8 || !vault) return;
@@ -122,11 +143,17 @@ export function ModelSettings() {
 		setConfig(getLLMConfig());
 	};
 
-	const handleResetKeys = () => {
+	const handleResetKeys = (mode: "all" | "vault" | "local" = "all") => {
 		if (!confirm("Remove stored API key? You will need to re-enter it."))
 			return;
-		vault?.nuke();
+		if (mode !== "local") {
+			vault?.nuke();
+		}
+		if (mode !== "vault") {
+			setGeminiLocalApiKey(null);
+		}
 		setConfig(getLLMConfig());
+		setHasLocalKey(hasGeminiLocalApiKey());
 		setApiKeyInput("");
 		setPassphraseInput("");
 	};
@@ -135,26 +162,36 @@ export function ModelSettings() {
 		setReloading(true);
 		setStatusMsg("Initializing...");
 		try {
-			if (
-				config.provider === "gemini" &&
-				apiKeyInput.trim() &&
-				vault
-			) {
-				if (passkeySupported) {
-					await vault.setConfigWithPasskey(
-						{ apiKey: apiKeyInput.trim(), provider: "gemini" },
-						{ rpName: "GitAsk", userName: "user" }
-					);
-				} else if (passphraseInput.length >= 8) {
-					await vault.setConfig(
-						{ apiKey: apiKeyInput.trim(), provider: "gemini" },
-						passphraseInput
-					);
+			if (config.provider === "gemini") {
+				if (storageMode === "local") {
+					if (apiKeyInput.trim()) {
+						setGeminiLocalApiKey(apiKeyInput.trim());
+						setHasLocalKey(hasGeminiLocalApiKey());
+					}
+				} else {
+					setGeminiLocalApiKey(null);
+					setHasLocalKey(false);
+					if (apiKeyInput.trim() && vault) {
+						if (passkeySupported) {
+							await vault.setConfigWithPasskey(
+								{ apiKey: apiKeyInput.trim(), provider: "gemini" },
+								{ rpName: "GitAsk", userName: "user" }
+							);
+						} else if (passphraseInput.length >= 8) {
+							await vault.setConfig(
+								{ apiKey: apiKeyInput.trim(), provider: "gemini" },
+								passphraseInput
+							);
+						}
+					}
 				}
 				setApiKeyInput("");
 				setPassphraseInput("");
 			}
-			setLLMConfig({ provider: config.provider });
+			setLLMConfig({
+				provider: config.provider,
+				geminiStorage: storageMode,
+			});
 			await reloadLLM((msg) => setStatusMsg(msg));
 			setIsOpen(false);
 		} catch (e) {
@@ -204,7 +241,13 @@ export function ModelSettings() {
 					</button>
 					<button
 						style={{ ...styles.toggleBtn, ...(config.provider === "gemini" ? styles.toggleBtnActive : {}) }}
-						onClick={() => setConfig({ ...config, provider: "gemini" })}
+						onClick={() =>
+							setConfig({
+								...config,
+								provider: "gemini",
+								geminiStorage: storageMode === "local" ? "local" : "vault",
+							})
+						}
 					>
 						gemini
 					</button>
@@ -213,7 +256,7 @@ export function ModelSettings() {
 					{config.provider === "mlc" ? (
 						<>runs in your browser via{" "}
 							<a href="https://github.com/mlc-ai/web-llm" target="_blank" rel="noopener noreferrer" style={{ color: "var(--accent)" }}>web-llm</a>
-							{" "}— needs ~4GB VRAM, downloads once</>
+							{" "}— needs WebGPU + ~4GB VRAM, downloads once</>
 					) : (
 						"google cloud, fast, no download — needs your API key"
 					)}
@@ -226,7 +269,70 @@ export function ModelSettings() {
 							<p style={styles.hint}>a shared key is set up. add your own key for better rate limits.</p>
 						)}
 
-						{needsMigration && (
+						<div style={styles.field}>
+							<div style={styles.switchInlineRow}>
+								<span style={styles.label}>byok-vault bypass</span>
+								<button
+									type="button"
+									role="switch"
+									aria-checked={bypassEnabled}
+									aria-label="Toggle BYOK vault bypass"
+									style={{
+										...styles.switchBtn,
+										...(bypassEnabled ? styles.switchBtnOn : {}),
+										...(!vaultSupported ? styles.switchBtnDisabled : {}),
+									}}
+									onClick={() =>
+										setConfig((prev) => ({
+											...prev,
+											geminiStorage: bypassEnabled ? "vault" : "local",
+										}))
+									}
+									disabled={!vaultSupported}
+								>
+									<span
+										style={{
+											...styles.switchThumb,
+											...(bypassEnabled ? styles.switchThumbOn : {}),
+										}}
+									/>
+								</button>
+								<span
+									style={{
+										...styles.switchState,
+										...(bypassEnabled ? styles.switchStateOn : {}),
+										...(!vaultSupported ? styles.switchStateDisabled : {}),
+									}}
+								>
+									{bypassEnabled ? "ON" : "OFF"}
+								</span>
+							</div>
+							{!bypassEnabled ? (
+								<p style={styles.hint}>
+									stored encrypted with{" "}
+									<a
+										href="https://www.npmjs.com/package/byok-vault"
+										target="_blank"
+										rel="noopener noreferrer"
+										style={{ color: "var(--accent)" }}
+									>
+										byok-vault
+									</a>
+									.
+								</p>
+							) : (
+								<p style={styles.warningHint}>
+									local fallback stores your Gemini key in browser localStorage (less secure).
+								</p>
+							)}
+							{!vaultSupported && (
+								<p style={styles.warningHint}>
+									encrypted vault is not available in this browser. bypass is forced on.
+								</p>
+							)}
+						</div>
+
+						{storageMode === "vault" && needsMigration && (
 							<div style={styles.field}>
 								<label style={styles.label}>secure your existing key</label>
 								<input
@@ -242,7 +348,7 @@ export function ModelSettings() {
 							</div>
 						)}
 
-						{!needsMigration && vaultState === "none" && (
+						{storageMode === "vault" && !needsMigration && vaultState === "none" && (
 							<div style={styles.field}>
 								<a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer" style={styles.accentLink}>
 									get a free API key →
@@ -263,14 +369,33 @@ export function ModelSettings() {
 										style={styles.input}
 									/>
 								)}
-								<p style={styles.hint}>
-									stays in your browser, secured by{" "}
-									<a href="https://www.npmjs.com/package/byok-vault" target="_blank" rel="noopener noreferrer" style={{ color: "var(--accent)" }}>byok-vault</a>
-								</p>
 							</div>
 						)}
 
-						{vaultState === "locked" && !needsMigration && (
+						{storageMode === "local" && (
+							<div style={styles.field}>
+								<a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer" style={styles.accentLink}>
+									get a free API key →
+								</a>
+								<input
+									type="password"
+									placeholder={hasLocalKey ? "replace local API key (optional)" : "paste API key"}
+									value={apiKeyInput}
+									onChange={(e) => setApiKeyInput(e.target.value)}
+									style={styles.input}
+								/>
+								{hasLocalKey && (
+									<div style={{ display: "flex", gap: 8 }}>
+										<p style={{ ...styles.hint, color: "var(--success)", flex: 1 }}>local key saved</p>
+										<button onClick={() => handleResetKeys("local")} style={styles.cancelBtn}>
+											remove key
+										</button>
+									</div>
+								)}
+							</div>
+						)}
+
+						{storageMode === "vault" && vaultState === "locked" && !needsMigration && (
 							<div style={styles.field}>
 								{isPasskeyEnrolled ? (
 									<button onClick={handleUnlockWithPasskey} style={styles.saveBtn} disabled={reloading}>
@@ -293,12 +418,12 @@ export function ModelSettings() {
 							</div>
 						)}
 
-						{vaultState === "unlocked" && (
+						{storageMode === "vault" && vaultState === "unlocked" && (
 							<div style={styles.field}>
 								<p style={{ ...styles.hint, color: "var(--success)" }}>key saved</p>
 								<div style={{ display: "flex", gap: 8 }}>
 									<button onClick={handleLock} style={styles.cancelBtn}>lock</button>
-									<button onClick={handleResetKeys} style={styles.cancelBtn}>remove key</button>
+									<button onClick={() => handleResetKeys("vault")} style={styles.cancelBtn}>remove key</button>
 								</div>
 							</div>
 						)}
@@ -412,9 +537,68 @@ const styles: Record<string, React.CSSProperties> = {
 		background: "var(--accent)",
 		color: "#fff",
 	},
+	toggleBtnDisabled: {
+		opacity: 0.45,
+		cursor: "not-allowed",
+	},
+	switchInlineRow: {
+		display: "inline-flex",
+		alignItems: "center",
+		gap: "8px",
+	},
+	switchBtn: {
+		width: "46px",
+		height: "26px",
+		borderRadius: "999px",
+		border: "2px solid var(--border)",
+		background: "var(--bg-card)",
+		cursor: "pointer",
+		padding: "2px",
+		display: "flex",
+		alignItems: "center",
+		transition: "background 0.12s ease",
+	},
+	switchBtnOn: {
+		background: "rgba(245,158,11,0.25)",
+	},
+	switchThumb: {
+		width: "16px",
+		height: "16px",
+		borderRadius: "50%",
+		background: "var(--text-muted)",
+		transform: "translateX(0)",
+		transition: "transform 0.12s ease, background 0.12s ease",
+	},
+	switchThumbOn: {
+		transform: "translateX(18px)",
+		background: "var(--warning)",
+	},
+	switchBtnDisabled: {
+		cursor: "not-allowed",
+		opacity: 0.6,
+	},
+	switchState: {
+		fontSize: "11px",
+		fontWeight: 700,
+		color: "var(--text-muted)",
+		fontFamily: "var(--font-mono)",
+		minWidth: "24px",
+	},
+	switchStateOn: {
+		color: "var(--warning)",
+	},
+	switchStateDisabled: {
+		opacity: 0.7,
+	},
 	hint: {
 		fontSize: "12px",
 		color: "var(--text-muted)",
+		margin: 0,
+		lineHeight: 1.5,
+	},
+	warningHint: {
+		fontSize: "12px",
+		color: "var(--warning)",
 		margin: 0,
 		lineHeight: 1.5,
 	},
