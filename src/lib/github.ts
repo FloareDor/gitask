@@ -46,7 +46,7 @@ function headers(token?: string): HeadersInit {
 
 /**
  * Fetch the full recursive file tree for a repository.
- * Returns the default branch SHA + all blob entries.
+ * Returns the default branch commit SHA + all blob entries for that commit tree.
  */
 export async function fetchRepoTree(
 	owner: string,
@@ -77,9 +77,42 @@ export async function fetchRepoTree(
 	const repoData = await repoRes.json();
 	const defaultBranch: string = repoData.default_branch;
 
-	// 2. Get the tree recursively
+	// 2. Resolve the default branch HEAD commit for a stable snapshot.
+	const commitRes = await fetch(
+		`${API_BASE}/repos/${owner}/${repo}/commits/${encodeURIComponent(defaultBranch)}`,
+		{ headers: headers(token) }
+	);
+	if (!commitRes.ok) {
+		const details = await readGitHubErrorMessage(commitRes);
+		if (commitRes.status === 404) {
+			throw new Error(privateRepoGuidance(owner, repo));
+		}
+		if (commitRes.status === 401) {
+			throw new Error(
+				`GitHub token was rejected while reading repository commit (401). Update your token in "GH Token" and try again.`
+			);
+		}
+		if (commitRes.status === 403) {
+			throw new Error(
+				`GitHub blocked commit access (403), often due to rate limits or missing permissions. Add a personal token in "GH Token" and try again.`
+			);
+		}
+		throw new Error(`GitHub Commit API error (${commitRes.status}): ${details}`);
+	}
+	const commitData = await commitRes.json();
+	const commitSha =
+		typeof commitData?.sha === "string" && commitData.sha.length > 0
+			? (commitData.sha as string)
+			: defaultBranch;
+	const treeSha =
+		typeof commitData?.commit?.tree?.sha === "string" &&
+		commitData.commit.tree.sha.length > 0
+			? (commitData.commit.tree.sha as string)
+			: commitSha;
+
+	// 3. Get the tree recursively for that exact commit tree.
 	const treeRes = await fetch(
-		`${API_BASE}/repos/${owner}/${repo}/git/trees/${defaultBranch}?recursive=1`,
+		`${API_BASE}/repos/${owner}/${repo}/git/trees/${treeSha}?recursive=1`,
 		{ headers: headers(token) }
 	);
 	if (!treeRes.ok) {
@@ -111,8 +144,8 @@ export async function fetchRepoTree(
 		}));
 
 	return {
-		// Tree SHA changes with repository content and is safe for cache identity.
-		sha: (treeData.sha as string) || defaultBranch,
+		// Commit SHA pins the exact snapshot used for indexing/cache identity.
+		sha: commitSha,
 		files,
 		truncated: treeData.truncated ?? false,
 	};
@@ -150,9 +183,10 @@ export async function fetchFileContent(
 	owner: string,
 	repo: string,
 	path: string,
-	token?: string
+	token?: string,
+	ref: string = "HEAD"
 ): Promise<string> {
-	const url = `https://raw.githubusercontent.com/${owner}/${repo}/HEAD/${path}`;
+	const url = `https://raw.githubusercontent.com/${owner}/${repo}/${ref}/${path}`;
 	const res = await fetch(url, { headers: headers(token) });
 	if (!res.ok) throw new Error(`Failed to fetch ${path}: ${res.status}`);
 	return res.text();

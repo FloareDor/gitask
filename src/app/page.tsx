@@ -94,48 +94,13 @@ function parseSavedChatEntries(key: string, raw: string): SavedChatEntry[] {
   }
 }
 
-function NoWebGPUScreen() {
-  return (
-    <div style={{
-      minHeight: "100vh",
-      display: "flex",
-      alignItems: "center",
-      justifyContent: "center",
-      padding: "24px",
-      textAlign: "center" as const,
-    }}>
-      <div style={{
-        maxWidth: "380px",
-        padding: "40px 36px",
-        display: "flex",
-        flexDirection: "column" as const,
-        alignItems: "center",
-        gap: "16px",
-        background: "var(--bg-card)",
-        border: "2px solid var(--border)",
-        borderRadius: "var(--radius)",
-        boxShadow: "var(--shadow-brutal)",
-      }}>
-        <span style={{ fontSize: "48px", lineHeight: 1 }}>💻</span>
-        <h2 style={{ fontSize: "22px", fontWeight: 800, letterSpacing: "-0.02em", fontFamily: "var(--font-display)" }}>
-          WebGPU not supported
-        </h2>
-        <p style={{ fontSize: "14px", color: "var(--text-secondary)", lineHeight: 1.65 }}>
-          This app needs WebGPU to run embeddings in your browser. Try{" "}
-          <strong style={{ color: "var(--text-primary)" }}>Chrome 121+ (Android) or desktop Chrome/Edge</strong>.
-          Also make sure you are on <strong style={{ color: "var(--text-primary)" }}>HTTPS</strong>.
-        </p>
-      </div>
-    </div>
-  );
-}
-
 export default function LandingPage() {
   const [url, setUrl] = useState("");
   const [error, setError] = useState("");
   const [savedChats, setSavedChats] = useState<SavedChatEntry[]>([]);
   const [isHowVisible, setIsHowVisible] = useState(false);
   const [gpuSupported, setGpuSupported] = useState(true);
+  const [gpuSupportReason, setGpuSupportReason] = useState<string>("ok");
   const [isMobile, setIsMobile] = useState(false);
   const howSectionRef = useRef<HTMLElement>(null);
   const router = useRouter();
@@ -169,6 +134,7 @@ export default function LandingPage() {
       if (cancelled) return;
 
       setGpuSupported(availability.supported);
+      setGpuSupportReason(availability.reason);
       if (!availability.supported) {
         console.info("WebGPU unavailable:", availability.reason, availability.error ?? "");
       }
@@ -326,7 +292,10 @@ export default function LandingPage() {
     }
   }
 
-  if (!gpuSupported) return <NoWebGPUScreen />;
+  function handleOpenLLMSettings() {
+    if (typeof window === "undefined") return;
+    window.dispatchEvent(new Event("gitask-open-llm-settings"));
+  }
 
   const projectRepoUrl = "https://github.com/FloareDor/gitask";
 
@@ -356,8 +325,27 @@ export default function LandingPage() {
 
           <p style={styles.subtitle}>
             Browser-native RAG. Embeddings, retrieval, and storage. All on-device
-            via WebGPU. API keys encrypted locally.
+            via WebGPU. API keys stay local (vault encryption optional).
           </p>
+
+          {!gpuSupported && (
+            <div style={styles.webgpuWarning}>
+              <strong style={styles.webgpuWarningTitle}>Local Web-LLM is unavailable in this browser.</strong>
+              <p style={styles.webgpuWarningText}>
+                Use Gemini mode instead: open LLM settings and enter your API key.
+                Local indexing still works with CPU fallback but may be slower.
+                {gpuSupportReason !== "ok" ? ` Reason: ${gpuSupportReason}.` : ""}
+              </p>
+              <button
+                type="button"
+                className="btn btn-ghost"
+                style={styles.webgpuWarningBtn}
+                onClick={handleOpenLLMSettings}
+              >
+                Open LLM Settings
+              </button>
+            </div>
+          )}
 
           {/* Search form */}
           <div style={styles.formWrapper}>
@@ -463,7 +451,7 @@ export default function LandingPage() {
                 label: "Binary Quantization",
                 desc: `${STORAGE_COMPARISON.compressionRatio}x smaller index. ${STORAGE_COMPARISON.float32TotalKB.toFixed(0)}KB → ${STORAGE_COMPARISON.binaryTotalKB.toFixed(0)}KB for ${STORAGE_COMPARISON.exampleRepoChunks} chunks.`,
               },
-              { icon: "🔐", label: "Your Key, Your Browser", desc: "API key encrypted and stored locally. Never touches a server." },
+              { icon: "🔐", label: "Your Key, Your Browser", desc: "Store API key locally with vault encryption or local fallback." },
             ].map((f, i) => (
               <div
                 key={f.label}
@@ -586,6 +574,34 @@ const styles: Record<string, React.CSSProperties> = {
     color: "var(--text-secondary)",
     lineHeight: 1.65,
     maxWidth: "540px",
+  },
+  webgpuWarning: {
+    width: "100%",
+    maxWidth: "620px",
+    textAlign: "left",
+    border: "2px solid rgba(245,158,11,0.5)",
+    background: "rgba(245,158,11,0.08)",
+    borderRadius: "var(--radius)",
+    padding: "12px 14px",
+    display: "flex",
+    flexDirection: "column" as const,
+    gap: "8px",
+  },
+  webgpuWarningTitle: {
+    fontSize: "13px",
+    color: "var(--warning)",
+    fontFamily: "var(--font-display)",
+  },
+  webgpuWarningText: {
+    margin: 0,
+    fontSize: "12px",
+    lineHeight: 1.5,
+    color: "var(--text-secondary)",
+  },
+  webgpuWarningBtn: {
+    alignSelf: "flex-start",
+    fontSize: "12px",
+    padding: "6px 10px",
   },
   formWrapper: {
     width: "100%",
