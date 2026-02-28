@@ -78,6 +78,21 @@ function shouldSuggestGitHubToken(errorMessage: string): boolean {
 	);
 }
 
+function shouldPromptForLLMSettings(errorMessage: string): boolean {
+	const message = errorMessage.toLowerCase();
+	return (
+		message.includes("gemini") ||
+		message.includes("api key") ||
+		message.includes("authentication") ||
+		message.includes("unauthorized") ||
+		message.includes("invalid") ||
+		message.includes("rejected") ||
+		message.includes("permission") ||
+		message.includes("forbidden") ||
+		message.includes("unlock")
+	);
+}
+
 export default function RepoPage({
 	params,
 }: {
@@ -695,10 +710,26 @@ ${context}`;
 				}
 			}
 		} catch (err) {
-			setMessages((prev) => [
-				...prev,
-				{ role: "assistant", content: `Error: ${err instanceof Error ? err.message : String(err)}` },
-			]);
+			const errorMessage = err instanceof Error ? err.message : String(err);
+			if (shouldPromptForLLMSettings(errorMessage)) {
+				setToastMessage("LLM authentication failed. Open LLM Settings to update your Gemini key.");
+				if (typeof window !== "undefined") {
+					window.dispatchEvent(new Event("gitask-open-llm-settings"));
+				}
+			}
+			setMessages((prev) => {
+				// Replace pending assistant placeholder when generation fails mid-stream.
+				const next = [...prev];
+				if (
+					next.length > 0 &&
+					next[next.length - 1].role === "assistant" &&
+					next[next.length - 1].content === ""
+				) {
+					next[next.length - 1] = { role: "assistant", content: `Error: ${errorMessage}` };
+					return next;
+				}
+				return [...next, { role: "assistant", content: `Error: ${errorMessage}` }];
+			});
 		} finally {
 			setIsGenerating(false);
 		}

@@ -44,6 +44,13 @@ export function ModelSettings() {
 		setMigratePassphrase("");
 	}, [isOpen]);
 
+	useEffect(() => {
+		if (typeof window === "undefined") return;
+		const openHandler = () => setIsOpen(true);
+		window.addEventListener("gitask-open-llm-settings", openHandler);
+		return () => window.removeEventListener("gitask-open-llm-settings", openHandler);
+	}, []);
+
 	const canSave =
 		config.provider !== "gemini" ||
 		hasDefaultKey ||
