@@ -23,6 +23,52 @@ export interface ChatMessage {
 	content: string;
 }
 
+function normalizeGeminiError(err: unknown): Error {
+	const message = err instanceof Error ? err.message : String(err);
+	const lower = message.toLowerCase();
+
+	if (
+		lower.includes("api key not valid") ||
+		lower.includes("invalid api key") ||
+		lower.includes("api_key_invalid") ||
+		lower.includes("authentication") ||
+		lower.includes("unauthorized")
+	) {
+		return new Error(
+			"Gemini API key is invalid or rejected. Open LLM Settings and update your key."
+		);
+	}
+
+	if (lower.includes("permission") || lower.includes("forbidden")) {
+		return new Error(
+			"Gemini request was denied. Check your API key permissions in LLM Settings."
+		);
+	}
+
+	return new Error(message);
+}
+
+async function extractErrorText(response: Response): Promise<string> {
+	try {
+		const data = await response.json();
+		if (data && typeof data.error === "string" && data.error.trim().length > 0) {
+			return data.error;
+		}
+		if (data && typeof data.message === "string" && data.message.trim().length > 0) {
+			return data.message;
+		}
+	} catch {
+		// Fall through to text/status.
+	}
+	try {
+		const text = await response.text();
+		if (text.trim().length > 0) return text;
+	} catch {
+		// Ignore text read failures.
+	}
+	return response.statusText || `HTTP ${response.status}`;
+}
+
 // ─── Internal Engine Interface ──────────────────────────────────────────────
 
 interface LLMEngine {
@@ -204,13 +250,17 @@ class GeminiEngineWrapper implements LLMEngine {
 		});
 		const chat = model.startChat({ history });
 
-		const result = await chat.sendMessageStream(lastMsg.parts[0].text);
-		const out: string[] = [];
-		for await (const chunk of result.stream) {
-			const text = chunk.text();
-			if (text) out.push(text);
+		try {
+			const result = await chat.sendMessageStream(lastMsg.parts[0].text);
+			const out: string[] = [];
+			for await (const chunk of result.stream) {
+				const text = chunk.text();
+				if (text) out.push(text);
+			}
+			return out;
+		} catch (err) {
+			throw normalizeGeminiError(err);
 		}
-		return out;
 	}
 
 	async *generateStream(
@@ -224,14 +274,24 @@ class GeminiEngineWrapper implements LLMEngine {
 				body: JSON.stringify({ messages }),
 			});
 
+			if (!response.ok) {
+				const details = await extractErrorText(response);
+				throw normalizeGeminiError(
+					new Error(`Gemini API request failed (${response.status}): ${details}`)
+				);
+			}
 			if (!response.body) throw new Error("No response body");
 			const reader = response.body.getReader();
 			const decoder = new TextDecoder();
 
-			while (true) {
-				const { done, value } = await reader.read();
-				if (done) break;
-				yield decoder.decode(value, { stream: true });
+			try {
+				while (true) {
+					const { done, value } = await reader.read();
+					if (done) break;
+					yield decoder.decode(value, { stream: true });
+				}
+			} catch (err) {
+				throw normalizeGeminiError(err);
 			}
 			return;
 		}
@@ -389,4 +449,3 @@ export async function disposeLLM(): Promise<void> {
 	initPromise = null;
 	setStatus("idle");
 }
-
