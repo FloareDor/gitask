@@ -89,6 +89,10 @@ function shouldPromptForLLMSettings(errorMessage: string): boolean {
 		message.includes("rejected") ||
 		message.includes("permission") ||
 		message.includes("forbidden") ||
+		message.includes("webgpu") ||
+		message.includes("web-llm") ||
+		message.includes("local web") ||
+		message.includes("switch to gemini") ||
 		message.includes("unlock")
 	);
 }
@@ -123,6 +127,7 @@ export default function RepoPage({
 	const [showContext, setShowContext] = useState(false);
 	const [showBrowse, setShowBrowse] = useState(false);
 	const [token, setToken] = useState("");
+	const [tokenDraft, setTokenDraft] = useState("");
 	const [showTokenInput, setShowTokenInput] = useState(false);
 	const [astNodes, setAstNodes] = useState<AstNode[]>([]);
 	const [textChunkCounts, setTextChunkCounts] = useState<Record<string, number>>({});
@@ -364,6 +369,11 @@ export default function RepoPage({
 		return () => document.removeEventListener("mousedown", handleClick);
 	}, [showOverflow]);
 
+	useEffect(() => {
+		if (!showTokenInput) return;
+		setTokenDraft(token);
+	}, [showTokenInput, token]);
+
 	// Sync notification permission when indexing starts
 	useEffect(() => {
 		if (typeof Notification === "undefined") return;
@@ -424,7 +434,15 @@ export default function RepoPage({
 						current: prev?.current ?? 0,
 						total: prev?.total ?? 0,
 					}));
-				}).catch(console.error);
+				}).catch((llmErr) => {
+					console.error(llmErr);
+					if (aborted) return;
+					const errorMessage = llmErr instanceof Error ? llmErr.message : String(llmErr);
+					setToastMessage(errorMessage);
+					if (typeof window !== "undefined" && shouldPromptForLLMSettings(errorMessage)) {
+						window.dispatchEvent(new Event("gitask-open-llm-settings"));
+					}
+				});
 			} catch (err) {
 				if (err instanceof IndexAbortError || aborted) return;
 				const errorMessage = err instanceof Error ? err.message : String(err);
@@ -485,6 +503,17 @@ export default function RepoPage({
 		const perm = await Notification.requestPermission();
 		setNotificationPermission(perm);
 	}, []);
+
+	const handleApplyToken = useCallback(() => {
+		const nextToken = tokenDraft.trim();
+		if (nextToken === token) return;
+		setToken(nextToken);
+		setToastMessage(
+			nextToken
+				? "GitHub token applied. Re-indexing..."
+				: "GitHub token removed. Re-indexing..."
+		);
+	}, [tokenDraft, token]);
 
 	const handleClearChat = useCallback(() => {
 		if (!activeChatId) return;
@@ -663,6 +692,12 @@ Epistemic contract:
 Code context:
 ${context}`;
 
+			if (getLLMStatus() === "error") {
+				throw new Error(
+					"LLM failed to initialize. Open LLM Settings and switch to Gemini with a valid API key."
+				);
+			}
+
 			if (getLLMStatus() !== "ready" && getLLMStatus() !== "generating") {
 				setMessages((prev) => [
 					...prev,
@@ -756,6 +791,8 @@ ${context}`;
 			: null;
 
 	const orderedChatSessions = [...chatSessions].sort((a, b) => b.updatedAt - a.updatedAt);
+	const normalizedTokenDraft = tokenDraft.trim();
+	const tokenChanged = normalizedTokenDraft !== token;
 
 	return (
 		<div style={styles.layout}>
@@ -941,10 +978,25 @@ ${context}`;
 						className="input"
 						type="password"
 						placeholder="GitHub Personal Access Token (optional, for higher rate limits)"
-						value={token}
-						onChange={(e) => setToken(e.target.value)}
+						value={tokenDraft}
+						onChange={(e) => setTokenDraft(e.target.value)}
+						onKeyDown={(e) => {
+							if (e.key === "Enter") {
+								e.preventDefault();
+								handleApplyToken();
+							}
+						}}
 						style={{ flex: 1, fontSize: "13px" }}
 					/>
+					<button
+						type="button"
+						className="btn btn-ghost"
+						style={{ fontSize: "12px", padding: "5px 10px" }}
+						onClick={handleApplyToken}
+						disabled={!tokenChanged}
+					>
+						Apply
+					</button>
 				</div>
 			)}
 

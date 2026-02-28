@@ -7,12 +7,23 @@ import { BYOKVault } from "byok-vault";
 
 let vaultInstance: BYOKVault | null = null;
 
+export function isGeminiVaultSupported(): boolean {
+	if (typeof window === "undefined") return false;
+	if (!window.isSecureContext) return false;
+	try {
+		if (!window.localStorage) return false;
+	} catch {
+		return false;
+	}
+	return !!window.crypto?.subtle;
+}
+
 /**
  * Get the singleton Gemini vault instance.
  * Safe to call on server (returns null when no window).
  */
 export function getGeminiVault(): BYOKVault | null {
-	if (typeof window === "undefined") return null;
+	if (!isGeminiVaultSupported()) return null;
 	if (!vaultInstance) {
 		vaultInstance = new BYOKVault({
 			namespace: "gitask-gemini",
