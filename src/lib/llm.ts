@@ -2,18 +2,21 @@
  * LLM wrapper — provides a unified interface to WebLLM and Gemini.
  *
  * Supports switching between local WebGPU inference (MLC) and cloud inference (Gemini).
- * BYOK Gemini keys are stored encrypted via byok-vault, not in config.
+ * Gemini BYOK keys can be stored encrypted (vault) or plain local (fallback).
  */
 
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import { getGeminiVault } from "./gemini-vault";
+import { detectWebGPUAvailability } from "./webgpu";
 
 export type LLMStatus = "idle" | "loading" | "ready" | "generating" | "error";
 
 export type LLMProvider = "mlc" | "gemini";
+export type GeminiStorageMode = "vault" | "local";
 
 export interface LLMConfig {
 	provider: LLMProvider;
+	geminiStorage?: GeminiStorageMode;
 	/** @deprecated For legacy migration only; BYOK keys now in vault */
 	apiKey?: string;
 }
@@ -46,6 +49,24 @@ function normalizeGeminiError(err: unknown): Error {
 	}
 
 	return new Error(message);
+}
+
+function normalizeMLCInitError(err: unknown): Error {
+	const message = err instanceof Error ? err.message : String(err);
+	const lower = message.toLowerCase();
+	if (
+		lower.includes("webgpu") ||
+		lower.includes("navigator.gpu") ||
+		lower.includes("secure context") ||
+		lower.includes("adapter")
+	) {
+		return new Error(
+			"Local Web-LLM is unavailable in this browser. Open LLM Settings, switch to Gemini, and add your API key."
+		);
+	}
+	return new Error(
+		`Failed to initialize local Web-LLM: ${message}. Switch to Gemini in LLM Settings if this continues.`
+	);
 }
 
 async function extractErrorText(response: Response): Promise<string> {
@@ -104,6 +125,41 @@ export function getLLMStatus(): LLMStatus {
 // ─── Configuration ──────────────────────────────────────────────────────────
 
 const STORAGE_KEY = "gitask_llm_config";
+const GEMINI_LOCAL_KEY_STORAGE = "gitask_gemini_api_key_local";
+
+function normalizeGeminiStorageMode(value: unknown): GeminiStorageMode {
+	return value === "local" ? "local" : "vault";
+}
+
+export function getGeminiLocalApiKey(): string | null {
+	if (typeof window === "undefined") return null;
+	let key: string | null = null;
+	try {
+		key = localStorage.getItem(GEMINI_LOCAL_KEY_STORAGE);
+	} catch {
+		return null;
+	}
+	if (!key) return null;
+	return key.trim().length > 0 ? key : null;
+}
+
+export function hasGeminiLocalApiKey(): boolean {
+	return !!getGeminiLocalApiKey();
+}
+
+export function setGeminiLocalApiKey(apiKey: string | null): void {
+	if (typeof window === "undefined") return;
+	const next = apiKey?.trim() ?? "";
+	try {
+		if (!next) {
+			localStorage.removeItem(GEMINI_LOCAL_KEY_STORAGE);
+			return;
+		}
+		localStorage.setItem(GEMINI_LOCAL_KEY_STORAGE, next);
+	} catch {
+		// Ignore localStorage failures in restricted browser modes.
+	}
+}
 
 export function getLLMConfig(): LLMConfig {
 	// 1. Try to load from localStorage
@@ -111,11 +167,16 @@ export function getLLMConfig(): LLMConfig {
 		try {
 			const stored = localStorage.getItem(STORAGE_KEY);
 			if (stored) {
-				const config = JSON.parse(stored);
-				// If provider is gemini but no key, and we have an env key, use it.
-				// However, usually we want to respect the user's choice.
-				// If the user explicitly saved "gemini" with empty key, they might be expecting the env key.
-				return config;
+				const parsed = JSON.parse(stored) as Partial<LLMConfig>;
+				const provider: LLMProvider = parsed.provider === "gemini" ? "gemini" : "mlc";
+				const baseConfig: LLMConfig = { provider };
+				if (provider === "gemini") {
+					baseConfig.geminiStorage = normalizeGeminiStorageMode(parsed.geminiStorage);
+				}
+				if (typeof parsed.apiKey === "string" && parsed.apiKey.trim().length > 0) {
+					baseConfig.apiKey = parsed.apiKey;
+				}
+				return baseConfig;
 			}
 		} catch (e) {
 			console.warn("Failed to parse LLM config", e);
@@ -126,7 +187,7 @@ export function getLLMConfig(): LLMConfig {
 	// If we have an env key, default to Gemini as requested ("use gemini shit by default")
 	// NOW: we check boolean flag, since key is hidden
 	if (typeof process !== "undefined" && process.env.NEXT_PUBLIC_HAS_GEMINI_KEY) {
-		return { provider: "gemini" };
+		return { provider: "gemini", geminiStorage: "vault" };
 	}
 
 	return { provider: "mlc" };
@@ -141,9 +202,17 @@ export function hasLegacyApiKey(config: LLMConfig): boolean {
 
 export function setLLMConfig(config: LLMConfig) {
 	if (typeof window === "undefined") return;
-	// Never persist apiKey — BYOK keys live in vault
-	const { apiKey: _omit, ...safe } = config;
-	localStorage.setItem(STORAGE_KEY, JSON.stringify(safe));
+	const safeConfig: LLMConfig = {
+		provider: config.provider === "gemini" ? "gemini" : "mlc",
+	};
+	if (safeConfig.provider === "gemini") {
+		safeConfig.geminiStorage = normalizeGeminiStorageMode(config.geminiStorage);
+	}
+	try {
+		localStorage.setItem(STORAGE_KEY, JSON.stringify(safeConfig));
+	} catch {
+		// Ignore localStorage failures in restricted browser modes.
+	}
 }
 
 // ─── MLC Implementation ─────────────────────────────────────────────────────
@@ -197,14 +266,23 @@ type BYOKVaultRef = import("byok-vault").BYOKVault;
 class GeminiEngineWrapper implements LLMEngine {
 	private vault: BYOKVaultRef | null;
 	private useProxy: boolean;
+	private apiKey: string | null;
 
-	constructor(vaultOrProxy: { vault: BYOKVaultRef } | { useProxy: true }) {
+	constructor(
+		vaultOrProxy: { vault: BYOKVaultRef } | { useProxy: true } | { apiKey: string }
+	) {
 		if ("vault" in vaultOrProxy) {
 			this.vault = vaultOrProxy.vault;
 			this.useProxy = false;
+			this.apiKey = null;
+		} else if ("apiKey" in vaultOrProxy) {
+			this.vault = null;
+			this.useProxy = false;
+			this.apiKey = vaultOrProxy.apiKey;
 		} else {
 			this.vault = null;
 			this.useProxy = true;
+			this.apiKey = null;
 		}
 	}
 
@@ -296,6 +374,14 @@ class GeminiEngineWrapper implements LLMEngine {
 			return;
 		}
 
+		if (this.apiKey) {
+			const chunks = await this.collectGeminiStream(messages, this.apiKey);
+			for (const chunk of chunks) {
+				yield chunk;
+			}
+			return;
+		}
+
 		// BYOK: run inside vault scope, collect chunks then yield
 		if (!this.vault) throw new Error("Vault not configured");
 		const runWithKey = (apiKey: string) => this.collectGeminiStream(messages, apiKey);
@@ -318,6 +404,7 @@ class GeminiEngineWrapper implements LLMEngine {
 
 	async dispose(): Promise<void> {
 		this.vault = null;
+		this.apiKey = null;
 	}
 }
 
@@ -340,9 +427,14 @@ export async function initLLM(
 			if (config.provider === "gemini") {
 				const vault = getGeminiVault();
 				const hasDefault = process.env.NEXT_PUBLIC_HAS_GEMINI_KEY;
+				const storageMode = normalizeGeminiStorageMode(config.geminiStorage);
+				const localKey = storageMode === "local" ? getGeminiLocalApiKey() : null;
 				const canUseVault = vault?.canCall();
 
-				if (canUseVault && vault) {
+				if (localKey) {
+					onProgress?.("Initializing Gemini (Local Key)...");
+					activeEngine = new GeminiEngineWrapper({ apiKey: localKey });
+				} else if (canUseVault && vault) {
 					onProgress?.("Initializing Gemini (Custom Key)...");
 					activeEngine = new GeminiEngineWrapper({ vault });
 				} else if (hasDefault) {
@@ -351,7 +443,9 @@ export async function initLLM(
 				} else {
 					const state = vault?.getState();
 					throw new Error(
-						state === "locked"
+						storageMode === "local"
+							? "Add your Gemini API key in LLM Settings."
+							: state === "locked"
 							? "Please unlock your API key in Settings."
 							: "Add an API key in Settings or use the default key."
 					);
@@ -359,37 +453,48 @@ export async function initLLM(
 				onProgress?.("Gemini Ready");
 			} else {
 				// Default to MLC
-				onProgress?.("Loading WebLLM Engine...");
-				const { CreateWebWorkerMLCEngine } = await import("@mlc-ai/web-llm");
-				const worker = new Worker(
-					new URL("../workers/llm-worker.ts", import.meta.url),
-					{ type: "module" }
-				);
+				try {
+					const availability = await detectWebGPUAvailability();
+					if (!availability.supported) {
+						throw new Error(
+							`WebGPU unavailable (${availability.reason}).`
+						);
+					}
 
-				const rawEngine = await CreateWebWorkerMLCEngine(worker, MLC_MODEL_ID, {
-					initProgressCallback: (progress) => {
-						onProgress?.(`LLM: ${progress.text}`);
-					},
-					appConfig: {
-						model_list: [
-							{
-								model:
-									"https://huggingface.co/mlc-ai/Qwen2-0.5B-Instruct-q4f16_1-MLC",
-								model_id: MLC_MODEL_ID,
-								model_lib:
-									"https://raw.githubusercontent.com/mlc-ai/binary-mlc-llm-libs/main/web-llm-models/" +
-									"v0_2_80" +
-									"/Qwen2-0.5B-Instruct-q4f16_1-ctx4k_cs1k-webgpu.wasm",
-								low_resource_required: true,
-								overrides: {
-									context_window_size: 8192,
+					onProgress?.("Loading WebLLM Engine...");
+					const { CreateWebWorkerMLCEngine } = await import("@mlc-ai/web-llm");
+					const worker = new Worker(
+						new URL("../workers/llm-worker.ts", import.meta.url),
+						{ type: "module" }
+					);
+
+					const rawEngine = await CreateWebWorkerMLCEngine(worker, MLC_MODEL_ID, {
+						initProgressCallback: (progress) => {
+							onProgress?.(`LLM: ${progress.text}`);
+						},
+						appConfig: {
+							model_list: [
+								{
+									model:
+										"https://huggingface.co/mlc-ai/Qwen2-0.5B-Instruct-q4f16_1-MLC",
+									model_id: MLC_MODEL_ID,
+									model_lib:
+										"https://raw.githubusercontent.com/mlc-ai/binary-mlc-llm-libs/main/web-llm-models/" +
+										"v0_2_80" +
+										"/Qwen2-0.5B-Instruct-q4f16_1-ctx4k_cs1k-webgpu.wasm",
+									low_resource_required: true,
+									overrides: {
+										context_window_size: 8192,
+									},
 								},
-							},
-						],
-					},
-				});
-				activeEngine = new MLCEngineWrapper(rawEngine);
-				onProgress?.("Local LLM Ready");
+							],
+						},
+					});
+					activeEngine = new MLCEngineWrapper(rawEngine);
+					onProgress?.("Local LLM Ready");
+				} catch (err) {
+					throw normalizeMLCInitError(err);
+				}
 			}
 			setStatus("ready");
 		} catch (err) {
