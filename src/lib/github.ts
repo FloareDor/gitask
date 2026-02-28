@@ -111,7 +111,8 @@ export async function fetchRepoTree(
 		}));
 
 	return {
-		sha: repoData.sha || defaultBranch,
+		// Tree SHA changes with repository content and is safe for cache identity.
+		sha: (treeData.sha as string) || defaultBranch,
 		files,
 		truncated: treeData.truncated ?? false,
 	};
