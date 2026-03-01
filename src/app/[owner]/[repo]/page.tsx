@@ -146,6 +146,7 @@ export default function RepoPage({
 	const chatLoadedRef = useRef(false);
 	const pendingChatSwitchRef = useRef<string | null>(null);
 	const staleNoticeShownRef = useRef(false);
+	const isGeneratingRef = useRef(false);
 
 	const storeRef = useRef(new VectorStore());
 	const chatEndRef = useRef<HTMLDivElement>(null);
@@ -328,8 +329,9 @@ export default function RepoPage({
 					sessions: chatSessions,
 				})
 			);
-		} catch {
-			// Storage full or unavailable — silently skip
+		} catch (e) {
+			console.warn("Failed to persist chat sessions to localStorage:", e);
+			setToastMessage("Warning: chat history could not be saved — your browser storage may be full.");
 		}
 	}, [chatStorageKey, chatSessions, activeChatId]);
 
@@ -443,16 +445,17 @@ export default function RepoPage({
 						window.dispatchEvent(new Event("gitask-open-llm-settings"));
 					}
 				});
-			} catch (err) {
-				if (err instanceof IndexAbortError || aborted) return;
-				const errorMessage = err instanceof Error ? err.message : String(err);
-				if (shouldSuggestGitHubToken(errorMessage)) {
-					safeSetState(setShowTokenInput, true);
-				}
-				safeSetState(setIndexProgress, {
-					phase: "done",
-					message: `Error: ${errorMessage}`,
-					current: 0,
+				} catch (err) {
+					if (err instanceof IndexAbortError || aborted) return;
+					const errorMessage = err instanceof Error ? err.message : String(err);
+					if (shouldSuggestGitHubToken(errorMessage)) {
+						safeSetState(setShowTokenInput, true);
+					}
+					safeSetState(setToastMessage, `Indexing failed: ${errorMessage}`);
+					safeSetState(setIndexProgress, {
+						phase: "done",
+						message: `Error: ${errorMessage}`,
+						current: 0,
 					total: 0,
 				});
 			}
@@ -468,11 +471,16 @@ export default function RepoPage({
 	useEffect(() => {
 		if (!owner || !repo || !isIndexed || !indexedSha) return;
 		let cancelled = false;
+		let consecutiveFailures = 0;
+		const MAX_CONSECUTIVE_FAILURES = 5;
+		let stalePollWarnShown = false;
 
 		const checkForStaleContext = async () => {
 			try {
 				const latest = await fetchRepoTree(owner, repo, token || undefined);
 				if (cancelled) return;
+				consecutiveFailures = 0;
+				stalePollWarnShown = false;
 				const isStale = latest.sha !== indexedSha;
 				setRepoStale(isStale);
 				if (isStale && !staleNoticeShownRef.current) {
@@ -482,8 +490,13 @@ export default function RepoPage({
 				if (!isStale) {
 					staleNoticeShownRef.current = false;
 				}
-			} catch {
-				// Ignore transient network/rate-limit errors while stale polling.
+			} catch (e) {
+				consecutiveFailures++;
+				console.warn("Stale context check failed:", e);
+				if (consecutiveFailures >= MAX_CONSECUTIVE_FAILURES && !stalePollWarnShown && !cancelled) {
+					stalePollWarnShown = true;
+					setToastMessage("Could not reach GitHub to check for repo updates. Stale-context detection paused.");
+				}
 			}
 		};
 
@@ -516,6 +529,7 @@ export default function RepoPage({
 	}, [tokenDraft, token]);
 
 	const handleClearChat = useCallback(() => {
+		if (isGeneratingRef.current) return;
 		if (!activeChatId) return;
 		setMessages([]);
 		setChatSessions((prev) =>
@@ -536,6 +550,7 @@ export default function RepoPage({
 	}, [activeChatId]);
 
 	const handleCreateChat = useCallback(() => {
+		if (isGeneratingRef.current) return;
 		const fresh = makeNewChat(`Chat ${chatSessions.length + 1}`);
 		setChatSessions((prev) => [fresh, ...prev]);
 		pendingChatSwitchRef.current = fresh.chat_id;
@@ -547,6 +562,7 @@ export default function RepoPage({
 	}, [chatSessions.length]);
 
 	const handleSelectChat = useCallback((chatId: string) => {
+		if (isGeneratingRef.current) return;
 		if (!chatId || chatId === activeChatId) return;
 		const target = chatSessions.find((session) => session.chat_id === chatId);
 		pendingChatSwitchRef.current = chatId;
@@ -558,6 +574,7 @@ export default function RepoPage({
 	}, [activeChatId, chatSessions]);
 
 	const handleDeleteActiveChat = useCallback(async () => {
+		if (isGeneratingRef.current) return;
 		if (!activeChatId) return;
 		const current = chatSessions.find((session) => session.chat_id === activeChatId);
 		const isLastChat = chatSessions.length <= 1;
@@ -648,8 +665,9 @@ export default function RepoPage({
 
 	const handleSend = useCallback(async (overrideText?: string) => {
 		const userMessage = (overrideText ?? input).trim();
-		if (!userMessage || isGenerating || !isIndexed) return;
+		if (!userMessage || isGeneratingRef.current || !isIndexed) return;
 
+		isGeneratingRef.current = true;
 		setInput("");
 		setMessages((prev) => [...prev, { role: "user", content: userMessage }]);
 		setIsGenerating(true);
@@ -658,8 +676,26 @@ export default function RepoPage({
 			const queryVariants = expandQuery(userMessage);
 			const results = await multiPathHybridSearch(storeRef.current, queryVariants, { limit: 5 });
 
+			// Always inject README / package.json as baseline context so
+			// project-overview questions ("what does this project do?") have a
+			// useful starting point rather than landing on unrelated code chunks.
+			const BASELINE_FILES = ["readme.md", "README.md", "README", "package.json"];
+			const resultIds = new Set(results.map((r) => r.chunk.id));
+			const baselineChunks: typeof results = [];
+			for (const filename of BASELINE_FILES) {
+				const chunks = storeRef.current.getChunksByFile(filename);
+				if (chunks.length === 0) continue;
+				const first = chunks[0];
+				if (!resultIds.has(first.id)) {
+					baselineChunks.push({ chunk: first, score: 0 });
+					resultIds.add(first.id);
+				}
+				if (baselineChunks.length >= 2) break;
+			}
+			const mergedResults = [...results, ...baselineChunks];
+
 			setContextChunks(
-				results.map((r) => ({
+				mergedResults.map((r) => ({
 					filePath: r.chunk.filePath,
 					code: r.chunk.code,
 					score: r.score,
@@ -670,7 +706,7 @@ export default function RepoPage({
 			const config = getLLMConfig();
 			const limits = defaultLimitsForProvider(config.provider);
 			const assembled = buildScopedContext(
-				results.map((r) => ({ chunk: r.chunk, score: r.score })),
+				mergedResults.map((r) => ({ chunk: r.chunk, score: r.score })),
 				limits
 			);
 			const context = assembled.context;
@@ -765,10 +801,11 @@ ${context}`;
 				}
 				return [...next, { role: "assistant", content: `Error: ${errorMessage}` }];
 			});
-		} finally {
-			setIsGenerating(false);
-		}
-	}, [input, isGenerating, isIndexed, messages, owner, repo, llmStatus, coveEnabled]);
+			} finally {
+				isGeneratingRef.current = false;
+				setIsGenerating(false);
+			}
+		}, [input, isIndexed, messages, owner, repo, llmStatus, coveEnabled]);
 
 	const progressPercent =
 		indexProgress && indexProgress.total > 0
@@ -962,6 +999,7 @@ ${context}`;
 							className="btn btn-ghost"
 							style={{ fontSize: "12px", padding: "5px 10px" }}
 							onClick={handleClearChat}
+							disabled={isGenerating}
 						>
 							🗑 Clear
 						</button>
@@ -1080,6 +1118,7 @@ ${context}`;
 							onChange={(e) => handleSelectChat(e.target.value)}
 							style={styles.chatSelect}
 							aria-label="Select chat session"
+							disabled={isGenerating}
 						>
 							{orderedChatSessions.map((session) => (
 								<option key={session.chat_id} value={session.chat_id}>
@@ -1092,6 +1131,7 @@ ${context}`;
 							style={styles.chatToolbarBtn}
 							onClick={handleCreateChat}
 							type="button"
+							disabled={isGenerating}
 						>
 							+ New Chat
 						</button>
@@ -1101,6 +1141,7 @@ ${context}`;
 							onClick={handleDeleteActiveChat}
 							type="button"
 							title={chatSessions.length <= 1 ? "Delete messages in current chat" : "Delete current chat"}
+							disabled={isGenerating}
 						>
 							🗑 Delete Chat
 						</button>

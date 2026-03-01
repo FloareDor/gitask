@@ -121,6 +121,12 @@ export async function indexRepository(
 		}
 	} catch (e) {
 		console.warn("Failed to init tree-sitter:", e);
+		onProgress?.({
+			phase: "fetching",
+			message: "AST parsing unavailable — falling back to text chunking. Search quality may be reduced.",
+			current: 0,
+			total: 1,
+		});
 	}
 
 	// eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -202,6 +208,8 @@ export async function indexRepository(
 		});
 	}
 
+	const skippedFiles: string[] = [];
+
 	// 5. Fetch + chunk files (or resume from startFileIndex)
 	for (let i = startFileIndex; i < indexableFiles.length; i++) {
 		const file = indexableFiles[i];
@@ -272,9 +280,9 @@ export async function indexRepository(
 				chunks.length,
 				chunks.some((chunk) => chunk.nodeType === "file_summary")
 			);
-		} catch {
-			// Skip files that fail to fetch
-			console.warn(`Skipped ${file.path}`);
+		} catch (e) {
+			console.warn(`Skipped ${file.path}:`, e);
+			skippedFiles.push(file.path);
 		}
 
 		// Report progress every file so AST visualization updates promptly
@@ -407,7 +415,16 @@ export async function indexRepository(
 					dependencyGraph: { ...dependencyGraph },
 					directoryStats: { ...directoryStats },
 					embeddedSoFar: soFar,
-				}).catch(console.warn);
+				}).catch((e) => {
+					console.warn("Failed to save partial embedding progress:", e);
+					onProgress?.({
+						phase: "embedding",
+						message: "Warning: could not save progress checkpoint — if you close this tab, indexing will restart from scratch.",
+						current: soFar.length,
+						total: allChunks.length,
+						estimatedSizeBytes: estimatedBytes,
+					});
+				});
 			}
 		);
 		embedded = [...embeddedSoFar, ...newlyEmbedded];
@@ -431,9 +448,13 @@ export async function indexRepository(
 	await store.persist(owner, repo, tree.sha);
 	await store.clearPartialProgress(owner, repo);
 
+	const skippedNote =
+		skippedFiles.length > 0
+			? ` — ${skippedFiles.length} file${skippedFiles.length > 1 ? "s" : ""} could not be fetched`
+			: "";
 	onProgress?.({
 		phase: "done",
-		message: `Indexed ${embedded.length} chunks from ${totalFiles} files`,
+		message: `Indexed ${embedded.length} chunks from ${totalFiles - skippedFiles.length} files${skippedNote}`,
 		current: embedded.length,
 		total: embedded.length,
 		estimatedSizeBytes: estimatedBytes,
