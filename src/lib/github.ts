@@ -6,6 +6,7 @@
  */
 
 const API_BASE = "https://api.github.com";
+const RAW_FILE_FETCH_TIMEOUT_MS = 20_000;
 
 export interface RepoFile {
 	path: string;
@@ -186,10 +187,33 @@ export async function fetchFileContent(
 	token?: string,
 	ref: string = "HEAD"
 ): Promise<string> {
-	const url = `https://raw.githubusercontent.com/${owner}/${repo}/${ref}/${path}`;
-	const res = await fetch(url, { headers: headers(token) });
-	if (!res.ok) throw new Error(`Failed to fetch ${path}: ${res.status}`);
-	return res.text();
+	const encodedPath = path
+		.split("/")
+		.map((segment) => encodeURIComponent(segment))
+		.join("/");
+	const url = `https://raw.githubusercontent.com/${owner}/${repo}/${ref}/${encodedPath}`;
+	const controller = new AbortController();
+	const timeoutId = setTimeout(() => controller.abort(), RAW_FILE_FETCH_TIMEOUT_MS);
+	try {
+		const res = await fetch(url, {
+			headers: headers(token),
+			signal: controller.signal,
+		});
+		if (!res.ok) throw new Error(`Failed to fetch ${path}: ${res.status}`);
+		return res.text();
+	} catch (e) {
+		if (
+			e instanceof DOMException
+			&& e.name === "AbortError"
+		) {
+			throw new Error(
+				`Failed to fetch ${path}: request timed out after ${RAW_FILE_FETCH_TIMEOUT_MS / 1000}s`
+			);
+		}
+		throw e;
+	} finally {
+		clearTimeout(timeoutId);
+	}
 }
 
 /**
