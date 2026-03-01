@@ -161,6 +161,7 @@ export function ModelSettings() {
 	const handleSave = async () => {
 		setReloading(true);
 		setStatusMsg("Initializing...");
+		let clearLocalKeyAfterSuccess = false;
 		try {
 			if (config.provider === "gemini") {
 				if (storageMode === "local") {
@@ -169,8 +170,7 @@ export function ModelSettings() {
 						setHasLocalKey(hasGeminiLocalApiKey());
 					}
 				} else {
-					setGeminiLocalApiKey(null);
-					setHasLocalKey(false);
+					clearLocalKeyAfterSuccess = true;
 					if (apiKeyInput.trim() && vault) {
 						if (passkeySupported) {
 							await vault.setConfigWithPasskey(
@@ -193,6 +193,10 @@ export function ModelSettings() {
 				geminiStorage: storageMode,
 			});
 			await reloadLLM((msg) => setStatusMsg(msg));
+			if (clearLocalKeyAfterSuccess) {
+				setGeminiLocalApiKey(null);
+				setHasLocalKey(false);
+			}
 			setIsOpen(false);
 		} catch (e) {
 			console.error(e);
