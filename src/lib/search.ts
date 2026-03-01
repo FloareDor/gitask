@@ -40,7 +40,33 @@ export function reciprocalRankFusion(
 }
 
 /**
- * Keyword search: finds chunks containing exact symbol matches.
+ * Common English words that carry no signal for code search.
+ * These are filtered out of keyword extraction so they don't
+ * incorrectly boost chunks that happen to contain them.
+ */
+const KEYWORD_STOP_WORDS = new Set([
+	"a", "an", "the", "is", "are", "was", "were", "be", "been", "being",
+	"have", "has", "had", "do", "does", "did", "will", "would", "could",
+	"should", "may", "might", "must", "shall", "can", "cannot",
+	"this", "that", "these", "those", "it", "its",
+	"what", "which", "who", "whom", "whose", "when", "where", "why", "how",
+	"and", "or", "but", "not", "nor", "so", "yet", "for", "in", "on", "at",
+	"to", "from", "of", "with", "by", "about", "into", "through", "during",
+	"i", "me", "my", "we", "our", "you", "your", "he", "him", "his",
+	"she", "her", "they", "them", "their", "there", "here",
+	"any", "all", "some", "no", "few", "more", "most", "other", "such",
+	"only", "own", "same", "than", "too", "very", "just", "get", "got",
+	"use", "used", "using", "make", "made", "like", "also", "then", "than",
+	"out", "up", "over", "after", "before", "between", "each", "both",
+	"if", "as", "until", "while", "because", "though", "although",
+	"tell", "show", "give", "find", "know", "see", "look", "say",
+	"go", "put", "set", "let", "try", "help", "need", "want", "code",
+	"file", "line", "add", "new", "old", "run", "work",
+]);
+
+/**
+ * Keyword search: finds chunks containing exact technical identifier matches.
+ * Generic English words are excluded to avoid noise from natural-language queries.
  * Returns a map of chunk ID → match count.
  */
 export function keywordSearch(
@@ -49,8 +75,11 @@ export function keywordSearch(
 ): Map<string, number> {
 	const scores = new Map<string, number>();
 
-	// Extract potential symbol patterns (alphanumeric + underscore, 2+ chars)
-	const symbols = query.match(/[a-zA-Z_]\w+/g) ?? [];
+	// Extract symbol patterns (alphanumeric + underscore, 2+ chars), then strip stop words
+	const rawSymbols = query.match(/[a-zA-Z_]\w+/g) ?? [];
+	const symbols = rawSymbols.filter(
+		(s) => s.length >= 2 && !KEYWORD_STOP_WORDS.has(s.toLowerCase())
+	);
 	if (symbols.length === 0) return scores;
 
 	for (const chunk of chunks) {

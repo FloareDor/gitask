@@ -107,19 +107,24 @@ export default function LandingPage() {
 
   const loadSavedChats = useCallback(() => {
     if (typeof window === "undefined") return;
-    const entries: SavedChatEntry[] = [];
-    for (const key of Object.keys(localStorage)) {
-      if (!key.startsWith(CHAT_STORAGE_PREFIX)) continue;
-      const raw = localStorage.getItem(key);
-      if (!raw) continue;
-      entries.push(...parseSavedChatEntries(key, raw));
-    }
+    try {
+      const entries: SavedChatEntry[] = [];
+      for (const key of Object.keys(localStorage)) {
+        if (!key.startsWith(CHAT_STORAGE_PREFIX)) continue;
+        const raw = localStorage.getItem(key);
+        if (!raw) continue;
+        entries.push(...parseSavedChatEntries(key, raw));
+      }
 
-    entries.sort((a, b) => {
-      if (a.lastUpdated !== b.lastUpdated) return b.lastUpdated - a.lastUpdated;
-      return `${a.owner}/${a.repo}`.localeCompare(`${b.owner}/${b.repo}`);
-    });
-    setSavedChats(entries);
+      entries.sort((a, b) => {
+        if (a.lastUpdated !== b.lastUpdated) return b.lastUpdated - a.lastUpdated;
+        return `${a.owner}/${a.repo}`.localeCompare(`${b.owner}/${b.repo}`);
+      });
+      setSavedChats(entries);
+    } catch (e) {
+      console.warn("Failed to scan local chat storage:", e);
+      setSavedChats([]);
+    }
   }, []);
 
   useEffect(() => {

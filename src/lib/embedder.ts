@@ -17,9 +17,12 @@ export interface EmbeddedChunk extends CodeChunk {
 let embedPipeline: any = null;
 let pipelinePromise: Promise<void> | null = null;
 
+const EMBEDDER_INIT_TIMEOUT_MS = 90_000;
+
 /**
  * Initialize the embedding model.
  * Call once; subsequent calls are no-ops.
+ * Rejects with a user-visible error if the model takes longer than 90 s to load.
  */
 export async function initEmbedder(
 	onProgress?: (msg: string) => void
@@ -27,46 +30,67 @@ export async function initEmbedder(
 	if (embedPipeline) return;
 	if (pipelinePromise) return pipelinePromise;
 
-	pipelinePromise = (async () => {
-		onProgress?.("Loading embedding model...");
+	pipelinePromise = new Promise<void>((resolve, reject) => {
+		const timeoutId = setTimeout(() => {
+			pipelinePromise = null;
+			embedPipeline = null;
+			reject(
+				new Error(
+					"Embedding model failed to load within 90 s. Check your network connection and reload the page."
+				)
+			);
+		}, EMBEDDER_INIT_TIMEOUT_MS);
 
-		// Dynamic import so this does not break SSR
-		const { pipeline, env } = await import("@huggingface/transformers");
+		(async () => {
+			try {
+				onProgress?.("Loading embedding model...");
 
-		// Disable local model check (we always download from HF)
-		env.allowLocalModels = false;
+				// Dynamic import so this does not break SSR
+				const { pipeline, env } = await import("@huggingface/transformers");
 
-		// Suppress ONNX Runtime warnings about execution provider node assignments.
-		// logSeverityLevel: 0=verbose, 1=info, 2=warning, 3=error, 4=fatal
-		// eslint-disable-next-line @typescript-eslint/no-explicit-any
-		const onnxEnv = (env as any).backends?.onnx;
-		if (onnxEnv) {
-			onnxEnv.logSeverityLevel = 3;
-			onnxEnv.logLevel = "error";
-		}
+				// Disable local model check (we always download from HF)
+				env.allowLocalModels = false;
 
-		// Detect WebGPU, fall back to WASM
-		const availability = await detectWebGPUAvailability();
-		const device = availability.supported ? "webgpu" : "wasm";
-		console.info(`Embedder using device: ${device.toUpperCase()}`);
-		if (!availability.supported) {
-			console.info(`WebGPU fallback reason: ${availability.reason}`);
-		}
-		onProgress?.(`Using device: ${device}`);
+				// Suppress ONNX Runtime warnings about execution provider node assignments.
+				// logSeverityLevel: 0=verbose, 1=info, 2=warning, 3=error, 4=fatal
+				// eslint-disable-next-line @typescript-eslint/no-explicit-any
+				const onnxEnv = (env as any).backends?.onnx;
+				if (onnxEnv) {
+					onnxEnv.logSeverityLevel = 3;
+					onnxEnv.logLevel = "error";
+				}
 
-		embedPipeline = await pipeline(
-			"feature-extraction",
-			"Xenova/all-MiniLM-L6-v2",
-			{
-				device: device as any,
-				session_options: {
-					log_severity_level: 3,
-				},
-			} as any
-		);
+				// Detect WebGPU, fall back to WASM
+				const availability = await detectWebGPUAvailability();
+				const device = availability.supported ? "webgpu" : "wasm";
+				console.info(`Embedder using device: ${device.toUpperCase()}`);
+				if (!availability.supported) {
+					console.info(`WebGPU fallback reason: ${availability.reason}`);
+				}
+				onProgress?.(`Using device: ${device}`);
 
-		onProgress?.("Embedding model ready");
-	})();
+				embedPipeline = await pipeline(
+					"feature-extraction",
+					"Xenova/all-MiniLM-L6-v2",
+					{
+						device: device as any,
+						session_options: {
+							log_severity_level: 3,
+						},
+					} as any
+				);
+
+				clearTimeout(timeoutId);
+				onProgress?.("Embedding model ready");
+				resolve();
+			} catch (err) {
+				clearTimeout(timeoutId);
+				pipelinePromise = null;
+				embedPipeline = null;
+				reject(err);
+			}
+		})();
+	});
 
 	return pipelinePromise;
 }
