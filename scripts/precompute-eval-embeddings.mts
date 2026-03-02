@@ -1,6 +1,7 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { createHash } from "node:crypto";
+import { GoogleGenerativeAI, TaskType } from "@google/generative-ai";
 
 type Relevance = 0 | 1 | 2 | 3;
 
@@ -28,10 +29,17 @@ interface RawQuery {
   relevanceScores: Record<string, Relevance>;
 }
 
-const MODEL_ID = "Xenova/all-MiniLM-L6-v2";
-const DIMS = 384;
-const OUTPUT_PATH = resolve("src/lib/eval-embeddings.json");
+const MODEL_ID = process.env.EMBED_MODEL_ID ?? "Xenova/all-MiniLM-L12-v2";
+const MODEL_FILE = process.env.EMBED_MODEL_FILE;
+const DIMS = Number(process.env.EMBED_DIMS ?? "384");
+const OUTPUT_PATH = resolve(process.env.EMBED_OUTPUT_PATH ?? "src/lib/eval-embeddings.json");
 const ALLOW_FAKE = process.env.ALLOW_FAKE_EMBEDDINGS === "1";
+const EMBED_PROVIDER = process.env.EMBED_PROVIDER ?? "hf";
+const GEMINI_MODEL_ID = process.env.GEMINI_MODEL_ID ?? "gemini-embedding-001";
+const GEMINI_API_KEY = process.env.GEMINI_API_KEY ?? "";
+const GEMINI_EMBED_MIN_INTERVAL_MS = Number(process.env.GEMINI_EMBED_MIN_INTERVAL_MS ?? "700");
+
+type EmbeddingKind = "document" | "query";
 
 const TOPICS: Topic[] = [
   { slug: "url-query-params", query: "parse URL query parameters into dictionary", keyName: "query_params", keyAction: "parse" },
@@ -99,6 +107,54 @@ function hashEmbedding(input: string, dims: number): number[] {
   }
 
   return normalize(vec);
+}
+
+function meanPoolAndNormalize(features: ArrayLike<number>, dims: number[]): number[] {
+  let seq = 0;
+  let width = 0;
+  let offset = 0;
+
+  if (dims.length === 3) {
+    const batch = dims[0] ?? 0;
+    seq = dims[1] ?? 0;
+    width = dims[2] ?? 0;
+    if (batch < 1) throw new Error(`Invalid embedding batch size: ${batch}`);
+    offset = 0;
+  } else if (dims.length === 2) {
+    seq = dims[0] ?? 0;
+    width = dims[1] ?? 0;
+    offset = 0;
+  } else {
+    throw new Error(`Unsupported embedding tensor dims: [${dims.join(", ")}]`);
+  }
+
+  if (seq <= 0 || width <= 0) {
+    throw new Error(`Invalid embedding tensor dims: [${dims.join(", ")}]`);
+  }
+
+  const pooled = new Float32Array(width);
+  for (let t = 0; t < seq; t += 1) {
+    const base = offset + t * width;
+    for (let j = 0; j < width; j += 1) {
+      pooled[j] += Number(features[base + j] ?? 0);
+    }
+  }
+  for (let j = 0; j < width; j += 1) {
+    pooled[j] /= seq;
+  }
+
+  let norm = 0;
+  for (let j = 0; j < width; j += 1) {
+    norm += pooled[j] * pooled[j];
+  }
+  norm = Math.sqrt(norm);
+  if (norm > 0) {
+    for (let j = 0; j < width; j += 1) {
+      pooled[j] /= norm;
+    }
+  }
+
+  return Array.from(pooled);
 }
 
 function makePositiveCode(topic: Topic, variant: number): string {
@@ -195,18 +251,83 @@ function buildCorpus() {
   return { chunksSpec, queriesSpec };
 }
 
-async function createEmbedder(): Promise<{ model: string; embed: (text: string) => Promise<number[]> }> {
+async function createEmbedder(): Promise<{
+  model: string;
+  embed: (text: string, kind?: EmbeddingKind) => Promise<number[]>;
+}> {
+  if (EMBED_PROVIDER === "gemini") {
+    if (!GEMINI_API_KEY) {
+      throw new Error("GEMINI_API_KEY is required when EMBED_PROVIDER=gemini");
+    }
+
+    const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
+    const model = genAI.getGenerativeModel({ model: GEMINI_MODEL_ID });
+    let nextAllowedAt = 0;
+
+    const waitForRateLimitWindow = async () => {
+      const now = Date.now();
+      if (now < nextAllowedAt) {
+        await sleep(nextAllowedAt - now);
+      }
+      nextAllowedAt = Date.now() + GEMINI_EMBED_MIN_INTERVAL_MS;
+    };
+
+    return {
+      model: `gemini:${GEMINI_MODEL_ID}`,
+      embed: async (text: string, kind: EmbeddingKind = "document") => {
+        await waitForRateLimitWindow();
+
+        const taskType =
+          kind === "query" ? TaskType.RETRIEVAL_QUERY : TaskType.RETRIEVAL_DOCUMENT;
+
+        const response = await withRetry(async () =>
+          model.embedContent({
+            content: {
+              role: "user",
+              parts: [{ text }],
+            },
+            taskType,
+          })
+        );
+
+        const values = response?.embedding?.values;
+        if (!Array.isArray(values) || values.length === 0) {
+          throw new Error(`Gemini embedding returned empty vector for ${kind}.`);
+        }
+        return normalize(values.map((v) => Number(v)));
+      },
+    };
+  }
+
   try {
-    const { pipeline, env } = await import("@huggingface/transformers");
+    const { AutoTokenizer, AutoModel, env } = await import("@huggingface/transformers");
     env.allowLocalModels = false;
 
-    // Keep the script deterministic and CPU-safe for precomputation.
-    const extractor = await pipeline("feature-extraction", MODEL_ID, { device: "wasm" });
+    // Keep script deterministic and portable in Node.
+    const tokenizer = await AutoTokenizer.from_pretrained(MODEL_ID);
+    const modelOptions: Record<string, unknown> = {
+      device: "cpu",
+    };
+    if (MODEL_FILE) {
+      modelOptions.subfolder = "";
+      modelOptions.model_file_name = MODEL_FILE;
+    }
+
+    const model = await AutoModel.from_pretrained(MODEL_ID, modelOptions);
+
     return {
       model: MODEL_ID,
       embed: async (text: string) => {
-        const output = await extractor(text, { pooling: "mean", normalize: true });
-        return Array.from(output.data as Float32Array);
+        const inputs = tokenizer(text, {
+          truncation: true,
+          padding: false,
+        });
+        const output = await model(inputs);
+        const hidden = output?.last_hidden_state ?? output?.output;
+        if (!hidden?.data || !Array.isArray(hidden?.dims)) {
+          throw new Error(`Unexpected model output for ${MODEL_ID}`);
+        }
+        return meanPoolAndNormalize(hidden.data as ArrayLike<number>, hidden.dims as number[]);
       },
     };
   } catch (error) {
@@ -226,13 +347,72 @@ async function createEmbedder(): Promise<{ model: string; embed: (text: string) 
   }
 }
 
+async function sleep(ms: number): Promise<void> {
+  await new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function isRetryableError(error: unknown): boolean {
+  const message = String(error ?? "").toLowerCase();
+  return (
+    message.includes("429") ||
+    message.includes("rate limit") ||
+    message.includes("resource_exhausted") ||
+    message.includes("503") ||
+    message.includes("service unavailable") ||
+    message.includes("deadline exceeded") ||
+    message.includes("etimedout")
+  );
+}
+
+function extractRetryDelayMs(error: unknown): number | null {
+  const maybeRetryDelay = (error as { errorDetails?: Array<{ retryDelay?: string }> })?.errorDetails;
+  if (Array.isArray(maybeRetryDelay)) {
+    for (const detail of maybeRetryDelay) {
+      const value = detail?.retryDelay;
+      if (!value) continue;
+      const seconds = Number.parseFloat(value.replace(/s$/i, ""));
+      if (Number.isFinite(seconds) && seconds > 0) {
+        return Math.ceil(seconds * 1000);
+      }
+    }
+  }
+
+  const message = String(error ?? "");
+  const retryIn = message.match(/retry in\s+([0-9.]+)s/i);
+  if (retryIn?.[1]) {
+    const seconds = Number.parseFloat(retryIn[1]);
+    if (Number.isFinite(seconds) && seconds > 0) {
+      return Math.ceil(seconds * 1000);
+    }
+  }
+
+  return null;
+}
+
+async function withRetry<T>(fn: () => Promise<T>, maxAttempts: number = 5): Promise<T> {
+  let attempt = 0;
+  for (;;) {
+    try {
+      return await fn();
+    } catch (error) {
+      attempt += 1;
+      if (attempt >= maxAttempts || !isRetryableError(error)) {
+        throw error;
+      }
+      const delayMs = Math.max(500 * 2 ** (attempt - 1), extractRetryDelayMs(error) ?? 0);
+      console.warn(`Retrying embed call in ${delayMs}ms (attempt ${attempt}/${maxAttempts})`);
+      await sleep(delayMs);
+    }
+  }
+}
+
 async function main() {
   const { chunksSpec, queriesSpec } = buildCorpus();
   const { model, embed } = await createEmbedder();
 
   const chunks: RawChunk[] = [];
   for (const chunk of chunksSpec) {
-    const embedding = await embed(chunk.code);
+    const embedding = await embed(chunk.code, "document");
     chunks.push({
       id: chunk.id,
       query_id: chunk.queryId,
@@ -245,7 +425,7 @@ async function main() {
 
   const queries: RawQuery[] = [];
   for (const query of queriesSpec) {
-    const embedding = await embed(query.query);
+    const embedding = await embed(query.query, "query");
     const relevantIds = Object.entries(query.relevanceScores)
       .filter(([, rel]) => rel >= 2)
       .map(([chunkId]) => chunkId);
