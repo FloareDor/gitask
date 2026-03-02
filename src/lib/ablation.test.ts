@@ -13,11 +13,11 @@ import {
 } from "./eval-data";
 import { cosineSimilarity } from "./quantize";
 import {
-  keywordSearch,
   vectorSearch,
   reciprocalRankFusion,
   multiPathHybridSearch,
 } from "./search";
+import { bm25Search } from "./bm25";
 import { expandQuery } from "./queryExpansion";
 import type { EmbeddedChunk } from "./embedder";
 import type { SearchResult } from "./vectorStore";
@@ -25,56 +25,65 @@ import { VectorStore } from "./vectorStore";
 import { buildPageIndexTree } from "./pageIndexTree";
 import { pageIndexSearch } from "./pageIndexSearch";
 
+const COSINE_RERANK_WEIGHT = 0.7;
+const FUSED_PRIOR_WEIGHT = 1 - COSINE_RERANK_WEIGHT;
+
 let activeQueryEmbedding: number[] = [];
 vi.mock("./embedder", () => ({
   embedText: vi.fn(async () => activeQueryEmbedding),
 }));
 
-function searchFullPipeline(
+async function searchFullPipeline(
   chunks: EmbeddedChunk[],
   queryEmb: number[],
   queryText: string,
   limit: number = 5
-): SearchResult[] {
+): Promise<SearchResult[]> {
   const vectorScores = vectorSearch(chunks, queryEmb, 50);
-  const kw = keywordSearch(chunks, queryText);
-  const fused = reciprocalRankFusion([vectorScores, kw], 60);
+  const sparseScores = await bm25Search(chunks, queryText, { limit: 50 });
+  const fused = reciprocalRankFusion([vectorScores, sparseScores], 60);
   const candidates = [...fused.entries()].sort((a, b) => b[1] - a[1]).slice(0, 50);
+  const maxFusedScore = candidates.reduce((max, [, fusedScore]) => Math.max(max, fusedScore), 0);
 
   const chunkMap = new Map(chunks.map((c) => [c.id, c]));
   const reranked: SearchResult[] = [];
-  for (const [id] of candidates) {
+  for (const [id, fusedScore] of candidates) {
     const chunk = chunkMap.get(id);
     if (!chunk) continue;
-    const score = cosineSimilarity(queryEmb, chunk.embedding);
+    const cosineScore = cosineSimilarity(queryEmb, chunk.embedding);
+    const fusedPrior = maxFusedScore > 0 ? fusedScore / maxFusedScore : 0;
+    const score = cosineScore * COSINE_RERANK_WEIGHT + fusedPrior * FUSED_PRIOR_WEIGHT;
     reranked.push({ chunk, score, embedding: chunk.embedding });
   }
   reranked.sort((a, b) => b.score - a.score);
   return reranked.slice(0, limit);
 }
 
-function searchNoQuantization(
+async function searchNoQuantization(
   chunks: EmbeddedChunk[],
   queryEmb: number[],
   queryText: string,
   limit: number = 5
-): SearchResult[] {
+): Promise<SearchResult[]> {
   const cosScores = new Map<string, number>();
   for (const chunk of chunks) {
     const score = cosineSimilarity(queryEmb, chunk.embedding);
     cosScores.set(chunk.id, score);
   }
 
-  const kw = keywordSearch(chunks, queryText);
-  const fused = reciprocalRankFusion([cosScores, kw], 60);
+  const sparseScores = await bm25Search(chunks, queryText, { limit: 50 });
+  const fused = reciprocalRankFusion([cosScores, sparseScores], 60);
   const candidates = [...fused.entries()].sort((a, b) => b[1] - a[1]).slice(0, 50);
+  const maxFusedScore = candidates.reduce((max, [, fusedScore]) => Math.max(max, fusedScore), 0);
 
   const chunkMap = new Map(chunks.map((c) => [c.id, c]));
   const reranked: SearchResult[] = [];
-  for (const [id] of candidates) {
+  for (const [id, fusedScore] of candidates) {
     const chunk = chunkMap.get(id);
     if (!chunk) continue;
-    const score = cosineSimilarity(queryEmb, chunk.embedding);
+    const cosineScore = cosineSimilarity(queryEmb, chunk.embedding);
+    const fusedPrior = maxFusedScore > 0 ? fusedScore / maxFusedScore : 0;
+    const score = cosineScore * COSINE_RERANK_WEIGHT + fusedPrior * FUSED_PRIOR_WEIGHT;
     reranked.push({ chunk, score, embedding: chunk.embedding });
   }
   reranked.sort((a, b) => b.score - a.score);
@@ -104,15 +113,15 @@ function searchVectorOnly(
   return reranked.slice(0, limit);
 }
 
-function searchNoReranking(
+async function searchNoReranking(
   chunks: EmbeddedChunk[],
   queryEmb: number[],
   queryText: string,
   limit: number = 5
-): SearchResult[] {
+): Promise<SearchResult[]> {
   const vectorScores = vectorSearch(chunks, queryEmb, 50);
-  const kw = keywordSearch(chunks, queryText);
-  const fused = reciprocalRankFusion([vectorScores, kw], 60);
+  const sparseScores = await bm25Search(chunks, queryText, { limit: 50 });
+  const fused = reciprocalRankFusion([vectorScores, sparseScores], 60);
   const candidates = [...fused.entries()].sort((a, b) => b[1] - a[1]).slice(0, limit);
 
   const chunkMap = new Map(chunks.map((c) => [c.id, c]));

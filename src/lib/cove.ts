@@ -49,7 +49,7 @@ export async function verifyAndRefine(
 	for (const claim of claims.slice(0, 3)) {
 		// Limit to 3 claims for speed
 		const queryEmbedding = await embedText(claim);
-		const results = hybridSearch(store, queryEmbedding, claim, { limit: 2 });
+		const results = await hybridSearch(store, queryEmbedding, claim, { limit: 2 });
 
 		if (results.length > 0) {
 			const evidence = results

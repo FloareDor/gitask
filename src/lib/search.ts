@@ -1,10 +1,11 @@
 /**
- * Hybrid Search — combines vector search (Hamming distance) with
- * keyword regex search, then reranks with cosine similarity.
+ * Hybrid Search — combines dense vector search with BM25 sparse retrieval,
+ * then reranks with cosine similarity.
  */
 
 import { embedText } from "./embedder";
 import { binarize, hammingDistance, cosineSimilarity } from "./quantize";
+import { bm25Search } from "./bm25";
 import type { EmbeddedChunk } from "./embedder";
 import type { VectorStore, SearchResult } from "./vectorStore";
 
@@ -16,6 +17,9 @@ export interface SearchOptions {
 	/** RRF constant (default 60) */
 	rrfK?: number;
 }
+
+const COSINE_RERANK_WEIGHT = 0.7;
+const FUSED_PRIOR_WEIGHT = 1 - COSINE_RERANK_WEIGHT;
 
 /**
  * Reciprocal Rank Fusion — merges two ranked lists.
@@ -134,16 +138,16 @@ export function vectorSearch(
 /**
  * Full hybrid search pipeline:
  * 1. Binary Hamming vector search (coarse)
- * 2. Keyword regex search
+ * 2. BM25 sparse search
  * 3. Reciprocal Rank Fusion
  * 4. Cosine similarity reranking (Matryoshka-style full dims)
  */
-export function hybridSearch(
+export async function hybridSearch(
 	store: VectorStore,
 	queryEmbedding: number[],
 	query: string,
 	options: SearchOptions = {}
-): SearchResult[] {
+): Promise<SearchResult[]> {
 	const {
 		limit = 5,
 		coarseCandidates = 50,
@@ -153,14 +157,17 @@ export function hybridSearch(
 	const chunks = store.getAll();
 	if (chunks.length === 0) return [];
 
+	// 2. Kick off BM25 sparse retrieval first; it can run in a worker while dense search runs on main thread.
+	const bm25ScoresPromise = bm25Search(chunks, query, { limit: coarseCandidates });
+
 	// 1. Vector search (coarse)
 	const vectorScores = vectorSearch(chunks, queryEmbedding, coarseCandidates);
 
-	// 2. Keyword search
-	const keywordScores = keywordSearch(chunks, query);
+	// 2. BM25 sparse search (await worker result)
+	const bm25Scores = await bm25ScoresPromise;
 
 	// 3. RRF merge
-	const fusedScores = reciprocalRankFusion([vectorScores, keywordScores], rrfK);
+	const fusedScores = reciprocalRankFusion([vectorScores, bm25Scores], rrfK);
 
 	// 4. Get top candidates and rerank with full cosine similarity
 	const candidates = [...fusedScores.entries()]
@@ -212,12 +219,18 @@ export function hybridSearch(
 		}
 	}
 
+	const maxFusedScore = candidates.reduce(
+		(max, [, fusedScore]) => Math.max(max, fusedScore),
+		0
+	);
 	const reranked: SearchResult[] = [];
-	for (const [id] of candidates) {
+	for (const [id, fusedScore] of candidates) {
 		const chunk = chunkMap.get(id);
 		if (!chunk) continue;
 
-		const score = cosineSimilarity(queryEmbedding, chunk.embedding);
+		const cosineScore = cosineSimilarity(queryEmbedding, chunk.embedding);
+		const fusedPrior = maxFusedScore > 0 ? fusedScore / maxFusedScore : 0;
+		const score = cosineScore * COSINE_RERANK_WEIGHT + fusedPrior * FUSED_PRIOR_WEIGHT;
 		reranked.push({ chunk, score, embedding: chunk.embedding });
 	}
 
@@ -304,7 +317,7 @@ export async function multiPathHybridSearch(
 	// Single path: no RRF, just hybridSearch + preference rerank
 	if (uniqueVariants.length === 1) {
 		const queryEmbedding = await embedText(uniqueVariants[0]);
-		const results = hybridSearch(store, queryEmbedding, uniqueVariants[0], {
+		const results = await hybridSearch(store, queryEmbedding, uniqueVariants[0], {
 			limit,
 			coarseCandidates,
 			rrfK,
