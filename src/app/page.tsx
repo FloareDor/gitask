@@ -8,6 +8,11 @@ import { useEffect, useState, useRef, useCallback } from "react";
 import { useRouter } from "next/navigation";
 
 const CHAT_STORAGE_PREFIX = "gitask-chat-";
+const EXAMPLE_REPOSITORIES = [
+  { owner: "TanStack", repo: "ai" },
+  { owner: "huggingface", repo: "smolagents" },
+  { owner: "f", repo: "prompts.chat" },
+];
 
 interface SavedChatEntry {
   id: string;
@@ -377,6 +382,24 @@ export default function LandingPage() {
             {error && <p style={styles.error}>{error}</p>}
           </div>
 
+          <div style={styles.examples}>
+            <span style={styles.examplesLabel}>Example Repositories</span>
+            <div style={styles.examplesList}>
+              {EXAMPLE_REPOSITORIES.map((example) => (
+                <button
+                  key={`${example.owner}/${example.repo}`}
+                  type="button"
+                  className="btn btn-ghost"
+                  style={styles.exampleRepoBtn}
+                  onClick={() => router.push(`/${example.owner}/${example.repo}`)}
+                  title={`Open ${example.owner}/${example.repo}`}
+                >
+                  {example.owner}/{example.repo}
+                </button>
+              ))}
+            </div>
+          </div>
+
           <div style={styles.quickLinks}>
             <a href="/ablation" style={styles.evalsLink} className="evals-link">
               Ablation
@@ -649,6 +672,37 @@ const styles: Record<string, React.CSSProperties> = {
     background: "rgba(239,68,68,0.08)",
     border: "2px solid rgba(239,68,68,0.3)",
     borderRadius: "var(--radius-sm)",
+  },
+  examples: {
+    width: "100%",
+    maxWidth: "620px",
+    display: "flex",
+    flexDirection: "column" as const,
+    gap: "8px",
+    alignItems: "center",
+  },
+  examplesLabel: {
+    fontSize: "11px",
+    letterSpacing: "0.08em",
+    textTransform: "uppercase" as const,
+    color: "var(--text-muted)",
+    fontFamily: "var(--font-mono)",
+  },
+  examplesList: {
+    display: "flex",
+    gap: "8px",
+    flexWrap: "wrap" as const,
+    justifyContent: "center",
+  },
+  exampleRepoBtn: {
+    fontSize: "12px",
+    fontFamily: "var(--font-mono)",
+    border: "2px solid var(--border)",
+    padding: "6px 10px",
+    background: "var(--bg-card)",
+    color: "var(--text-primary)",
+    cursor: "pointer",
+    whiteSpace: "nowrap" as const,
   },
   evalsLink: {
     fontSize: "13px",
