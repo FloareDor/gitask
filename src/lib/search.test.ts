@@ -111,7 +111,7 @@ describe("vectorSearch", () => {
 });
 
 describe("hybridSearch with Graph Expansion", () => {
-	it("expands results using dependency graph", () => {
+	it("expands results using dependency graph", async () => {
 		const store = new VectorStore();
 
 		// Seed chunk (found by vector/keyword search)
@@ -140,7 +140,7 @@ describe("hybridSearch with Graph Expansion", () => {
 		const queryEmbedding = [1, 1];
 		const query = "seed";
 
-		const results = hybridSearch(store, queryEmbedding, query, {
+		const results = await hybridSearch(store, queryEmbedding, query, {
 			limit: 10,
 			coarseCandidates: 5,
 		});
@@ -151,7 +151,7 @@ describe("hybridSearch with Graph Expansion", () => {
 		expect(ids).toContain("dep"); // Should be included due to graph expansion
 	});
 
-	it("resolves relative imports using current file directory", () => {
+	it("resolves relative imports using current file directory", async () => {
 		const store = new VectorStore();
 
 		const seedChunk = makeChunk("seed", "import { util } from './utils';", [1, 1]);
@@ -170,7 +170,7 @@ describe("hybridSearch with Graph Expansion", () => {
 			"src/feature/utils.ts": { imports: [], definitions: ["util"] },
 		});
 
-		const results = hybridSearch(store, [1, 1], "seed", {
+		const results = await hybridSearch(store, [1, 1], "seed", {
 			limit: 10,
 			coarseCandidates: 1,
 		});

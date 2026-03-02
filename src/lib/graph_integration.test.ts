@@ -62,12 +62,12 @@ describe("GraphRAG Integration", () => {
 		store.setGraph(mockGraph);
 	});
 
-	it("expands search results to include dependencies", () => {
+	it("expands search results to include dependencies", async () => {
 		// Query that matches 'mainFunction' (imports utils)
 		const queryEmbedding = new Array(384).fill(0.9);
 		const query = "mainFunction";
 
-		const results = hybridSearch(store, queryEmbedding, query, {
+		const results = await hybridSearch(store, queryEmbedding, query, {
 			limit: 5,
 			coarseCandidates: 10
 		});
@@ -81,15 +81,15 @@ describe("GraphRAG Integration", () => {
 		expect(helperChunk).toBeDefined();
 	});
 
-	it("resolves relative imports correctly", () => {
+	it("resolves relative imports correctly", async () => {
 		const queryEmbedding = new Array(384).fill(0.9);
-		const results = hybridSearch(store, queryEmbedding, "main", { limit: 10 });
+		const results = await hybridSearch(store, queryEmbedding, "main", { limit: 10 });
 
 		const filePaths = results.map(r => r.chunk.filePath);
 		expect(filePaths).toContain("src/utils.ts");
 	});
 
-	it("resolves absolute-like imports (mocked package structure)", () => {
+	it("resolves absolute-like imports (mocked package structure)", async () => {
 		// Add a file that mimics an absolute import target
 		const libChunk: CodeChunk = {
 			id: "src/lib/logger.ts::log",
@@ -128,7 +128,7 @@ describe("GraphRAG Integration", () => {
 			"src/lib/logger.ts": { imports: [], definitions: ["log"] }
 		});
 
-		const results = hybridSearch(newStore, appEmbedding, "run", { limit: 5 });
+		const results = await hybridSearch(newStore, appEmbedding, "run", { limit: 5 });
 
 		// Expect 'log' from 'src/lib/logger.ts' to be found via 'lib/logger' match
 		const helperChunk = results.find(r => r.chunk.filePath === "src/lib/logger.ts");
