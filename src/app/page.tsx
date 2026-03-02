@@ -9,9 +9,9 @@ import { useRouter } from "next/navigation";
 
 const CHAT_STORAGE_PREFIX = "gitask-chat-";
 const EXAMPLE_REPOSITORIES = [
-  { owner: "TanStack", repo: "ai" },
+  { owner: "mlc-ai", repo: "web-llm" },
   { owner: "huggingface", repo: "smolagents" },
-  { owner: "f", repo: "prompts.chat" },
+  { owner: "FloareDor", repo: "gitask" },
 ];
 
 interface SavedChatEntry {

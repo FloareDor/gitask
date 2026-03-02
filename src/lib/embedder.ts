@@ -181,7 +181,7 @@ function meanPoolAndNormalizeBatch(
 		if (isAlreadyPooledBatch) {
 			const rowBase = b * width;
 			for (let j = 0; j < width; j++) {
-				pooled[j] = Number(features[rowBase + j] ?? 0);
+				pooled[j] = (features[rowBase + j] ?? 0) as number;
 			}
 			output.push(l2Normalize(pooled));
 			continue;
@@ -190,16 +190,12 @@ function meanPoolAndNormalizeBatch(
 		let tokenCount = 0;
 		for (let t = 0; t < seq; t++) {
 			const tokenActive = hasMask
-				? Number(
-						attentionMaskData![
-							b * (attentionMaskDims![1] ?? 0) + t
-						] ?? 0
-				  ) > 0
+				? (attentionMaskData![b * (attentionMaskDims![1] ?? 0) + t] ?? 0) > 0
 				: true;
 			if (!tokenActive) continue;
 			const tokenBase = b * seq * width + t * width;
 			for (let j = 0; j < width; j++) {
-				pooled[j] += Number(features[tokenBase + j] ?? 0);
+				pooled[j] += (features[tokenBase + j] ?? 0) as number;
 			}
 			tokenCount += 1;
 		}

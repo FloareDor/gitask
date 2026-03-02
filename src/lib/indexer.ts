@@ -355,8 +355,9 @@ export async function indexRepository(
 			batch.map((file, offset) => processFileForChunking(file, batchStart + offset))
 		);
 
+		let lastFileIndex = batchStart;
 		for (const result of batchResults) {
-			const i = result.fileIndex;
+			lastFileIndex = result.fileIndex;
 			if (result.error) {
 				console.warn(`Skipped ${result.filePath}:`, result.error);
 				skippedFiles.push(result.filePath);
@@ -381,16 +382,18 @@ export async function indexRepository(
 					result.chunks.some((chunk) => chunk.nodeType === "file_summary")
 				);
 			}
-
-			onProgress?.({
-				phase: "chunking",
-				message: `Chunked ${i + 1}/${totalFiles} files (${allChunks.length} chunks, ${chunkWorkerCount} workers)`,
-				current: i + 1,
-				total: totalFiles,
-				astNodes: [...astNodes],
-				textChunkCounts: { ...textChunkCounts },
-			});
 		}
+
+		// Fire once per batch (not per file) to avoid spreading the growing
+		// astNodes array O(workers) times per batch.
+		onProgress?.({
+			phase: "chunking",
+			message: `Chunked ${lastFileIndex + 1}/${totalFiles} files (${allChunks.length} chunks, ${chunkWorkerCount} workers)`,
+			current: lastFileIndex + 1,
+			total: totalFiles,
+			astNodes: [...astNodes],
+			textChunkCounts: { ...textChunkCounts },
+		});
 
 		const lastProcessedFileIndex = batchStart + batch.length - 1;
 		const processedSinceResume = lastProcessedFileIndex - startFileIndex + 1;
@@ -472,25 +475,36 @@ export async function indexRepository(
 	if (chunksToEmbed.length === 0) {
 		embedded = embeddedSoFar;
 	} else {
+		// Precompute a file→status map so each embedding-progress callback does
+		// O(files) work instead of O(nodes) repeated Map.get + range comparisons.
+		// Only update and re-spread astNodes at most every 250 ms to avoid GC
+		// pressure from thousands of object allocations per second on fast GPUs.
+		const fileStatusMap = new Map<string, AstNode["status"]>();
+		for (const [fp] of fileChunkRanges) fileStatusMap.set(fp, "parsed");
+		let lastProgressMs = 0;
+
 		const newlyEmbedded = await embedChunks(
 			chunksToEmbed,
-			(done, total) => {
+			(done, _total) => {
 				checkAborted(signal);
 				const overallDone = embeddedSoFar.length + done;
-				// Update per-file AST node statuses based on embedding progress
-				const updatedNodes = astNodes.map((node) => {
-					const range = fileChunkRanges.get(node.filePath);
-					if (!range) return node;
+				const now = performance.now();
+				const isLast = overallDone >= allChunks.length;
 
-					let status: AstNode["status"];
-					if (overallDone >= range.end) {
-						status = "done";
-					} else if (overallDone > range.start) {
-						status = "embedding";
-					} else {
-						status = "parsed";
-					}
-					return { ...node, status };
+				// Throttle UI updates; always fire on the final chunk.
+				if (!isLast && now - lastProgressMs < 250) return;
+				lastProgressMs = now;
+
+				// Update file-level statuses in O(files) rather than O(nodes).
+				for (const [fp, range] of fileChunkRanges) {
+					if (overallDone >= range.end) fileStatusMap.set(fp, "done");
+					else if (overallDone > range.start) fileStatusMap.set(fp, "embedding");
+					// else stays "parsed" — no update needed
+				}
+
+				const updatedNodes = astNodes.map((node) => {
+					const status = fileStatusMap.get(node.filePath);
+					return status && status !== node.status ? { ...node, status } : node;
 				});
 
 				onProgress?.({

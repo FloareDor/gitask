@@ -25,7 +25,7 @@ export const ABLATION_RESULTS: AblationResultEntry[] = [
     avgRecallAt5: 0.6286,
     avgMRR: 0.7664,
     avgNdcgAt10: 0.7102,
-    avgLatencyUs: 43086,
+    avgLatencyUs: 43486,
   },
   {
     config: "No Quantization",
@@ -34,7 +34,7 @@ export const ABLATION_RESULTS: AblationResultEntry[] = [
     avgRecallAt5: 0.5979,
     avgMRR: 0.7649,
     avgNdcgAt10: 0.7086,
-    avgLatencyUs: 26483,
+    avgLatencyUs: 26697,
   },
   {
     config: "Vector-Only",
@@ -43,7 +43,7 @@ export const ABLATION_RESULTS: AblationResultEntry[] = [
     avgRecallAt5: 0.5701,
     avgMRR: 0.7333,
     avgNdcgAt10: 0.6703,
-    avgLatencyUs: 15147,
+    avgLatencyUs: 15638,
   },
   {
     config: "No Reranking",
@@ -52,7 +52,7 @@ export const ABLATION_RESULTS: AblationResultEntry[] = [
     avgRecallAt5: 0.6138,
     avgMRR: 0.7595,
     avgNdcgAt10: 0.7043,
-    avgLatencyUs: 26522,
+    avgLatencyUs: 26771,
   },
   {
     config: "CodeRAG Multi-Path",
@@ -61,7 +61,7 @@ export const ABLATION_RESULTS: AblationResultEntry[] = [
     avgRecallAt5: 0.5778,
     avgMRR: 0.715,
     avgNdcgAt10: 0.6706,
-    avgLatencyUs: 78582,
+    avgLatencyUs: 76661,
   },
   {
     config: "PageIndex (Keyword)",
@@ -70,7 +70,7 @@ export const ABLATION_RESULTS: AblationResultEntry[] = [
     avgRecallAt5: 0.0009,
     avgMRR: 0.0062,
     avgNdcgAt10: 0.0022,
-    avgLatencyUs: 25884,
+    avgLatencyUs: 26230,
   },
 ];
 
