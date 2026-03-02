@@ -25,16 +25,16 @@ export const ABLATION_RESULTS: AblationResultEntry[] = [
     avgRecallAt5: 0.6286,
     avgMRR: 0.7664,
     avgNdcgAt10: 0.7102,
-    avgLatencyUs: 54040,
+    avgLatencyUs: 43086,
   },
   {
     config: "No Quantization",
     description:
-      "Full cosine vector retrieval + BM25 sparse retrieval + reciprocal rank fusion + cosine rerank",
-    avgRecallAt5: 0.5983,
+      "Full cosine vector retrieval + BM25 sparse retrieval + reciprocal rank fusion + graph expansion + cosine rerank",
+    avgRecallAt5: 0.5979,
     avgMRR: 0.7649,
     avgNdcgAt10: 0.7086,
-    avgLatencyUs: 54016,
+    avgLatencyUs: 26483,
   },
   {
     config: "Vector-Only",
@@ -43,25 +43,25 @@ export const ABLATION_RESULTS: AblationResultEntry[] = [
     avgRecallAt5: 0.5701,
     avgMRR: 0.7333,
     avgNdcgAt10: 0.6703,
-    avgLatencyUs: 30581,
+    avgLatencyUs: 15147,
   },
   {
     config: "No Reranking",
     description:
-      "Hamming coarse retrieval + BM25 sparse retrieval + RRF output (no cosine rerank)",
+      "Hamming coarse retrieval + BM25 sparse retrieval + RRF output + graph expansion (no cosine rerank)",
     avgRecallAt5: 0.6138,
     avgMRR: 0.7595,
     avgNdcgAt10: 0.7043,
-    avgLatencyUs: 53995,
+    avgLatencyUs: 26522,
   },
   {
     config: "CodeRAG Multi-Path",
     description:
       "Query expansion + per-path hybrid retrieval + path-level RRF + preference rerank",
-    avgRecallAt5: 0.5661,
-    avgMRR: 0.7051,
-    avgNdcgAt10: 0.6665,
-    avgLatencyUs: 97017,
+    avgRecallAt5: 0.5778,
+    avgMRR: 0.715,
+    avgNdcgAt10: 0.6706,
+    avgLatencyUs: 78582,
   },
   {
     config: "PageIndex (Keyword)",
@@ -70,7 +70,7 @@ export const ABLATION_RESULTS: AblationResultEntry[] = [
     avgRecallAt5: 0.0009,
     avgMRR: 0.0062,
     avgNdcgAt10: 0.0022,
-    avgLatencyUs: 53969,
+    avgLatencyUs: 25884,
   },
 ];
 

@@ -8,7 +8,14 @@ export const dynamic = "force-dynamic";
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || "");
 const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
 
-function toGeminiErrorResponse(error: unknown) {
+interface GeminiErrorPayload {
+	error: string;
+	code: string;
+	status: number;
+	detail?: string;
+}
+
+function classifyGeminiError(error: unknown): GeminiErrorPayload {
 	const msg = error instanceof Error ? error.message : String(error);
 	const lower = msg.toLowerCase();
 
@@ -17,10 +24,11 @@ function toGeminiErrorResponse(error: unknown) {
 		lower.includes("api key not valid") ||
 		lower.includes("invalid api key")
 	) {
-		return NextResponse.json(
-			{ error: "Invalid Gemini API key. Open LLM Settings and enter a valid key.", code: "INVALID_API_KEY" },
-			{ status: 401 }
-		);
+		return {
+			error: "Invalid Gemini API key. Open LLM Settings and enter a valid key.",
+			code: "INVALID_API_KEY",
+			status: 401,
+		};
 	}
 	if (
 		lower.includes("quota") ||
@@ -28,35 +36,52 @@ function toGeminiErrorResponse(error: unknown) {
 		lower.includes("resource_exhausted") ||
 		lower.includes("429")
 	) {
-		return NextResponse.json(
-			{ error: "Gemini API rate limit or quota exceeded. Wait a moment and try again.", code: "RATE_LIMITED" },
-			{ status: 429 }
-		);
+		return {
+			error: "Gemini API rate limit or quota exceeded. Wait a moment and try again.",
+			code: "RATE_LIMITED",
+			status: 429,
+		};
 	}
 	if (
 		lower.includes("permission_denied") ||
 		lower.includes("forbidden") ||
 		lower.includes("403")
 	) {
-		return NextResponse.json(
-			{ error: "Gemini API key does not have permission for this model. Check your key in LLM Settings.", code: "PERMISSION_DENIED" },
-			{ status: 403 }
-		);
+		return {
+			error: "Gemini API key does not have permission for this model. Check your key in LLM Settings.",
+			code: "PERMISSION_DENIED",
+			status: 403,
+		};
 	}
 	if (
 		lower.includes("service unavailable") ||
 		lower.includes("503") ||
 		lower.includes("overloaded")
 	) {
-		return NextResponse.json(
-			{ error: "Gemini service is temporarily unavailable. Try again in a moment.", code: "SERVICE_UNAVAILABLE" },
-			{ status: 503 }
-		);
+		return {
+			error: "Gemini service is temporarily unavailable. Try again in a moment.",
+			code: "SERVICE_UNAVAILABLE",
+			status: 503,
+		};
 	}
 
+	return {
+		error: "Gemini request failed. Check your API key and try again.",
+		code: "UNKNOWN_ERROR",
+		status: 500,
+		detail: msg,
+	};
+}
+
+function toGeminiErrorResponse(error: unknown) {
+	const mapped = classifyGeminiError(error);
 	return NextResponse.json(
-		{ error: "Gemini request failed. Check your API key and try again.", code: "UNKNOWN_ERROR", detail: msg },
-		{ status: 500 }
+		{
+			error: mapped.error,
+			code: mapped.code,
+			detail: mapped.detail,
+		},
+		{ status: mapped.status }
 	);
 }
 
@@ -117,25 +142,41 @@ export async function POST(req: Request) {
 		const result = await chat.sendMessageStream(lastMsg.parts[0].text);
 
 		// Create a readable stream for the response
+		const encoder = new TextEncoder();
 		const stream = new ReadableStream({
 			async start(controller) {
 				try {
 					for await (const chunk of result.stream) {
 						const text = chunk.text();
 						if (text) {
-							controller.enqueue(new TextEncoder().encode(text));
+							controller.enqueue(
+								encoder.encode(
+									`${JSON.stringify({ type: "chunk", text })}\n`
+								)
+							);
 						}
 					}
 					controller.close();
 				} catch (err) {
-					controller.error(err);
+					const mapped = classifyGeminiError(err);
+					controller.enqueue(
+						encoder.encode(
+							`${JSON.stringify({
+								type: "error",
+								code: mapped.code,
+								message: mapped.error,
+								detail: mapped.detail,
+							})}\n`
+						)
+					);
+					controller.close();
 				}
 			},
 		});
 
 		return new Response(stream, {
 			headers: {
-				"Content-Type": "text/plain; charset=utf-8",
+				"Content-Type": "application/x-ndjson; charset=utf-8",
 			},
 		});
 	} catch (error) {

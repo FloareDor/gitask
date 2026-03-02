@@ -6,6 +6,7 @@
 import { embedText } from "./embedder";
 import { binarize, hammingDistance, cosineSimilarity } from "./quantize";
 import { bm25Search } from "./bm25";
+import { expandCandidatesWithGraph } from "./graphExpansion";
 import type { EmbeddedChunk } from "./embedder";
 import type { VectorStore, SearchResult } from "./vectorStore";
 
@@ -112,13 +113,18 @@ function escapeRegex(str: string): string {
 export function vectorSearch(
 	chunks: EmbeddedChunk[],
 	queryEmbedding: number[],
-	limit: number = 50
+	limit: number = 50,
+	chunkBinaries?: Uint32Array[]
 ): Map<string, number> {
 	const queryBinary = binarize(new Float32Array(queryEmbedding));
 	const scored: { id: string; dist: number }[] = [];
 
-	for (const chunk of chunks) {
-		const chunkBinary = binarize(new Float32Array(chunk.embedding));
+	for (let i = 0; i < chunks.length; i++) {
+		const chunk = chunks[i];
+		const chunkBinary =
+			chunkBinaries && i < chunkBinaries.length
+				? chunkBinaries[i]
+				: binarize(new Float32Array(chunk.embedding));
 		const dist = hammingDistance(queryBinary, chunkBinary);
 		scored.push({ id: chunk.id, dist });
 	}
@@ -156,12 +162,14 @@ export async function hybridSearch(
 
 	const chunks = store.getAll();
 	if (chunks.length === 0) return [];
+	const chunkMap = new Map(chunks.map((c) => [c.id, c]));
+	const chunkBinaries = store.getAllBinaries();
 
 	// 2. Kick off BM25 sparse retrieval first; it can run in a worker while dense search runs on main thread.
 	const bm25ScoresPromise = bm25Search(chunks, query, { limit: coarseCandidates });
 
 	// 1. Vector search (coarse)
-	const vectorScores = vectorSearch(chunks, queryEmbedding, coarseCandidates);
+	const vectorScores = vectorSearch(chunks, queryEmbedding, coarseCandidates, chunkBinaries);
 
 	// 2. BM25 sparse search (await worker result)
 	const bm25Scores = await bm25ScoresPromise;
@@ -174,57 +182,17 @@ export async function hybridSearch(
 		.sort((a, b) => b[1] - a[1])
 		.slice(0, coarseCandidates);
 
-	// 3.5 Graph Expansion
-	// For top/seed candidates, find what files they import and add those chunks
-	const SEED_COUNT = 20;
-	const EXPANSION_WEIGHT = 0.5; // Weight for expanded interactions
-	const graph = store.getGraph();
-	const allFiles = [...new Set(chunks.map((c) => c.filePath))];
+	const expandedCandidates = expandCandidatesWithGraph(store, candidates, {
+		seedCount: 20,
+		expansionWeight: 0.5,
+	});
 
-	const seenIds = new Set(candidates.map((c) => c[0]));
-
-	// Take the top N candidates as seeds
-	const seeds = candidates.slice(0, SEED_COUNT);
-	const chunkMap = new Map(chunks.map((c) => [c.id, c]));
-
-	for (const [seedId, seedScore] of seeds) {
-		const chunk = chunkMap.get(seedId);
-		if (!chunk) continue;
-
-		// Get dependencies for this file
-		const deps = graph[chunk.filePath];
-		if (!deps || !deps.imports) continue;
-
-		// For each import, try to resolve it to a file in the store
-		// Note: imports are raw strings (e.g. './utils'), we need to fuzzy match or resolve to absolute paths.
-		// For now, we do a naive suffix check or exact match if possible.
-		// Since we don't have a full resolver, we iterate all files? No, that's slow.
-		// We can iterate the graph keys to find matching files.
-
-		for (const importPath of deps.imports) {
-			// Resolve importPath to filePath. 
-			// Heuristic: check if any file in the graph ends with the import path + extension
-			// or if importPath is relative, resolve it relative to chunk.filePath
-
-			const targetFile = resolveImport(chunk.filePath, importPath, allFiles);
-			if (targetFile) {
-				const neighborChunks = store.getChunksByFile(targetFile);
-				for (const neighbor of neighborChunks) {
-					if (!seenIds.has(neighbor.id)) {
-						candidates.push([neighbor.id, seedScore * EXPANSION_WEIGHT]);
-						seenIds.add(neighbor.id);
-					}
-				}
-			}
-		}
-	}
-
-	const maxFusedScore = candidates.reduce(
+	const maxFusedScore = expandedCandidates.reduce(
 		(max, [, fusedScore]) => Math.max(max, fusedScore),
 		0
 	);
 	const reranked: SearchResult[] = [];
-	for (const [id, fusedScore] of candidates) {
+	for (const [id, fusedScore] of expandedCandidates) {
 		const chunk = chunkMap.get(id);
 		if (!chunk) continue;
 
@@ -242,7 +210,10 @@ export async function hybridSearch(
 /** Extract identifiers from query for preference scoring (same pattern as keywordSearch). */
 function extractQuerySymbols(query: string): string[] {
 	const symbols = query.match(/[a-zA-Z_]\w+/g) ?? [];
-	return [...new Set(symbols)];
+	const filtered = symbols
+		.map((s) => s.toLowerCase())
+		.filter((s) => s.length >= 2 && !KEYWORD_STOP_WORDS.has(s));
+	return [...new Set(filtered)];
 }
 
 /**
@@ -312,7 +283,7 @@ export async function multiPathHybridSearch(
 	if (chunks.length === 0) return [];
 
 	const chunkMap = new Map(chunks.map((c) => [c.id, c]));
-	const querySymbols = extractQuerySymbols(uniqueVariants[0]);
+	const querySymbols = [...new Set(uniqueVariants.flatMap((variant) => extractQuerySymbols(variant)))];
 
 	// Single path: no RRF, just hybridSearch + preference rerank
 	if (uniqueVariants.length === 1) {
@@ -389,62 +360,4 @@ function applyPreferenceRerank(
 	});
 	scored.sort((a, b) => b.score - a.score);
 	return scored.slice(0, limit);
-}
-
-/**
- * Simple import resolver heuristic.
- * Tries to match `importPath` to a file in `allFiles`.
- */
-function resolveImport(currentFile: string, importPath: string, allFiles: string[]): string | null {
-	const normalize = (p: string) => p.replace(/\\/g, "/");
-	const current = normalize(currentFile);
-	const requested = normalize(importPath);
-	const normalizedFiles = allFiles.map(normalize);
-
-	const hasExt = /\.[^/.]+$/.test(requested);
-	const extensions = [".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"];
-	const candidatePaths = new Set<string>();
-
-	const addModuleCandidates = (base: string) => {
-		const clean = base.replace(/\/+$/, "");
-		candidatePaths.add(clean);
-		if (!hasExt) {
-			for (const ext of extensions) candidatePaths.add(`${clean}${ext}`);
-			for (const ext of extensions) candidatePaths.add(`${clean}/index${ext}`);
-		}
-	};
-
-	// 1. Relative imports: resolve against current file directory.
-	if (requested.startsWith(".")) {
-		const parts = current.split("/");
-		parts.pop(); // filename
-		for (const segment of requested.split("/")) {
-			if (!segment || segment === ".") continue;
-			if (segment === "..") parts.pop();
-			else parts.push(segment);
-		}
-		addModuleCandidates(parts.join("/"));
-	}
-
-	// 2. Workspace absolute-like imports (e.g. src/lib/utils) and package-like suffixes.
-	addModuleCandidates(requested);
-
-	for (const candidate of candidatePaths) {
-		const exactIdx = normalizedFiles.indexOf(candidate);
-		if (exactIdx !== -1) return allFiles[exactIdx];
-	}
-
-	// 3. Fallback suffix match (for aliases) with longest match preference.
-	const suffixMatches = normalizedFiles
-		.map((f, idx) => ({ f, idx }))
-		.filter(({ f }) => {
-			const noExt = f.replace(/\.[^/.]+$/, "");
-			return noExt.endsWith(requested);
-		})
-		.sort((a, b) => b.f.length - a.f.length);
-	if (suffixMatches.length > 0) {
-		return allFiles[suffixMatches[0].idx];
-	}
-
-	return null;
 }
