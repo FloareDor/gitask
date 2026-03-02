@@ -8,6 +8,7 @@
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import { getGeminiVault } from "./gemini-vault";
 import { detectWebGPUAvailability } from "./webgpu";
+import { recordLLM } from "./metrics";
 
 export type LLMStatus = "idle" | "loading" | "ready" | "generating" | "error";
 
@@ -267,6 +268,8 @@ class GeminiEngineWrapper implements LLMEngine {
 	private vault: BYOKVaultRef | null;
 	private useProxy: boolean;
 	private apiKey: string | null;
+	/** Stash actual token counts from last BYOK call (set after stream drains) */
+	lastUsage: { tokensIn?: number; tokensOut?: number } | null = null;
 
 	constructor(
 		vaultOrProxy: { vault: BYOKVaultRef } | { useProxy: true } | { apiKey: string }
@@ -313,14 +316,14 @@ class GeminiEngineWrapper implements LLMEngine {
 	private async collectGeminiStream(
 		messages: ChatMessage[],
 		apiKey: string
-	): Promise<string[]> {
+	): Promise<{ chunks: string[]; tokensIn?: number; tokensOut?: number }> {
 		const { history, systemPrefix } = this.toGeminiContent(messages);
 		const lastMsg = history.pop();
 		if (lastMsg && systemPrefix) {
 			// First user message was lastMsg (single-turn)
 			lastMsg.parts[0].text = systemPrefix + lastMsg.parts[0].text;
 		}
-		if (!lastMsg) return [];
+		if (!lastMsg) return { chunks: [] };
 
 		const genAI = new GoogleGenerativeAI(apiKey);
 		const model = genAI.getGenerativeModel({
@@ -335,7 +338,13 @@ class GeminiEngineWrapper implements LLMEngine {
 				const text = chunk.text();
 				if (text) out.push(text);
 			}
-			return out;
+			// usageMetadata is available after stream drains
+			const usage = (await result.response).usageMetadata;
+			return {
+				chunks: out,
+				tokensIn: usage?.promptTokenCount,
+				tokensOut: usage?.candidatesTokenCount,
+			};
 		} catch (err) {
 			throw normalizeGeminiError(err);
 		}
@@ -375,8 +384,10 @@ class GeminiEngineWrapper implements LLMEngine {
 		}
 
 		if (this.apiKey) {
-			const chunks = await this.collectGeminiStream(messages, this.apiKey);
-			for (const chunk of chunks) {
+			this.lastUsage = null;
+			const result = await this.collectGeminiStream(messages, this.apiKey);
+			this.lastUsage = { tokensIn: result.tokensIn, tokensOut: result.tokensOut };
+			for (const chunk of result.chunks) {
 				yield chunk;
 			}
 			return;
@@ -384,12 +395,14 @@ class GeminiEngineWrapper implements LLMEngine {
 
 		// BYOK: run inside vault scope, collect chunks then yield
 		if (!this.vault) throw new Error("Vault not configured");
+		this.lastUsage = null;
 		const runWithKey = (apiKey: string) => this.collectGeminiStream(messages, apiKey);
-		const chunks = await this.vault.withKeyScope(async () =>
+		const result = await this.vault.withKeyScope(async () =>
 			this.vault!.withKey(runWithKey)
 		);
+		this.lastUsage = { tokensIn: result.tokensIn, tokensOut: result.tokensOut };
 
-		for (const chunk of chunks) {
+		for (const chunk of result.chunks) {
 			yield chunk;
 		}
 	}
@@ -523,14 +536,48 @@ export async function* generate(
 	if (!activeEngine)
 		throw new Error("LLM not initialised. Call initLLM() first.");
 
+	const config = getLLMConfig();
+	const provider = config.provider === "gemini" ? "gemini" as const : "mlc" as const;
+
+	// Estimate input tokens from message content (chars / 4)
+	const totalInputChars = messages.reduce((sum, m) => sum + m.content.length, 0);
+	const estimatedTokensIn = Math.round(totalInputChars / 4);
+
+	let outputChars = 0;
+	const startTime = performance.now();
+
 	setStatus("generating");
 	try {
 		const stream = activeEngine.generateStream(messages);
 		for await (const chunk of stream) {
+			outputChars += chunk.length;
 			yield chunk;
 		}
 	} finally {
+		const durationMs = performance.now() - startTime;
 		setStatus("ready");
+
+		// Check if the engine stashed actual token counts (BYOK Gemini path)
+		const geminiEngine = activeEngine instanceof GeminiEngineWrapper ? activeEngine : null;
+		const actualUsage = geminiEngine?.lastUsage;
+
+		if (actualUsage?.tokensIn != null || actualUsage?.tokensOut != null) {
+			recordLLM(
+				provider,
+				durationMs,
+				actualUsage.tokensIn ?? estimatedTokensIn,
+				actualUsage.tokensOut ?? Math.round(outputChars / 4),
+				"actual"
+			);
+		} else {
+			recordLLM(
+				provider,
+				durationMs,
+				estimatedTokensIn,
+				Math.round(outputChars / 4),
+				"estimated"
+			);
+		}
 	}
 }
 
