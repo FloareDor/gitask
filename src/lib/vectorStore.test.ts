@@ -27,6 +27,11 @@ describe("VectorStore", () => {
 		expect(store.getChunksByFile("file1.ts")).toHaveLength(1);
 		expect(store.getChunksByFile("file1.ts")[0]).toBe(chunk);
 		expect(store.getChunksByFile("other.ts")).toHaveLength(0);
+		expect(store.getAllBinaries()).toHaveLength(1);
+		expect(store.getAllBinaries()[0]).toBeInstanceOf(Uint32Array);
+		const resolveData = store.getResolveFileData();
+		expect(resolveData.allFiles).toContain("file1.ts");
+		expect(resolveData.exactIndex.get("file1.ts")).toBe(0);
 	});
 
 	it("stores and retrieves dependency graph", () => {
@@ -57,5 +62,6 @@ describe("VectorStore", () => {
 		expect(store.size).toBe(0);
 		expect(store.getChunksByFile("file1.ts")).toHaveLength(0);
 		expect(store.getGraph()).toEqual({});
+		expect(store.getAllBinaries()).toHaveLength(0);
 	});
 });

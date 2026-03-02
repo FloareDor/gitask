@@ -370,12 +370,71 @@ class GeminiEngineWrapper implements LLMEngine {
 			if (!response.body) throw new Error("No response body");
 			const reader = response.body.getReader();
 			const decoder = new TextDecoder();
+			const contentType = response.headers.get("content-type")?.toLowerCase() ?? "";
 
 			try {
-				while (true) {
-					const { done, value } = await reader.read();
-					if (done) break;
-					yield decoder.decode(value, { stream: true });
+				if (contentType.includes("application/x-ndjson")) {
+					let buffer = "";
+					const parseFrameLine = (line: string): { token?: string; error?: Error } => {
+						const frame = JSON.parse(line) as {
+							type?: string;
+							text?: string;
+							code?: string;
+							message?: string;
+						};
+						if (frame.type === "chunk") {
+							if (typeof frame.text === "string" && frame.text.length > 0) {
+								return { token: frame.text };
+							}
+							return {};
+						}
+						if (frame.type === "error") {
+							const msg = typeof frame.message === "string"
+								? frame.message
+								: "Gemini stream failed.";
+							const code = typeof frame.code === "string" ? frame.code : "UNKNOWN_ERROR";
+							return { error: new Error(`${msg} (${code})`) };
+						}
+						return {};
+					};
+					while (true) {
+						const { done, value } = await reader.read();
+						if (done) {
+							buffer += decoder.decode();
+							break;
+						}
+						buffer += decoder.decode(value, { stream: true });
+
+						let newline = buffer.indexOf("\n");
+						while (newline !== -1) {
+							const line = buffer.slice(0, newline).trim();
+							buffer = buffer.slice(newline + 1);
+							if (line) {
+								const parsed = parseFrameLine(line);
+								if (parsed.error) throw parsed.error;
+								if (parsed.token) yield parsed.token;
+							}
+							newline = buffer.indexOf("\n");
+						}
+					}
+
+					const tailLines = buffer.split("\n");
+					for (const rawLine of tailLines) {
+						const line = rawLine.trim();
+						if (!line) continue;
+						const parsed = parseFrameLine(line);
+						if (parsed.error) throw parsed.error;
+						if (parsed.token) {
+							yield parsed.token;
+						}
+					}
+				} else {
+					// Backward compatibility for older proxy/plain-text responses.
+					while (true) {
+						const { done, value } = await reader.read();
+						if (done) break;
+						yield decoder.decode(value, { stream: true });
+					}
 				}
 			} catch (err) {
 				throw normalizeGeminiError(err);

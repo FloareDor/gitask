@@ -6,6 +6,8 @@
 
 import type { EmbeddedChunk } from "./embedder";
 import type { CodeChunk } from "./chunker";
+import { binarize } from "./quantize";
+import type { GraphResolveFileData } from "./graphExpansion";
 
 /** AST node for partial progress (matches indexer AstNode shape) */
 export interface PartialAstNode {
@@ -53,7 +55,10 @@ export interface SearchResult {
  */
 export class VectorStore {
 	private chunks: EmbeddedChunk[] = [];
+	private chunkBinaries: Uint32Array[] = [];
 	private chunksByFile: Map<string, EmbeddedChunk[]> = new Map();
+	private resolveFileDataCache: GraphResolveFileData | null = null;
+	private resolveFileDataDirty = true;
 	private graph: Record<string, { imports: string[]; definitions: string[] }> = {};
 	private repoKey: string = "";
 
@@ -63,11 +68,14 @@ export class VectorStore {
 	 * Insert embedded chunks into the store.
 	 */
 	insert(chunks: EmbeddedChunk[]): void {
-		this.chunks.push(...chunks);
 		for (const chunk of chunks) {
+			const hadFile = this.chunksByFile.has(chunk.filePath);
+			this.chunks.push(chunk);
+			this.chunkBinaries.push(binarize(chunk.embedding));
 			const fileChunks = this.chunksByFile.get(chunk.filePath) || [];
 			fileChunks.push(chunk);
 			this.chunksByFile.set(chunk.filePath, fileChunks);
+			if (!hadFile) this.resolveFileDataDirty = true;
 		}
 	}
 
@@ -92,6 +100,37 @@ export class VectorStore {
 		return this.chunks;
 	}
 
+	/**
+	 * Get precomputed binary embeddings aligned with getAll() order.
+	 */
+	getAllBinaries(): Uint32Array[] {
+		return this.chunkBinaries;
+	}
+
+	/**
+	 * Cached file path indexes used by graph expansion import resolution.
+	 */
+	getResolveFileData(): GraphResolveFileData {
+		if (!this.resolveFileDataDirty && this.resolveFileDataCache) {
+			return this.resolveFileDataCache;
+		}
+
+		const allFiles = [...this.chunksByFile.keys()];
+		const normalizedFiles = allFiles.map((p) => p.replace(/\\/g, "/"));
+		const exactIndex = new Map<string, number>();
+		for (let i = 0; i < normalizedFiles.length; i++) {
+			exactIndex.set(normalizedFiles[i], i);
+		}
+
+		this.resolveFileDataCache = {
+			allFiles,
+			normalizedFiles,
+			exactIndex,
+		};
+		this.resolveFileDataDirty = false;
+		return this.resolveFileDataCache;
+	}
+
 	getChunksByFile(filePath: string): EmbeddedChunk[] {
 		return this.chunksByFile.get(filePath) || [];
 	}
@@ -108,7 +147,10 @@ export class VectorStore {
 	 */
 	clear(): void {
 		this.chunks = [];
+		this.chunkBinaries = [];
 		this.chunksByFile.clear();
+		this.resolveFileDataCache = null;
+		this.resolveFileDataDirty = true;
 		this.graph = {};
 	}
 
@@ -275,13 +317,17 @@ export class VectorStore {
 					if (data && data.sha === currentSha) {
 						this.chunks = data.chunks;
 						this.graph = data.graph || {};
-						// Rebuild index
+						// Rebuild derived indexes and binary cache.
 						this.chunksByFile.clear();
+						this.chunkBinaries = [];
 						for (const chunk of this.chunks) {
 							const fileChunks = this.chunksByFile.get(chunk.filePath) || [];
 							fileChunks.push(chunk);
 							this.chunksByFile.set(chunk.filePath, fileChunks);
+							this.chunkBinaries.push(binarize(chunk.embedding));
 						}
+						this.resolveFileDataCache = null;
+						this.resolveFileDataDirty = true;
 						resolve(true);
 					} else {
 						resolve(false);

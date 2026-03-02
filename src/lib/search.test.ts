@@ -8,6 +8,7 @@ import { reciprocalRankFusion, keywordSearch, vectorSearch, hybridSearch, multiP
 import type { EmbeddedChunk } from "./embedder";
 import { embedText } from "./embedder";
 import { VectorStore } from "./vectorStore";
+import { binarize } from "./quantize";
 
 // Mock embedder for multiPathHybridSearch tests (avoid loading real model)
 vi.mock("./embedder", () => ({
@@ -107,6 +108,21 @@ describe("vectorSearch", () => {
 
 		const results = vectorSearch(chunks, [0.5, 0.3, -0.1, 0.8], 5);
 		expect(results.size).toBeLessThanOrEqual(5);
+	});
+
+	it("returns the same ranking with precomputed binary vectors", () => {
+		const chunks: EmbeddedChunk[] = [
+			makeChunk("a", "code a", [0.5, 0.3, -0.1, 0.8]),
+			makeChunk("b", "code b", [-0.5, -0.3, 0.1, -0.8]),
+			makeChunk("c", "code c", [0.2, 0.1, -0.3, 0.4]),
+		];
+		const binaries = chunks.map((c) => binarize(c.embedding));
+		const query = [0.5, 0.3, -0.1, 0.8];
+
+		const baseline = [...vectorSearch(chunks, query, 10).entries()];
+		const cached = [...vectorSearch(chunks, query, 10, binaries).entries()];
+
+		expect(cached).toEqual(baseline);
 	});
 });
 

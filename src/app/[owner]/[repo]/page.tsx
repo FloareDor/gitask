@@ -145,6 +145,7 @@ export default function RepoPage({
 	const indexStartTimeRef = useRef<number | null>(null);
 	const overflowRef = useRef<HTMLDivElement>(null);
 	const chatLoadedRef = useRef(false);
+	const messagesRef = useRef<Message[]>([]);
 	const pendingChatSwitchRef = useRef<string | null>(null);
 	const staleNoticeShownRef = useRef(false);
 	const isGeneratingRef = useRef(false);
@@ -340,6 +341,10 @@ export default function RepoPage({
 	useEffect(() => {
 		chatEndRef.current?.scrollIntoView({ behavior: isGenerating ? "auto" : "smooth" });
 	}, [messages, isGenerating]);
+
+	useEffect(() => {
+		messagesRef.current = messages;
+	}, [messages]);
 
 	// Listen for visibility change — show toast when user returns after indexing completed in background
 	useEffect(() => {
@@ -672,6 +677,9 @@ export default function RepoPage({
 		setInput("");
 		setMessages((prev) => [...prev, { role: "user", content: userMessage }]);
 		setIsGenerating(true);
+		let appendedAssistantPlaceholder = false;
+		let sawStreamToken = false;
+		const interruptedSuffixPrefix = "[Generation interrupted:";
 
 		try {
 			const config = getLLMConfig();
@@ -750,7 +758,7 @@ ${context}`;
 			}
 
 			const historyLimit = config.provider === "gemini" ? 10 : 6;
-			const recentHistory = messages.slice(-historyLimit);
+			const recentHistory = messagesRef.current.slice(-historyLimit);
 			const chatMessages: ChatMessage[] = [
 				{ role: "system", content: systemPrompt },
 				...recentHistory.map((m) => ({ role: m.role as "user" | "assistant", content: m.content })),
@@ -758,10 +766,12 @@ ${context}`;
 			];
 
 			let fullResponse = "";
+			appendedAssistantPlaceholder = true;
 			setMessages((prev) => [...prev, { role: "assistant", content: "" }]);
 
 			for await (const token of generate(chatMessages)) {
 				fullResponse += token;
+				sawStreamToken = true;
 				setMessages((prev) => {
 					const updated = [...prev];
 					updated[updated.length - 1] = { role: "assistant", content: fullResponse };
@@ -792,14 +802,21 @@ ${context}`;
 				}
 			}
 			setMessages((prev) => {
-				// Replace pending assistant placeholder when generation fails mid-stream.
 				const next = [...prev];
-				if (
-					next.length > 0 &&
-					next[next.length - 1].role === "assistant" &&
-					next[next.length - 1].content === ""
-				) {
-					next[next.length - 1] = { role: "assistant", content: `Error: ${errorMessage}` };
+				// If generation already opened an assistant message, annotate it in place.
+				if (appendedAssistantPlaceholder && next.length > 0 && next[next.length - 1].role === "assistant") {
+					const current = next[next.length - 1].content ?? "";
+					if (sawStreamToken) {
+						if (!current.includes(interruptedSuffixPrefix)) {
+							const suffix = `\n\n[Generation interrupted: ${errorMessage}]`;
+							next[next.length - 1] = {
+								role: "assistant",
+								content: current.length > 0 ? `${current}${suffix}` : `Error: ${errorMessage}`,
+							};
+						}
+					} else {
+						next[next.length - 1] = { role: "assistant", content: `Error: ${errorMessage}` };
+					}
 					return next;
 				}
 				return [...next, { role: "assistant", content: `Error: ${errorMessage}` }];
@@ -808,7 +825,7 @@ ${context}`;
 				isGeneratingRef.current = false;
 				setIsGenerating(false);
 			}
-		}, [input, isIndexed, messages, owner, repo, llmStatus, coveEnabled]);
+		}, [input, isIndexed, owner, repo, llmStatus, coveEnabled]);
 
 	const progressPercent =
 		indexProgress && indexProgress.total > 0
