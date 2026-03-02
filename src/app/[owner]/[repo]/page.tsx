@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { indexRepository, IndexAbortError, type IndexProgress, type AstNode } from "@/lib/indexer";
 import { VectorStore } from "@/lib/vectorStore";
@@ -97,6 +97,13 @@ function shouldPromptForLLMSettings(errorMessage: string): boolean {
 		message.includes("unlock")
 	);
 }
+
+const STARTER_SUGGESTIONS = [
+	"What does this project do?",
+	"Walk me through the main data flow",
+	"What are the key entry points?",
+	"How is error handling structured?",
+];
 
 export default function RepoPage({
 	params,
@@ -832,22 +839,25 @@ ${context}`;
 			? Math.round((indexProgress.current / indexProgress.total) * 100)
 			: 0;
 
-	const timeRemaining =
-		indexProgress &&
-		indexProgress.total > 0 &&
-		indexProgress.current > 0 &&
-		indexProgress.current < indexProgress.total &&
-		indexStartTimeRef.current != null &&
-		!["cached", "done", "persisting"].includes(indexProgress.phase)
-			? (() => {
-					const elapsed = Date.now() - indexStartTimeRef.current!;
-					const rate = indexProgress.current / elapsed;
-					const remainingMs = ((indexProgress.total - indexProgress.current) / rate);
-					return formatTimeRemaining(remainingMs);
-				})()
-			: null;
+	const timeRemaining = useMemo(() => {
+		if (
+			!indexProgress ||
+			indexProgress.total <= 0 ||
+			indexProgress.current <= 0 ||
+			indexProgress.current >= indexProgress.total ||
+			indexStartTimeRef.current == null ||
+			["cached", "done", "persisting"].includes(indexProgress.phase)
+		) return null;
+		const elapsed = Date.now() - indexStartTimeRef.current;
+		const rate = indexProgress.current / elapsed;
+		const remainingMs = (indexProgress.total - indexProgress.current) / rate;
+		return formatTimeRemaining(remainingMs);
+	}, [indexProgress]);
 
-	const orderedChatSessions = [...chatSessions].sort((a, b) => b.updatedAt - a.updatedAt);
+	const orderedChatSessions = useMemo(
+		() => [...chatSessions].sort((a, b) => b.updatedAt - a.updatedAt),
+		[chatSessions]
+	);
 	const normalizedTokenDraft = tokenDraft.trim();
 	const tokenChanged = normalizedTokenDraft !== token;
 
@@ -1181,12 +1191,7 @@ ${context}`;
 								<p style={styles.emptyStateTitle}>Ask about this repo</p>
 								<p style={styles.emptyStateHint}>Try one of these to get started</p>
 								<div style={styles.chipRow}>
-									{[
-										"What does this project do?",
-										"Walk me through the main data flow",
-										"What are the key entry points?",
-										"How is error handling structured?",
-									].map((q) => (
+									{STARTER_SUGGESTIONS.map((q) => (
 										<button
 											key={q}
 											className="btn btn-ghost"
