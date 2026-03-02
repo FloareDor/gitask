@@ -11,6 +11,7 @@ import {
 	isIndexable,
 	prioritiseFiles,
 } from "./github";
+import { recordIndex } from "./metrics";
 import { chunkCode, chunkFromTree, type CodeChunk } from "./chunker";
 import { CHUNKING_LIMITS, detectLanguage } from "./chunker";
 import { embedChunks, initEmbedder, type EmbeddedChunk } from "./embedder";
@@ -87,6 +88,8 @@ export async function indexRepository(
 	signal?: AbortSignal
 ): Promise<IndexResult> {
 	checkAborted(signal);
+
+	const indexStartTime = performance.now();
 
 	// 1. Fetch tree
 	onProgress?.({
@@ -459,6 +462,13 @@ export async function indexRepository(
 		total: embedded.length,
 		estimatedSizeBytes: estimatedBytes,
 	});
+
+	recordIndex(
+		totalFiles - skippedFiles.length,
+		embedded.length,
+		performance.now() - indexStartTime,
+		`${owner}/${repo}`
+	);
 
 	return {
 		sha: tree.sha,

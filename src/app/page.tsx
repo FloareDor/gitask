@@ -381,6 +381,9 @@ export default function LandingPage() {
             <a href="/ablation" style={styles.evalsLink} className="evals-link">
               Ablation
             </a>
+            <a href="/metrics" style={styles.evalsLink}>
+              Metrics
+            </a>
             <a
               href={projectRepoUrl}
               target="_blank"

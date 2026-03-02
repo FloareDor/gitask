@@ -16,6 +16,8 @@ import { expandQuery } from "./queryExpansion";
 import type { EmbeddedChunk } from "./embedder";
 import type { SearchResult } from "./vectorStore";
 import { VectorStore } from "./vectorStore";
+import { buildPageIndexTree } from "./pageIndexTree";
+import { pageIndexSearch } from "./pageIndexSearch";
 
 let activeQueryEmbedding: number[] = [];
 vi.mock("./embedder", () => ({
@@ -233,12 +235,27 @@ async function runBenchmark(
   };
 }
 
+async function searchPageIndexKeyword(
+  chunks: EmbeddedChunk[],
+  _queryEmb: number[],
+  queryText: string,
+  _limit: number = 5
+): Promise<SearchResult[]> {
+  const store = new VectorStore();
+  store.insert(chunks);
+  store.setGraph({});
+  const tree = buildPageIndexTree(store);
+  const { results } = await pageIndexSearch(tree, store, queryText, "mlc");
+  return results;
+}
+
 const CONFIGS: { name: string; fn: SearchFn }[] = [
   { name: "Full Pipeline", fn: searchFullPipeline },
   { name: "No Quantization", fn: searchNoQuantization },
   { name: "Vector-Only", fn: searchVectorOnly },
   { name: "No Reranking", fn: searchNoReranking },
   { name: "CodeRAG Multi-Path", fn: searchCodeRagMultiPath },
+  { name: "PageIndex (Keyword)", fn: searchPageIndexKeyword },
 ];
 
 describe("Ablation Study", () => {
@@ -275,6 +292,6 @@ describe("Ablation Study", () => {
 
     console.log(`ABLATION_RESULTS_JSON=${JSON.stringify(results, null, 2)}`);
 
-    expect(results.length).toBe(5);
+    expect(results.length).toBe(6);
   });
 });
