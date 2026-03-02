@@ -110,74 +110,122 @@ export async function initEmbedder(
 	return pipelinePromise;
 }
 
-function meanPoolAndNormalize(
+function l2Normalize(values: Float32Array): number[] {
+	let norm = 0;
+	for (let i = 0; i < values.length; i++) {
+		norm += values[i] * values[i];
+	}
+	norm = Math.sqrt(norm);
+	if (norm > 0) {
+		for (let i = 0; i < values.length; i++) {
+			values[i] /= norm;
+		}
+	}
+	return Array.from(values);
+}
+
+function meanPoolAndNormalizeBatch(
 	features: ArrayLike<number>,
-	dims: number[]
-): number[] {
+	dims: number[],
+	attentionMaskData?: ArrayLike<number>,
+	attentionMaskDims?: number[]
+): number[][] {
+	let batch = 0;
 	let seq = 0;
 	let width = 0;
-	let offset = 0;
+	let isAlreadyPooledBatch = false;
 
 	if (dims.length === 3) {
-		const batch = dims[0] ?? 0;
+		batch = dims[0] ?? 0;
 		seq = dims[1] ?? 0;
 		width = dims[2] ?? 0;
-		if (batch < 1) throw new Error(`Invalid embedding batch size: ${batch}`);
-		// Use the first (and only) sequence in the batch.
-		offset = 0;
 	} else if (dims.length === 2) {
-		seq = dims[0] ?? 0;
-		width = dims[1] ?? 0;
-		offset = 0;
+		const maybeBatch = dims[0] ?? 0;
+		const maybeWidth = dims[1] ?? 0;
+		if (
+			attentionMaskDims &&
+			attentionMaskDims.length === 2 &&
+			(attentionMaskDims[0] ?? 0) === maybeBatch
+		) {
+			// Some models return [batch, width] directly.
+			batch = maybeBatch;
+			width = maybeWidth;
+			seq = 1;
+			isAlreadyPooledBatch = true;
+		} else {
+			// Single sequence [seq, width].
+			batch = 1;
+			seq = maybeBatch;
+			width = maybeWidth;
+		}
 	} else {
 		throw new Error(`Unsupported embedding tensor dims: [${dims.join(", ")}]`);
 	}
 
-	if (seq <= 0 || width <= 0) {
+	if (batch <= 0 || seq <= 0 || width <= 0) {
 		throw new Error(`Invalid embedding tensor dims: [${dims.join(", ")}]`);
 	}
 
-	const pooled = new Float32Array(width);
-	for (let t = 0; t < seq; t++) {
-		const base = offset + t * width;
-		for (let j = 0; j < width; j++) {
-			pooled[j] += Number(features[base + j] ?? 0);
+	const hasMask =
+		!isAlreadyPooledBatch &&
+		!!attentionMaskData &&
+		!!attentionMaskDims &&
+		attentionMaskDims.length === 2 &&
+		(attentionMaskDims[0] ?? 0) === batch &&
+		(attentionMaskDims[1] ?? 0) === seq;
+
+	const output: number[][] = [];
+	for (let b = 0; b < batch; b++) {
+		const pooled = new Float32Array(width);
+
+		if (isAlreadyPooledBatch) {
+			const rowBase = b * width;
+			for (let j = 0; j < width; j++) {
+				pooled[j] = Number(features[rowBase + j] ?? 0);
+			}
+			output.push(l2Normalize(pooled));
+			continue;
 		}
-	}
 
-	for (let j = 0; j < width; j++) {
-		pooled[j] /= seq;
-	}
-
-	let norm = 0;
-	for (let j = 0; j < width; j++) {
-		norm += pooled[j] * pooled[j];
-	}
-	norm = Math.sqrt(norm);
-	if (norm > 0) {
-		for (let j = 0; j < width; j++) {
-			pooled[j] /= norm;
+		let tokenCount = 0;
+		for (let t = 0; t < seq; t++) {
+			const tokenActive = hasMask
+				? Number(
+						attentionMaskData![
+							b * (attentionMaskDims![1] ?? 0) + t
+						] ?? 0
+				  ) > 0
+				: true;
+			if (!tokenActive) continue;
+			const tokenBase = b * seq * width + t * width;
+			for (let j = 0; j < width; j++) {
+				pooled[j] += Number(features[tokenBase + j] ?? 0);
+			}
+			tokenCount += 1;
 		}
+
+		const divisor = tokenCount > 0 ? tokenCount : seq;
+		for (let j = 0; j < width; j++) {
+			pooled[j] /= divisor;
+		}
+		output.push(l2Normalize(pooled));
 	}
 
-	return Array.from(pooled);
+	return output;
 }
 
-/**
- * Embed a single text string. Returns the mean-pooled, normalized vector.
- */
-export async function embedText(text: string): Promise<number[]> {
+async function embedTexts(texts: string[]): Promise<number[][]> {
 	if (!embedRuntime) {
 		await initEmbedder();
 	}
-
 	if (!embedRuntime) {
 		throw new Error("Embedding runtime failed to initialize.");
 	}
+	if (texts.length === 0) return [];
 
-	const inputs = embedRuntime.tokenizer(text, {
+	const inputs = embedRuntime.tokenizer(texts, {
 		truncation: true,
-		padding: false,
+		padding: true,
 	});
 	const output = await embedRuntime.model(inputs);
 	const hidden = output?.last_hidden_state ?? output?.output;
@@ -187,7 +235,23 @@ export async function embedText(text: string): Promise<number[]> {
 		);
 	}
 
-	return meanPoolAndNormalize(hidden.data as ArrayLike<number>, hidden.dims as number[]);
+	return meanPoolAndNormalizeBatch(
+		hidden.data as ArrayLike<number>,
+		hidden.dims as number[],
+		inputs?.attention_mask?.data as ArrayLike<number> | undefined,
+		inputs?.attention_mask?.dims as number[] | undefined
+	);
+}
+
+/**
+ * Embed a single text string. Returns the mean-pooled, normalized vector.
+ */
+export async function embedText(text: string): Promise<number[]> {
+	const vectors = await embedTexts([text]);
+	if (vectors.length !== 1) {
+		throw new Error(`Embedding model "${EMBEDDING_MODEL_ID}" returned ${vectors.length} vectors for a single input.`);
+	}
+	return vectors[0];
 }
 
 /**
@@ -211,11 +275,14 @@ export async function embedChunks(
 		if (signal?.aborted) throw new DOMException("Aborted", "AbortError");
 
 		const batch = chunks.slice(i, i + batchSize);
-
-		// Process batch sequentially (transformers.js does not support true batching in browser)
-		for (const chunk of batch) {
-			const embedding = await embedText(chunk.code);
-			results.push({ ...chunk, embedding });
+		const embeddings = await embedTexts(batch.map((chunk) => chunk.code));
+		if (embeddings.length !== batch.length) {
+			throw new Error(
+				`Embedding batch size mismatch: expected ${batch.length}, got ${embeddings.length}.`
+			);
+		}
+		for (let j = 0; j < batch.length; j++) {
+			results.push({ ...batch[j], embedding: embeddings[j] });
 		}
 
 		const done = Math.min(i + batchSize, chunks.length);

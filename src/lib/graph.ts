@@ -20,6 +20,78 @@ export interface FileSymbol {
 }
 
 /**
+ * Collect dependency/definition metadata for a single AST node.
+ * Optional symbol collection can be enabled by passing `symbols`.
+ */
+export function collectGraphMetadataFromNode(
+	node: SyntaxNode,
+	language: string,
+	imports: Set<string>,
+	definitions: Set<string>,
+	symbols?: FileSymbol[]
+): void {
+	// Language-specific dependency/definition extraction
+	switch (language) {
+		case "javascript":
+		case "typescript":
+		case "tsx":
+			extractJsTs(node, imports, definitions);
+			break;
+		case "python":
+			extractPython(node, imports, definitions);
+			break;
+		case "go":
+			extractGo(node, imports, definitions);
+			break;
+		case "rust":
+			extractRust(node, imports, definitions);
+			break;
+		case "c":
+		case "cpp":
+			extractCpp(node, imports, definitions);
+			break;
+	}
+
+	if (!symbols) return;
+
+	let kind = "";
+	if (
+		node.type === "function_declaration" ||
+		node.type === "function_definition" ||
+		node.type === "function_item"
+	) {
+		kind = "function";
+	} else if (
+		node.type === "class_declaration" ||
+		node.type === "class_definition"
+	) {
+		kind = "class";
+	} else if (node.type === "interface_declaration") {
+		kind = "interface";
+	} else if (
+		node.type === "method_definition" ||
+		node.type === "method_declaration"
+	) {
+		kind = "method";
+	}
+
+	if (!kind) return;
+
+	const nameNode = node.children.find(
+		(c: SyntaxNode) =>
+			c.type === "identifier" ||
+			c.type === "type_identifier" ||
+			c.type === "name"
+	);
+	if (!nameNode?.text) return;
+	symbols.push({
+		name: nameNode.text,
+		kind,
+		line: node.startPosition.row + 1,
+	});
+}
+
+/**
  * Extract dependencies and definitions from a Tree-sitter tree.
  */
 export function extractDependencies(tree: Tree, language: string): FileDependencies {
@@ -50,28 +122,7 @@ export function extractSymbolsFromTree(tree: Tree, language: string): FileSymbol
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function visit(cursor: any, language: string, imports: Set<string>, definitions: Set<string>) {
 	const node: SyntaxNode = cursor.currentNode;
-
-	// Language-specific extraction logic
-	switch (language) {
-		case "javascript":
-		case "typescript":
-		case "tsx":
-			extractJsTs(node, imports, definitions);
-			break;
-		case "python":
-			extractPython(node, imports, definitions);
-			break;
-		case "go":
-			extractGo(node, imports, definitions);
-			break;
-		case "rust":
-			extractRust(node, imports, definitions);
-			break;
-		case "c":
-		case "cpp":
-			extractCpp(node, imports, definitions);
-			break;
-	}
+	collectGraphMetadataFromNode(node, language, imports, definitions);
 
 	// Recurse
 	if (cursor.gotoFirstChild()) {
