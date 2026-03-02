@@ -7,6 +7,7 @@
 
 import type { CodeChunk } from "./chunker";
 import { detectWebGPUAvailability } from "./webgpu";
+import { recordEmbedding } from "./metrics";
 
 export interface EmbeddedChunk extends CodeChunk {
 	embedding: number[];
@@ -126,6 +127,7 @@ export async function embedChunks(
 	await initEmbedder();
 
 	const results: EmbeddedChunk[] = [];
+	const startTime = performance.now();
 
 	for (let i = 0; i < chunks.length; i += batchSize) {
 		if (signal?.aborted) throw new DOMException("Aborted", "AbortError");
@@ -142,6 +144,8 @@ export async function embedChunks(
 		onProgress?.(done, chunks.length);
 		onBatchComplete?.(results);
 	}
+
+	recordEmbedding(chunks.length, performance.now() - startTime);
 
 	return results;
 }

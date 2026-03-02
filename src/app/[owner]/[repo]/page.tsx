@@ -9,6 +9,7 @@ import { expandQuery } from "@/lib/queryExpansion";
 import { buildScopedContext, defaultLimitsForProvider } from "@/lib/contextAssembly";
 import { fetchRepoTree } from "@/lib/github";
 import { initLLM, generate, getLLMStatus, getLLMConfig, onStatusChange, type LLMStatus, type ChatMessage } from "@/lib/llm";
+import { recordSearch } from "@/lib/metrics";
 import { verifyAndRefine } from "@/lib/cove";
 import AstTreeView from "@/components/AstTreeView";
 import IndexBrowser from "@/components/IndexBrowser";
@@ -673,8 +674,11 @@ export default function RepoPage({
 		setIsGenerating(true);
 
 		try {
+			const config = getLLMConfig();
 			const queryVariants = expandQuery(userMessage);
+			const searchStart = performance.now();
 			const results = await multiPathHybridSearch(storeRef.current, queryVariants, { limit: 5 });
+			recordSearch(performance.now() - searchStart);
 
 			// Always inject README / package.json as baseline context so
 			// project-overview questions ("what does this project do?") have a
@@ -703,7 +707,6 @@ export default function RepoPage({
 				}))
 			);
 
-			const config = getLLMConfig();
 			const limits = defaultLimitsForProvider(config.provider);
 			const assembled = buildScopedContext(
 				mergedResults.map((r) => ({ chunk: r.chunk, score: r.score })),
@@ -877,6 +880,14 @@ ${context}`;
 					<span style={styles.repoText}>{repo}</span>
 				</a>
 				<div style={styles.headerActions}>
+					<a
+						href="/metrics"
+						className="btn btn-ghost"
+						style={{ fontSize: "12px", padding: "5px 10px", textDecoration: "none" }}
+						title="Compute metrics"
+					>
+						Metrics
+					</a>
 					<a
 						href={projectRepoUrl}
 						target="_blank"
