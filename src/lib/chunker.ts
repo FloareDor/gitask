@@ -157,14 +157,18 @@ export function chunkFromTree(
 	code: string,
 	// eslint-disable-next-line @typescript-eslint/no-explicit-any
 	tree: any,
-	language: string
+	language: string,
+	// eslint-disable-next-line @typescript-eslint/no-explicit-any
+	onVisitNode?: (node: any) => void
 ): CodeChunk[] {
 	const chunks: CodeChunk[] = [];
 	const cursor = tree.walk();
 
-	function visit() {
+	function visit(skipChunkExtraction: boolean) {
 		const node = cursor.currentNode;
-		if (CHUNK_NODE_TYPES.has(node.type)) {
+		onVisitNode?.(node);
+		const shouldExtract = CHUNK_NODE_TYPES.has(node.type) && !skipChunkExtraction;
+		if (shouldExtract) {
 			const name = extractName(node) || `${node.type}_L${node.startPosition.row + 1}`;
 			chunks.push({
 				id: `${filePath}::${name}`,
@@ -176,20 +180,19 @@ export function chunkFromTree(
 				startLine: node.startPosition.row + 1,
 				endLine: node.endPosition.row + 1,
 			});
-			// Don't recurse into children of extracted nodes
-			return;
 		}
 
-		// Recurse into children
+		// Recurse into children. Once a parent node was chunked, descendants are still
+		// visited for metadata collection, but chunk extraction is suppressed.
 		if (cursor.gotoFirstChild()) {
 			do {
-				visit();
+				visit(skipChunkExtraction || shouldExtract);
 			} while (cursor.gotoNextSibling());
 			cursor.gotoParent();
 		}
 	}
 
-	visit();
+	visit(false);
 
 	// If no AST chunks found (e.g. file is just imports), fall back
 	if (chunks.length === 0) {

@@ -16,7 +16,7 @@ import { chunkCode, chunkFromTree, type CodeChunk } from "./chunker";
 import { CHUNKING_LIMITS, detectLanguage } from "./chunker";
 import { embedChunks, initEmbedder, type EmbeddedChunk } from "./embedder";
 import { VectorStore } from "./vectorStore";
-import { extractDependencies, extractSymbolsFromTree } from "./graph";
+import { collectGraphMetadataFromNode } from "./graph";
 import {
 	createDirectorySummaryChunks,
 	updateDirectoryStats,
@@ -73,6 +73,29 @@ const DIRECTORY_SUMMARY_LIMITS = {
 	maxCharsPerDir: 400_000,
 	maxSummaryChars: CHUNKING_LIMITS.MAX_CHUNK_CHARS,
 } as const;
+
+const AST_CHUNK_LANGUAGES = new Set([
+	"javascript",
+	"typescript",
+	"tsx",
+	"python",
+	"rust",
+	"go",
+	"java",
+	"c",
+	"cpp",
+]);
+
+function resolveChunkWorkerCount(totalPendingFiles: number, hasToken: boolean): number {
+	if (totalPendingFiles <= 1) return 1;
+	const cores =
+		typeof navigator !== "undefined" && Number.isFinite(navigator.hardwareConcurrency)
+			? navigator.hardwareConcurrency
+			: 4;
+	const target = Math.max(2, Math.floor(cores / 2));
+	const cap = hasToken ? 8 : 4;
+	return Math.max(1, Math.min(totalPendingFiles, Math.min(target, cap)));
+}
 
 /**
  * Index an entire repository.
@@ -202,66 +225,98 @@ export async function indexRepository(
 		startFileIndex = 0;
 	}
 
+	const pendingChunkFiles = Math.max(0, totalFiles - startFileIndex);
+	const chunkWorkerCount = resolveChunkWorkerCount(pendingChunkFiles, Boolean(token));
+	const chunkCheckpointInterval = Math.max(4, chunkWorkerCount * 2);
 	if (startFileIndex < totalFiles) {
 		onProgress?.({
 			phase: "fetching",
-			message: `Fetching ${totalFiles} files…`,
+			message: `Fetching ${totalFiles} files… (chunk workers: ${chunkWorkerCount})`,
 			current: startFileIndex,
 			total: totalFiles,
 		});
+		console.info(
+			`Index chunk workers: ${chunkWorkerCount} (pending files: ${pendingChunkFiles}, cores: ${typeof navigator !== "undefined" ? navigator.hardwareConcurrency : "n/a"})`
+		);
 	}
 
 	const skippedFiles: string[] = [];
 
-	// 5. Fetch + chunk files (or resume from startFileIndex)
-	for (let i = startFileIndex; i < indexableFiles.length; i++) {
-		const file = indexableFiles[i];
+	// eslint-disable-next-line @typescript-eslint/no-explicit-any
+	const parserLoaders: Record<string, Promise<any>> = {};
+
+	// eslint-disable-next-line @typescript-eslint/no-explicit-any
+	const getParserForLanguage = async (lang: string): Promise<any> => {
+		if (parsers[lang]) return parsers[lang];
+		if (!Parser) return null;
+		if (!parserLoaders[lang]) {
+			parserLoaders[lang] = (async () => {
+				const wasmPath = `/wasms/tree-sitter-${lang}.wasm`;
+				const language = await Parser.Language.load(wasmPath);
+				// eslint-disable-next-line @typescript-eslint/no-explicit-any
+				const parser = new (Parser as any)();
+				parser.setLanguage(language);
+				return parser;
+			})();
+		}
+		parsers[lang] = await parserLoaders[lang];
+		return parsers[lang];
+	};
+
+	type ChunkingResult = {
+		fileIndex: number;
+		filePath: string;
+		contentLength: number;
+		chunks: CodeChunk[];
+		deps?: { imports: string[]; definitions: string[] };
+		symbolNodes: AstNode[];
+		error?: unknown;
+	};
+
+	const processFileForChunking = async (
+		file: { path: string },
+		fileIndex: number
+	): Promise<ChunkingResult> => {
+		checkAborted(signal);
 		try {
 			// Fetch each file from the exact commit snapshot resolved during tree fetch.
 			const content = await fetchFileContent(owner, repo, file.path, token, tree.sha);
+			checkAborted(signal);
 			const lang = detectLanguage(file.path);
-
-
-
-			// Chunk the file and track ranges
-			const chunkStart = allChunks.length;
-
 			let chunks: CodeChunk[] = [];
+			let deps: { imports: string[]; definitions: string[] } | undefined;
+			let symbolNodes: AstNode[] = [];
 
-			// Attempt to use AST chunking if possible
-			if (Parser && lang && ["javascript", "typescript", "tsx", "python", "rust", "go", "java", "c", "cpp"].includes(lang)) {
+			// Attempt to use AST chunking if possible.
+			if (Parser && lang && AST_CHUNK_LANGUAGES.has(lang)) {
 				try {
-					if (!parsers[lang]) {
-						// Load the language WASM if not already loaded
-						const wasmPath = `/wasms/tree-sitter-${lang}.wasm`;
-						const language = await Parser.Language.load(wasmPath);
-						// eslint-disable-next-line @typescript-eslint/no-explicit-any
-						const parser = new (Parser as any)();
-						parser.setLanguage(language);
-						parsers[lang] = parser;
-					}
-
-					const tree = parsers[lang].parse(content);
+					const parser = await getParserForLanguage(lang);
+					const astTree = parser.parse(content);
 					try {
-						// Extract dependencies (imports/exports)
-						const deps = extractDependencies(tree, lang);
-						dependencyGraph[file.path] = deps;
-
-						// Extract symbols for AST visualization
-						const treeSymbols = extractSymbolsFromTree(tree, lang);
-						for (const sym of treeSymbols) {
-							astNodes.push({
-								filePath: file.path,
-								name: sym.name,
-								kind: sym.kind,
-								status: "parsed",
-							});
-						}
-
-						// Chunk code using the same tree
-						chunks = chunkFromTree(file.path, content, tree, lang);
+						const imports = new Set<string>();
+						const definitions = new Set<string>();
+						const symbols: Array<{ name: string; kind: string; line: number }> = [];
+						chunks = chunkFromTree(file.path, content, astTree, lang, (node) => {
+							collectGraphMetadataFromNode(
+								node,
+								lang,
+								imports,
+								definitions,
+								symbols
+							);
+						});
+						deps = {
+							imports: Array.from(imports),
+							definitions: Array.from(definitions),
+						};
+						symbolNodes = symbols.map((sym) => ({
+							filePath: file.path,
+							name: sym.name,
+							kind: sym.kind,
+							status: "parsed",
+						}));
 					} finally {
-						tree.delete();
+						astTree.delete();
 					}
 				} catch (e) {
 					console.warn(`Failed to AST chunk ${file.path}, falling back to text:`, e);
@@ -271,48 +326,93 @@ export async function indexRepository(
 				chunks = chunkCode(file.path, content);
 			}
 
-			allChunks.push(...chunks);
-			const chunkEnd = allChunks.length;
-
-			fileChunkRanges.set(file.path, { start: chunkStart, end: chunkEnd });
-			textChunkCounts[file.path] = chunks.length;
-			updateDirectoryStats(
-				directoryStats,
-				file.path,
-				content.length,
-				chunks.length,
-				chunks.some((chunk) => chunk.nodeType === "file_summary")
-			);
+			return {
+				fileIndex,
+				filePath: file.path,
+				contentLength: content.length,
+				chunks,
+				deps,
+				symbolNodes,
+			};
 		} catch (e) {
-			console.warn(`Skipped ${file.path}:`, e);
-			skippedFiles.push(file.path);
+			if (e instanceof IndexAbortError) throw e;
+			return {
+				fileIndex,
+				filePath: file.path,
+				contentLength: 0,
+				chunks: [],
+				symbolNodes: [],
+				error: e,
+			};
+		}
+	};
+
+	// 5. Fetch + chunk files (or resume from startFileIndex) with bounded concurrency.
+	for (let batchStart = startFileIndex; batchStart < indexableFiles.length; batchStart += chunkWorkerCount) {
+		checkAborted(signal);
+		const batch = indexableFiles.slice(batchStart, batchStart + chunkWorkerCount);
+		const batchResults = await Promise.all(
+			batch.map((file, offset) => processFileForChunking(file, batchStart + offset))
+		);
+
+		for (const result of batchResults) {
+			const i = result.fileIndex;
+			if (result.error) {
+				console.warn(`Skipped ${result.filePath}:`, result.error);
+				skippedFiles.push(result.filePath);
+			} else {
+				const chunkStart = allChunks.length;
+				allChunks.push(...result.chunks);
+				const chunkEnd = allChunks.length;
+
+				fileChunkRanges.set(result.filePath, { start: chunkStart, end: chunkEnd });
+				textChunkCounts[result.filePath] = result.chunks.length;
+				if (result.deps) {
+					dependencyGraph[result.filePath] = result.deps;
+				}
+				if (result.symbolNodes.length > 0) {
+					astNodes.push(...result.symbolNodes);
+				}
+				updateDirectoryStats(
+					directoryStats,
+					result.filePath,
+					result.contentLength,
+					result.chunks.length,
+					result.chunks.some((chunk) => chunk.nodeType === "file_summary")
+				);
+			}
+
+			onProgress?.({
+				phase: "chunking",
+				message: `Chunked ${i + 1}/${totalFiles} files (${allChunks.length} chunks, ${chunkWorkerCount} workers)`,
+				current: i + 1,
+				total: totalFiles,
+				astNodes: [...astNodes],
+				textChunkCounts: { ...textChunkCounts },
+			});
 		}
 
-		// Report progress every file so AST visualization updates promptly
-		onProgress?.({
-			phase: "chunking",
-			message: `Chunked ${i + 1}/${totalFiles} files (${allChunks.length} chunks)`,
-			current: i + 1,
-			total: totalFiles,
-			astNodes: [...astNodes],
-			textChunkCounts: { ...textChunkCounts },
-		});
-
-		// Persist partial progress after each file for tab-close resilience
-		checkAborted(signal);
-		await store.savePartialProgress(owner, repo, {
-			sha: tree.sha,
-			timestamp: Date.now(),
-			phase: "chunking",
-			indexablePaths,
-			allChunks: [...allChunks],
-			astNodes: [...astNodes],
-			textChunkCounts: { ...textChunkCounts },
-			fileChunkRanges: [...fileChunkRanges.entries()],
-			dependencyGraph: { ...dependencyGraph },
-			directoryStats: { ...directoryStats },
-			lastProcessedFileIndex: i,
-		});
+		const lastProcessedFileIndex = batchStart + batch.length - 1;
+		const processedSinceResume = lastProcessedFileIndex - startFileIndex + 1;
+		const shouldCheckpoint =
+			lastProcessedFileIndex >= indexableFiles.length - 1 ||
+			processedSinceResume % chunkCheckpointInterval === 0;
+		if (shouldCheckpoint) {
+			checkAborted(signal);
+			await store.savePartialProgress(owner, repo, {
+				sha: tree.sha,
+				timestamp: Date.now(),
+				phase: "chunking",
+				indexablePaths,
+				allChunks: [...allChunks],
+				astNodes: [...astNodes],
+				textChunkCounts: { ...textChunkCounts },
+				fileChunkRanges: [...fileChunkRanges.entries()],
+				dependencyGraph: { ...dependencyGraph },
+				directoryStats: { ...directoryStats },
+				lastProcessedFileIndex,
+			});
+		}
 	}
 
 	checkAborted(signal);
