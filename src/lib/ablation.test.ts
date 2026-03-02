@@ -4,7 +4,13 @@
  */
 
 import { describe, it, expect, vi } from "vitest";
-import { EVAL_CHUNKS, EVAL_QUERIES, type EvalQuery } from "./eval-data";
+import {
+  EVAL_CHUNKS,
+  EVAL_QUERIES,
+  REPO_EVAL_CHUNKS,
+  REPO_EVAL_QUERIES,
+  type EvalQuery,
+} from "./eval-data";
 import { cosineSimilarity } from "./quantize";
 import {
   keywordSearch,
@@ -260,7 +266,7 @@ const CONFIGS: { name: string; fn: SearchFn }[] = [
 
 describe("Ablation Study", () => {
   for (const { name, fn } of CONFIGS) {
-    it(`${name} - produces valid results`, async () => {
+    it(`${name} - produces valid results`, { timeout: 60_000 }, async () => {
       const result = await runBenchmark(name, fn, EVAL_CHUNKS, EVAL_QUERIES);
 
       expect(result.avgRecallAt5).toBeGreaterThanOrEqual(0);
@@ -274,7 +280,7 @@ describe("Ablation Study", () => {
     });
   }
 
-  it("prints summary table", async () => {
+  it("prints summary table", { timeout: 120_000 }, async () => {
     const results = await Promise.all(
       CONFIGS.map(({ name, fn }) => runBenchmark(name, fn, EVAL_CHUNKS, EVAL_QUERIES))
     );
@@ -291,6 +297,44 @@ describe("Ablation Study", () => {
     }
 
     console.log(`ABLATION_RESULTS_JSON=${JSON.stringify(results, null, 2)}`);
+
+    expect(results.length).toBe(6);
+  });
+});
+
+describe("Repo Eval Ablation", () => {
+  for (const { name, fn } of CONFIGS) {
+    it(`${name} - produces valid results on repo corpus`, async () => {
+      const result = await runBenchmark(name, fn, REPO_EVAL_CHUNKS, REPO_EVAL_QUERIES);
+
+      expect(result.avgRecallAt5).toBeGreaterThanOrEqual(0);
+      expect(result.avgRecallAt5).toBeLessThanOrEqual(1);
+      expect(result.avgMRR).toBeGreaterThanOrEqual(0);
+      expect(result.avgMRR).toBeLessThanOrEqual(1);
+      expect(result.avgNdcgAt10).toBeGreaterThanOrEqual(0);
+      expect(result.avgNdcgAt10).toBeLessThanOrEqual(1);
+      expect(result.avgLatencyUs).toBeGreaterThan(0);
+      expect(result.perQuery.length).toBe(REPO_EVAL_QUERIES.length);
+    });
+  }
+
+  it("prints summary table", async () => {
+    const results = await Promise.all(
+      CONFIGS.map(({ name, fn }) => runBenchmark(name, fn, REPO_EVAL_CHUNKS, REPO_EVAL_QUERIES))
+    );
+
+    console.log("\nRepo Eval Ablation Results (gitask src/lib/*.ts, manually annotated)");
+    console.log("Configuration | Recall@5 | MRR | NDCG@10 | Latency(us)");
+    console.log("--- | --- | --- | --- | ---");
+    for (const result of results) {
+      const recall = `${(result.avgRecallAt5 * 100).toFixed(1)}%`;
+      const mrr = result.avgMRR.toFixed(4);
+      const ndcg = result.avgNdcgAt10.toFixed(4);
+      const latency = result.avgLatencyUs.toFixed(0);
+      console.log(`${result.config} | ${recall} | ${mrr} | ${ndcg} | ${latency}`);
+    }
+
+    console.log(`REPO_ABLATION_RESULTS_JSON=${JSON.stringify(results, null, 2)}`);
 
     expect(results.length).toBe(6);
   });

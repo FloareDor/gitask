@@ -123,7 +123,7 @@ useEffect(() => {
 
     embedPipeline = await pipeline(
       "feature-extraction",
-      "Xenova/all-MiniLM-L6-v2",
+    "Xenova/all-MiniLM-L12-v2",
       { device: device as any } as any
     );
   })();
@@ -555,4 +555,4 @@ const engine = await CreateWebWorkerMLCEngine(worker, MLC_MODEL_ID, {
   ]);
 }`,
   },
-];
+];

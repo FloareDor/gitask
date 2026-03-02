@@ -1,6 +1,6 @@
 import type { CSSProperties } from "react";
 import { DATASET_META } from "@/lib/eval-data";
-import { ABLATION_RESULTS } from "@/lib/eval-results";
+import { ABLATION_RESULTS, EVAL_EMBEDDING_MODEL } from "@/lib/eval-results";
 
 const DATASET_BADGE = `${DATASET_META.name} — ${DATASET_META.queryCount} queries — ${DATASET_META.chunkCount} candidates — human-labeled`;
 
@@ -29,6 +29,7 @@ export default function AblationPage() {
           <a href={DATASET_META.url} style={styles.badge}>
             {DATASET_BADGE}
           </a>
+          <span style={styles.modelBadge}>embedding: {EVAL_EMBEDDING_MODEL}</span>
         </header>
 
         <section>
@@ -42,30 +43,10 @@ export default function AblationPage() {
                 <thead>
                   <tr>
                     <th style={styles.th}>Config</th>
-                    <th
-                      style={styles.thRight}
-                      title="Fraction of relevant chunks found in top 5."
-                    >
-                      Recall@5
-                    </th>
-                    <th
-                      style={styles.thRight}
-                      title="Mean reciprocal rank of first relevant result."
-                    >
-                      MRR
-                    </th>
-                    <th
-                      style={styles.thRight}
-                      title="Discounted ranking quality using 0–3 relevance labels."
-                    >
-                      NDCG@10
-                    </th>
-                    <th
-                      style={styles.thRight}
-                      title="Average per-query latency in microseconds."
-                    >
-                      Latency
-                    </th>
+                    <th style={styles.thRight}>Recall@5</th>
+                    <th style={styles.thRight}>MRR</th>
+                    <th style={styles.thRight}>NDCG@10</th>
+                    <th style={styles.thRight}>Latency</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -136,7 +117,7 @@ export default function AblationPage() {
           <span style={styles.footerSep}>·</span>
           <span>{ABLATION_RESULTS.length} configs</span>
           <span style={styles.footerSep}>·</span>
-          <span>Feb 2026</span>
+          <span>Mar 2026</span>
         </footer>
       </div>
     </main>
@@ -157,8 +138,6 @@ const styles: Record<string, CSSProperties> = {
     flexDirection: "column",
     gap: "24px",
   },
-
-  /* Back link */
   back: {
     width: "fit-content",
     color: "var(--text-secondary)",
@@ -168,10 +147,7 @@ const styles: Record<string, CSSProperties> = {
     border: "2px solid var(--border)",
     padding: "6px 12px",
     background: "var(--bg-card)",
-    transition: "color 0.1s ease, border-color 0.1s ease, box-shadow 0.1s ease, transform 0.1s ease",
   },
-
-  /* Header */
   header: {
     display: "flex",
     flexDirection: "column",
@@ -218,11 +194,17 @@ const styles: Record<string, CSSProperties> = {
     padding: "6px 12px",
     color: "var(--text-secondary)",
     textDecoration: "none",
-    boxShadow: "2px 2px 0 var(--border-hover)",
-    transition: "border-color 0.1s ease, box-shadow 0.1s ease, transform 0.1s ease",
   },
-
-  /* Table card */
+  modelBadge: {
+    display: "inline-block",
+    width: "fit-content",
+    fontSize: "11px",
+    fontFamily: "var(--font-mono)",
+    border: "2px solid var(--border)",
+    background: "var(--bg-card)",
+    padding: "6px 12px",
+    color: "var(--text-primary)",
+  },
   tableCard: {
     border: "2px solid var(--border)",
     background: "var(--bg-card)",
@@ -257,8 +239,6 @@ const styles: Record<string, CSSProperties> = {
     borderCollapse: "collapse",
     minWidth: "640px",
   },
-
-  /* Table head */
   th: {
     textAlign: "left",
     fontSize: "11px",
@@ -281,15 +261,11 @@ const styles: Record<string, CSSProperties> = {
     fontFamily: "var(--font-mono)",
     background: "var(--bg-secondary)",
   },
-
-  /* Table rows */
   row: {},
   baselineRow: {
     borderLeft: "3px solid var(--accent)",
     background: "rgba(99, 102, 241, 0.06)",
   },
-
-  /* Table cells */
   tdConfig: {
     padding: "13px 14px",
     borderBottom: "1px solid var(--border)",
@@ -297,57 +273,47 @@ const styles: Record<string, CSSProperties> = {
     alignItems: "center",
     gap: "10px",
   },
-  td: {
-    padding: "13px 14px",
-    borderBottom: "1px solid var(--border)",
-  },
   tdRight: {
     padding: "13px 14px",
     borderBottom: "1px solid var(--border)",
     textAlign: "right",
     fontFamily: "var(--font-mono)",
     fontSize: "13px",
-    color: "var(--text-secondary)",
+    color: "var(--text-primary)",
+  },
+  configName: {
+    fontSize: "14px",
+    fontWeight: 600,
+    color: "var(--text-primary)",
+  },
+  baselineTag: {
+    fontSize: "10px",
+    fontFamily: "var(--font-mono)",
+    letterSpacing: "0.06em",
+    textTransform: "uppercase",
+    color: "var(--accent)",
+    border: "1px solid var(--accent)",
+    padding: "2px 5px",
+    background: "rgba(99, 102, 241, 0.1)",
   },
   tdBest: {
     color: "var(--accent)",
     fontWeight: 700,
   },
   tdBestLatency: {
-    color: "var(--success)",
+    color: "#059669",
     fontWeight: 700,
   },
-
-  configName: {
-    fontWeight: 600,
-    fontSize: "14px",
-    color: "var(--text-primary)",
-    fontFamily: "var(--font-display)",
-  },
-  baselineTag: {
-    fontSize: "10px",
-    fontFamily: "var(--font-mono)",
-    fontWeight: 700,
-    letterSpacing: "0.06em",
-    textTransform: "uppercase",
-    color: "var(--accent)",
-    border: "1px solid rgba(99, 102, 241, 0.4)",
-    background: "rgba(99, 102, 241, 0.1)",
-    padding: "1px 6px",
-  },
-
-  /* Footer */
   footer: {
+    marginTop: "8px",
     display: "flex",
     alignItems: "center",
     gap: "8px",
-    fontFamily: "var(--font-mono)",
     fontSize: "11px",
+    fontFamily: "var(--font-mono)",
     color: "var(--text-muted)",
-    borderTop: "2px solid var(--border)",
-    paddingTop: "14px",
   },
   footerSep: {
-    color: "var(--border-hover)",
+    opacity: 0.55,
   },
 };

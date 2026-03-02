@@ -1,8 +1,9 @@
 /**
  * WebGPU Embedding Pipeline using Transformers.js
  *
- * Runs a quantized embedding model on the user's GPU via WebGPU,
- * with automatic fallback to WASM if WebGPU is unavailable.
+ * Runs local embeddings on the user's device.
+ * Uses Xenova/all-MiniLM-L12-v2 (mean pooled token embeddings),
+ * with WebGPU preferred and WASM fallback.
  */
 
 import type { CodeChunk } from "./chunker";
@@ -13,9 +14,19 @@ export interface EmbeddedChunk extends CodeChunk {
 	embedding: number[];
 }
 
-// Lazy-loaded pipeline
+const EMBEDDING_MODEL_ID = "Xenova/all-MiniLM-L12-v2";
+const EMBEDDING_MODEL_FILE: string | undefined = undefined;
+
+type EmbeddingRuntime = {
+	// eslint-disable-next-line @typescript-eslint/no-explicit-any
+	tokenizer: any;
+	// eslint-disable-next-line @typescript-eslint/no-explicit-any
+	model: any;
+};
+
+// Lazy-loaded runtime
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-let embedPipeline: any = null;
+let embedRuntime: EmbeddingRuntime | null = null;
 let pipelinePromise: Promise<void> | null = null;
 
 const EMBEDDER_INIT_TIMEOUT_MS = 90_000;
@@ -28,13 +39,13 @@ const EMBEDDER_INIT_TIMEOUT_MS = 90_000;
 export async function initEmbedder(
 	onProgress?: (msg: string) => void
 ): Promise<void> {
-	if (embedPipeline) return;
+	if (embedRuntime) return;
 	if (pipelinePromise) return pipelinePromise;
 
 	pipelinePromise = new Promise<void>((resolve, reject) => {
 		const timeoutId = setTimeout(() => {
 			pipelinePromise = null;
-			embedPipeline = null;
+			embedRuntime = null;
 			reject(
 				new Error(
 					"Embedding model failed to load within 90 s. Check your network connection and reload the page."
@@ -47,7 +58,7 @@ export async function initEmbedder(
 				onProgress?.("Loading embedding model...");
 
 				// Dynamic import so this does not break SSR
-				const { pipeline, env } = await import("@huggingface/transformers");
+				const { AutoTokenizer, AutoModel, env } = await import("@huggingface/transformers");
 
 				// Disable local model check (we always download from HF)
 				env.allowLocalModels = false;
@@ -70,24 +81,27 @@ export async function initEmbedder(
 				}
 				onProgress?.(`Using device: ${device}`);
 
-				embedPipeline = await pipeline(
-					"feature-extraction",
-					"Xenova/all-MiniLM-L6-v2",
-					{
-						device: device as any,
-						session_options: {
-							log_severity_level: 3,
-						},
-					} as any
-				);
+				const tokenizer = await AutoTokenizer.from_pretrained(EMBEDDING_MODEL_ID);
+				const modelOptions: Record<string, unknown> = {
+					device: device as any,
+					session_options: {
+						log_severity_level: 3,
+					},
+				};
+				if (EMBEDDING_MODEL_FILE) {
+					modelOptions.subfolder = "";
+					modelOptions.model_file_name = EMBEDDING_MODEL_FILE;
+				}
+				const model = await AutoModel.from_pretrained(EMBEDDING_MODEL_ID, modelOptions as any);
+				embedRuntime = { tokenizer, model };
 
 				clearTimeout(timeoutId);
-				onProgress?.("Embedding model ready");
+				onProgress?.(`Embedding model ready (${EMBEDDING_MODEL_ID})`);
 				resolve();
 			} catch (err) {
 				clearTimeout(timeoutId);
 				pipelinePromise = null;
-				embedPipeline = null;
+				embedRuntime = null;
 				reject(err);
 			}
 		})();
@@ -96,20 +110,84 @@ export async function initEmbedder(
 	return pipelinePromise;
 }
 
+function meanPoolAndNormalize(
+	features: ArrayLike<number>,
+	dims: number[]
+): number[] {
+	let seq = 0;
+	let width = 0;
+	let offset = 0;
+
+	if (dims.length === 3) {
+		const batch = dims[0] ?? 0;
+		seq = dims[1] ?? 0;
+		width = dims[2] ?? 0;
+		if (batch < 1) throw new Error(`Invalid embedding batch size: ${batch}`);
+		// Use the first (and only) sequence in the batch.
+		offset = 0;
+	} else if (dims.length === 2) {
+		seq = dims[0] ?? 0;
+		width = dims[1] ?? 0;
+		offset = 0;
+	} else {
+		throw new Error(`Unsupported embedding tensor dims: [${dims.join(", ")}]`);
+	}
+
+	if (seq <= 0 || width <= 0) {
+		throw new Error(`Invalid embedding tensor dims: [${dims.join(", ")}]`);
+	}
+
+	const pooled = new Float32Array(width);
+	for (let t = 0; t < seq; t++) {
+		const base = offset + t * width;
+		for (let j = 0; j < width; j++) {
+			pooled[j] += Number(features[base + j] ?? 0);
+		}
+	}
+
+	for (let j = 0; j < width; j++) {
+		pooled[j] /= seq;
+	}
+
+	let norm = 0;
+	for (let j = 0; j < width; j++) {
+		norm += pooled[j] * pooled[j];
+	}
+	norm = Math.sqrt(norm);
+	if (norm > 0) {
+		for (let j = 0; j < width; j++) {
+			pooled[j] /= norm;
+		}
+	}
+
+	return Array.from(pooled);
+}
+
 /**
  * Embed a single text string. Returns the mean-pooled, normalized vector.
  */
 export async function embedText(text: string): Promise<number[]> {
-	if (!embedPipeline) {
+	if (!embedRuntime) {
 		await initEmbedder();
 	}
 
-	const output = await embedPipeline(text, {
-		pooling: "mean",
-		normalize: true,
-	});
+	if (!embedRuntime) {
+		throw new Error("Embedding runtime failed to initialize.");
+	}
 
-	return Array.from(output.data as Float32Array);
+	const inputs = embedRuntime.tokenizer(text, {
+		truncation: true,
+		padding: false,
+	});
+	const output = await embedRuntime.model(inputs);
+	const hidden = output?.last_hidden_state ?? output?.output;
+	if (!hidden?.data || !Array.isArray(hidden?.dims)) {
+		throw new Error(
+			`Embedding model "${EMBEDDING_MODEL_ID}" returned an unexpected output shape.`
+		);
+	}
+
+	return meanPoolAndNormalize(hidden.data as ArrayLike<number>, hidden.dims as number[]);
 }
 
 /**
@@ -154,5 +232,5 @@ export async function embedChunks(
  * Check if the embedder is ready.
  */
 export function isEmbedderReady(): boolean {
-	return embedPipeline != null;
+	return embedRuntime != null;
 }
