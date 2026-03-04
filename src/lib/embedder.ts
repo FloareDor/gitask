@@ -258,7 +258,7 @@ export async function embedText(text: string): Promise<number[]> {
 export async function embedChunks(
 	chunks: CodeChunk[],
 	onProgress?: (done: number, total: number) => void,
-	batchSize: number = 8,
+	batchSize: number = 1, // was 8 — batch of 1 reduces load on laptop
 	signal?: AbortSignal,
 	onBatchComplete?: (embeddedSoFar: EmbeddedChunk[]) => void
 ): Promise<EmbeddedChunk[]> {

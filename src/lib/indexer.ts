@@ -517,7 +517,7 @@ export async function indexRepository(
 					estimatedSizeBytes: estimatedBytes,
 				});
 			},
-			8,
+			1, // was 8 — use 1 to avoid overloading laptop during embedding
 			signal,
 			(batchResults) => {
 				const soFar = [...embeddedSoFar, ...batchResults];
