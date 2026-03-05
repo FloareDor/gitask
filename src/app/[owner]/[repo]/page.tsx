@@ -506,6 +506,11 @@ export default function RepoPage({
 	const [coveEnabled, setCoveEnabled] = useState(false);
 	const [indexedSha, setIndexedSha] = useState<string | null>(null);
 	const [repoStale, setRepoStale] = useState(false);
+	const [chatToolbarMinimized, setChatToolbarMinimized] = useState(() => {
+		if (typeof window === "undefined") return false;
+		const saved = localStorage.getItem("gitask-chat-toolbar-minimized");
+		return saved === "true";
+	});
 	const projectRepoUrl = "https://github.com/FloareDor/gitask";
 	const completedWhileHiddenRef = useRef(false);
 	const indexStartTimeRef = useRef<number | null>(null);
@@ -563,6 +568,15 @@ export default function RepoPage({
 			// Ignore storage failures
 		}
 	}, [coveEnabled]);
+
+	// Persist chat toolbar minimized preference
+	useEffect(() => {
+		try {
+			localStorage.setItem("gitask-chat-toolbar-minimized", chatToolbarMinimized ? "true" : "false");
+		} catch {
+			// Ignore storage failures
+		}
+	}, [chatToolbarMinimized]);
 
 	// Load per-repo chat sessions from localStorage.
 	// Supports migration from legacy Message[] format.
@@ -1713,40 +1727,68 @@ ${context}`;
 					...styles.chatPanel,
 					display: !isIndexed && astNodes.length > 0 ? "none" : "flex",
 				}}>
-					<div style={styles.chatToolbar}>
-						<select
-							value={activeChatId ?? ""}
-							onChange={(e) => handleSelectChat(e.target.value)}
-							style={styles.chatSelect}
-							aria-label="Select chat session"
-							disabled={isGenerating}
-						>
-							{orderedChatSessions.map((session) => (
-								<option key={session.chat_id} value={session.chat_id}>
-									{session.title}
-								</option>
-							))}
-						</select>
-						<button
-							className="btn btn-ghost"
-							style={styles.chatToolbarBtn}
-							onClick={handleCreateChat}
-							type="button"
-							disabled={isGenerating}
-						>
-							+ New Chat
-						</button>
-						<button
-							className="btn btn-ghost"
-							style={styles.chatToolbarBtn}
-							onClick={handleDeleteActiveChat}
-							type="button"
-							title={chatSessions.length <= 1 ? "Delete messages in current chat" : "Delete current chat"}
-							disabled={isGenerating}
-						>
-							🗑 Delete Chat
-						</button>
-					</div>
+					{chatToolbarMinimized ? (
+						<div style={{ ...styles.chatToolbar, ...styles.chatToolbarMinimized }}>
+							<span style={styles.chatToolbarTitle}>
+								{orderedChatSessions.find((s) => s.chat_id === activeChatId)?.title ?? "Chat"}
+							</span>
+							<button
+								className="btn btn-ghost"
+								style={styles.chatToolbarBtn}
+								onClick={() => setChatToolbarMinimized(false)}
+								type="button"
+								title="Show chat options"
+								aria-label="Show chat options"
+							>
+								▼ Show chat options
+							</button>
+						</div>
+					) : (
+						<div style={styles.chatToolbar}>
+							<select
+								value={activeChatId ?? ""}
+								onChange={(e) => handleSelectChat(e.target.value)}
+								style={styles.chatSelect}
+								aria-label="Select chat session"
+								disabled={isGenerating}
+							>
+								{orderedChatSessions.map((session) => (
+									<option key={session.chat_id} value={session.chat_id}>
+										{session.title}
+									</option>
+								))}
+							</select>
+							<button
+								className="btn btn-ghost"
+								style={styles.chatToolbarBtn}
+								onClick={handleCreateChat}
+								type="button"
+								disabled={isGenerating}
+							>
+								+ New Chat
+							</button>
+							<button
+								className="btn btn-ghost"
+								style={styles.chatToolbarBtn}
+								onClick={handleDeleteActiveChat}
+								type="button"
+								title={chatSessions.length <= 1 ? "Delete messages in current chat" : "Delete current chat"}
+								disabled={isGenerating}
+							>
+								🗑 Delete Chat
+							</button>
+							<button
+								className="btn btn-ghost"
+								style={styles.chatToolbarBtn}
+								onClick={() => setChatToolbarMinimized(true)}
+								type="button"
+								title="Hide chat bar"
+								aria-label="Hide chat bar"
+							>
+								▲ Hide
+							</button>
+						</div>
+					)}
 					<div style={styles.messageList}>
 						{messages.length === 0 && isIndexed && (
 							<div style={styles.emptyState}>
@@ -2109,6 +2151,18 @@ const styles: Record<string, React.CSSProperties> = {
 		maxWidth: "900px",
 		margin: "0 auto",
 		width: "100%",
+	},
+	chatToolbarMinimized: {
+		padding: "6px 20px",
+	},
+	chatToolbarTitle: {
+		flex: 1,
+		fontSize: "12px",
+		fontFamily: "var(--font-mono)",
+		color: "var(--text-primary)",
+		overflow: "hidden",
+		textOverflow: "ellipsis",
+		whiteSpace: "nowrap" as const,
 	},
 	chatSelect: {
 		flex: 1,
