@@ -342,7 +342,7 @@ export default function LandingPage() {
             <div style={styles.webgpuWarning}>
               <strong style={styles.webgpuWarningTitle}>Local Web-LLM is unavailable in this browser.</strong>
               <p style={styles.webgpuWarningText}>
-                Use Gemini mode instead: open LLM settings and enter your API key.
+                Use Gemini or Groq mode instead: open LLM settings and enter your API key.
                 Local indexing still works with CPU fallback but may be slower.
                 {gpuSupportReason !== "ok" ? ` Reason: ${gpuSupportReason}.` : ""}
               </p>

@@ -8,10 +8,13 @@ import {
 	hasLegacyApiKey,
 	hasGeminiLocalApiKey,
 	setGeminiLocalApiKey,
+	hasGroqLocalApiKey,
+	setGroqLocalApiKey,
 	type LLMConfig,
-	type GeminiStorageMode,
+	type CloudStorageMode,
 } from "@/lib/llm";
 import { getGeminiVault, isGeminiVaultSupported } from "@/lib/gemini-vault";
+import { getGroqVault, isGroqVaultSupported } from "@/lib/groq-vault";
 import {
 	BYOKVaultError,
 	createBrowserPasskeyAdapter,
@@ -23,32 +26,42 @@ export function ModelSettings() {
 	const [config, setConfig] = useState<LLMConfig>({ provider: "mlc" });
 	const [reloading, setReloading] = useState(false);
 	const [statusMsg, setStatusMsg] = useState("");
-	const [hasDefaultKey, setHasDefaultKey] = useState(false);
+	const [hasDefaultGeminiKey, setHasDefaultGeminiKey] = useState(false);
+	const [hasDefaultGroqKey, setHasDefaultGroqKey] = useState(false);
 	const [apiKeyInput, setApiKeyInput] = useState("");
 	const [passphraseInput, setPassphraseInput] = useState("");
 	const [migratePassphrase, setMigratePassphrase] = useState("");
 	const [hasLocalKey, setHasLocalKey] = useState(false);
 
-	const vault = getGeminiVault();
+	const vault = config.provider === "groq" ? getGroqVault() : getGeminiVault();
 	const vaultState = vault?.getState() ?? "none";
 	const canUseVault = vault?.canCall() ?? false;
-	const vaultSupported = isGeminiVaultSupported();
-	const storageMode: GeminiStorageMode =
-		config.geminiStorage === "local" ? "local" : "vault";
+	const vaultSupported =
+		config.provider === "groq" ? isGroqVaultSupported() : isGeminiVaultSupported();
+	const storageMode: CloudStorageMode =
+		config.cloudStorage === "local" || config.geminiStorage === "local"
+			? "local"
+			: "vault";
 	const bypassEnabled = storageMode === "local";
 	const passkeySupported =
 		typeof window !== "undefined" && createBrowserPasskeyAdapter().isSupported();
 	const isPasskeyEnrolled = vault?.isPasskeyEnrolled() ?? false;
 	const needsMigration =
-		config.provider === "gemini" &&
+		(config.provider === "gemini" || config.provider === "groq") &&
 		storageMode === "vault" &&
 		hasLegacyApiKey(config) &&
 		vaultState === "none";
+	const isCloudProvider = config.provider === "gemini" || config.provider === "groq";
+	const activeProviderLabel = config.provider === "groq" ? "Groq" : "Gemini";
+	const hasDefaultKey =
+		config.provider === "groq" ? hasDefaultGroqKey : hasDefaultGeminiKey;
 
 	useEffect(() => {
-		setConfig(getLLMConfig());
-		setHasDefaultKey(!!process.env.NEXT_PUBLIC_HAS_GEMINI_KEY);
-		setHasLocalKey(hasGeminiLocalApiKey());
+		const nextConfig = getLLMConfig();
+		setConfig(nextConfig);
+		setHasDefaultGeminiKey(!!process.env.NEXT_PUBLIC_HAS_GEMINI_KEY);
+		setHasDefaultGroqKey(!!process.env.NEXT_PUBLIC_HAS_GROQ_KEY);
+		setHasLocalKey(nextConfig.provider === "groq" ? hasGroqLocalApiKey() : hasGeminiLocalApiKey());
 		setApiKeyInput("");
 		setPassphraseInput("");
 		setMigratePassphrase("");
@@ -62,13 +75,18 @@ export function ModelSettings() {
 	}, []);
 
 	useEffect(() => {
-		if (config.provider !== "gemini") return;
+		if (!isOpen) return;
+		setHasLocalKey(config.provider === "groq" ? hasGroqLocalApiKey() : hasGeminiLocalApiKey());
+	}, [config.provider, isOpen]);
+
+	useEffect(() => {
+		if (!isCloudProvider) return;
 		if (vaultSupported || storageMode === "local") return;
-		setConfig((prev) => ({ ...prev, geminiStorage: "local" }));
-	}, [config.provider, storageMode, vaultSupported]);
+		setConfig((prev) => ({ ...prev, cloudStorage: "local" }));
+	}, [isCloudProvider, storageMode, vaultSupported]);
 
 	const canSave = (() => {
-		if (config.provider !== "gemini") return true;
+		if (!isCloudProvider) return true;
 		if (hasDefaultKey) return true;
 		if (storageMode === "local") return hasLocalKey || apiKeyInput.trim().length > 0;
 		if (!vaultSupported) return false;
@@ -150,10 +168,14 @@ export function ModelSettings() {
 			vault?.nuke();
 		}
 		if (mode !== "vault") {
-			setGeminiLocalApiKey(null);
+			if (config.provider === "groq") {
+				setGroqLocalApiKey(null);
+			} else {
+				setGeminiLocalApiKey(null);
+			}
 		}
 		setConfig(getLLMConfig());
-		setHasLocalKey(hasGeminiLocalApiKey());
+		setHasLocalKey(config.provider === "groq" ? hasGroqLocalApiKey() : hasGeminiLocalApiKey());
 		setApiKeyInput("");
 		setPassphraseInput("");
 	};
@@ -163,23 +185,28 @@ export function ModelSettings() {
 		setStatusMsg("Initializing...");
 		let clearLocalKeyAfterSuccess = false;
 		try {
-			if (config.provider === "gemini") {
+			if (isCloudProvider) {
 				if (storageMode === "local") {
 					if (apiKeyInput.trim()) {
-						setGeminiLocalApiKey(apiKeyInput.trim());
-						setHasLocalKey(hasGeminiLocalApiKey());
+						if (config.provider === "groq") {
+							setGroqLocalApiKey(apiKeyInput.trim());
+							setHasLocalKey(hasGroqLocalApiKey());
+						} else {
+							setGeminiLocalApiKey(apiKeyInput.trim());
+							setHasLocalKey(hasGeminiLocalApiKey());
+						}
 					}
 				} else {
 					clearLocalKeyAfterSuccess = true;
 					if (apiKeyInput.trim() && vault) {
 						if (passkeySupported) {
 							await vault.setConfigWithPasskey(
-								{ apiKey: apiKeyInput.trim(), provider: "gemini" },
+								{ apiKey: apiKeyInput.trim(), provider: config.provider },
 								{ rpName: "GitAsk", userName: "user" }
 							);
 						} else if (passphraseInput.length >= 8) {
 							await vault.setConfig(
-								{ apiKey: apiKeyInput.trim(), provider: "gemini" },
+								{ apiKey: apiKeyInput.trim(), provider: config.provider },
 								passphraseInput
 							);
 						}
@@ -190,11 +217,15 @@ export function ModelSettings() {
 			}
 			setLLMConfig({
 				provider: config.provider,
-				geminiStorage: storageMode,
+				cloudStorage: storageMode,
 			});
 			await reloadLLM((msg) => setStatusMsg(msg));
 			if (clearLocalKeyAfterSuccess) {
-				setGeminiLocalApiKey(null);
+				if (config.provider === "groq") {
+					setGroqLocalApiKey(null);
+				} else {
+					setGeminiLocalApiKey(null);
+				}
 				setHasLocalKey(false);
 			}
 			setIsOpen(false);
@@ -211,7 +242,18 @@ export function ModelSettings() {
 	};
 
 	if (!isOpen) {
-		const isGemini = config.provider === "gemini";
+		const dotColor =
+			config.provider === "gemini"
+				? "#a78bfa"
+				: config.provider === "groq"
+				? "#f97316"
+				: "var(--success)";
+		const badge =
+			config.provider === "mlc"
+				? "local"
+				: config.provider === "groq"
+				? "groq"
+				: "gemini";
 		return (
 			<button
 				onClick={() => setIsOpen(true)}
@@ -220,9 +262,9 @@ export function ModelSettings() {
 			>
 				<span style={{
 					...styles.dot,
-					background: isGemini ? "#a78bfa" : "var(--success)",
+					background: dotColor,
 				}} />
-				{isGemini ? "gemini" : "local"}
+				{badge}
 			</button>
 		);
 	}
@@ -249,11 +291,23 @@ export function ModelSettings() {
 							setConfig({
 								...config,
 								provider: "gemini",
-								geminiStorage: storageMode === "local" ? "local" : "vault",
+								cloudStorage: storageMode === "local" ? "local" : "vault",
 							})
 						}
 					>
 						gemini
+					</button>
+					<button
+						style={{ ...styles.toggleBtn, ...(config.provider === "groq" ? styles.toggleBtnActive : {}) }}
+						onClick={() =>
+							setConfig({
+								...config,
+								provider: "groq",
+								cloudStorage: storageMode === "local" ? "local" : "vault",
+							})
+						}
+					>
+						groq
 					</button>
 				</div>
 				<p style={styles.hint}>
@@ -261,16 +315,18 @@ export function ModelSettings() {
 						<>runs in your browser via{" "}
 							<a href="https://github.com/mlc-ai/web-llm" target="_blank" rel="noopener noreferrer" style={{ color: "var(--accent)" }}>web-llm</a>
 							{" "}— needs WebGPU + ~4GB VRAM, downloads once</>
+					) : config.provider === "groq" ? (
+						"groq cloud, very fast, no download — needs your API key"
 					) : (
 						"google cloud, fast, no download — needs your API key"
 					)}
 				</p>
 
-				{/* Gemini key fields */}
-				{config.provider === "gemini" && (
+				{/* Cloud key fields */}
+				{isCloudProvider && (
 					<div style={styles.geminiSection}>
 						{hasDefaultKey && (
-							<p style={styles.hint}>a shared key is set up. add your own key for better rate limits.</p>
+							<p style={styles.hint}>a shared {activeProviderLabel} key is set up. add your own key for better rate limits.</p>
 						)}
 
 						<div style={styles.field}>
@@ -289,7 +345,7 @@ export function ModelSettings() {
 									onClick={() =>
 										setConfig((prev) => ({
 											...prev,
-											geminiStorage: bypassEnabled ? "vault" : "local",
+											cloudStorage: bypassEnabled ? "vault" : "local",
 										}))
 									}
 									disabled={!vaultSupported}
@@ -326,7 +382,7 @@ export function ModelSettings() {
 								</p>
 							) : (
 								<p style={styles.warningHint}>
-									local fallback stores your Gemini key in browser localStorage (less secure).
+									local fallback stores your {activeProviderLabel} key in browser localStorage (less secure).
 								</p>
 							)}
 							{!vaultSupported && (
@@ -354,8 +410,13 @@ export function ModelSettings() {
 
 						{storageMode === "vault" && !needsMigration && vaultState === "none" && (
 							<div style={styles.field}>
-								<a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer" style={styles.accentLink}>
-									get a free API key →
+								<a
+									href={config.provider === "groq" ? "https://console.groq.com/keys" : "https://aistudio.google.com/app/apikey"}
+									target="_blank"
+									rel="noopener noreferrer"
+									style={styles.accentLink}
+								>
+									{config.provider === "groq" ? "get a Groq API key →" : "get a free API key →"}
 								</a>
 								<input
 									type="password"
@@ -378,8 +439,13 @@ export function ModelSettings() {
 
 						{storageMode === "local" && (
 							<div style={styles.field}>
-								<a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer" style={styles.accentLink}>
-									get a free API key →
+								<a
+									href={config.provider === "groq" ? "https://console.groq.com/keys" : "https://aistudio.google.com/app/apikey"}
+									target="_blank"
+									rel="noopener noreferrer"
+									style={styles.accentLink}
+								>
+									{config.provider === "groq" ? "get a Groq API key →" : "get a free API key →"}
 								</a>
 								<input
 									type="password"
