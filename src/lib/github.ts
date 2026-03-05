@@ -21,6 +21,18 @@ export interface TreeResponse {
 	truncated: boolean;
 }
 
+/** File change entry from GitHub Compare API (base...head). */
+export interface CompareFileEntry {
+	filename: string;
+	status: "added" | "removed" | "modified" | "renamed";
+	previous_filename?: string;
+}
+
+/** Result of comparing two commits. Note: API returns at most 300 files on first page. */
+export interface CompareCommitsResult {
+	files: CompareFileEntry[];
+}
+
 async function readGitHubErrorMessage(res: Response): Promise<string> {
 	try {
 		const data = await res.json();
@@ -150,6 +162,53 @@ export async function fetchRepoTree(
 		files,
 		truncated: treeData.truncated ?? false,
 	};
+}
+
+/**
+ * Compare two commits to get the list of changed files.
+ * Uses GET /repos/:owner/:repo/compare/:base...:head.
+ * Returns at most 300 files; for larger diffs the caller should fall back to full re-index.
+ */
+export async function compareCommits(
+	owner: string,
+	repo: string,
+	baseSha: string,
+	headSha: string,
+	token?: string
+): Promise<CompareCommitsResult> {
+	const res = await fetch(
+		`${API_BASE}/repos/${owner}/${repo}/compare/${encodeURIComponent(baseSha)}...${encodeURIComponent(headSha)}`,
+		{ headers: headers(token) }
+	);
+	if (!res.ok) {
+		const details = await readGitHubErrorMessage(res);
+		if (res.status === 404) {
+			throw new Error(
+				`Compare not found (404). Base or head SHA may be invalid: ${details}`
+			);
+		}
+		if (res.status === 401) {
+			throw new Error(
+				`GitHub token was rejected (401). Update your token in "GH Token" and try again.`
+			);
+		}
+		if (res.status === 403) {
+			throw new Error(
+				`GitHub API access denied or rate-limited (403). Add a personal token in "GH Token" and try again.`
+			);
+		}
+		throw new Error(`GitHub Compare API error (${res.status}): ${details}`);
+	}
+	const data = (await res.json()) as { files?: Array<{ filename?: string; status?: string; previous_filename?: string }> };
+	const rawFiles = data?.files ?? [];
+	const files: CompareFileEntry[] = rawFiles
+		.filter((f) => f?.filename && f?.status)
+		.map((f) => ({
+			filename: f.filename as string,
+			status: f.status as CompareFileEntry["status"],
+			...(f.previous_filename && { previous_filename: f.previous_filename }),
+		}));
+	return { files };
 }
 
 /** File extensions we want to index (code + docs). */
