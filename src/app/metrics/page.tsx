@@ -98,6 +98,12 @@ function EventRow({ event }: { event: MetricEvent }) {
     if (event.repo) detail += `  (${event.repo})`;
   } else if (event.type === "search") {
     typeLabel = "SEARCH";
+  } else if (event.type === "safety") {
+    typeLabel = "SAFETY";
+    const level = event.riskLevel ?? "none";
+    const blocked = event.blocked ? "blocked" : "allow";
+    const redacted = event.redactedChunks ?? 0;
+    detail = `${level} · ${blocked} · redacted ${redacted}`;
   }
 
   return (
