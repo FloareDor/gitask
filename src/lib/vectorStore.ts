@@ -155,6 +155,96 @@ export class VectorStore {
 	}
 
 	/**
+	 * Load the cached blob from IndexedDB without requiring SHA match.
+	 * Used for incremental indexing to get lastSha and existing chunks.
+	 * Does not modify in-memory store.
+	 */
+	async loadCachedBlob(
+		owner: string,
+		repo: string
+	): Promise<{ sha: string; chunks: EmbeddedChunk[]; graph: Record<string, { imports: string[]; definitions: string[] }> } | null> {
+		const key = `${owner}/${repo}`;
+		return new Promise((resolve) => {
+			const request = indexedDB.open("gitask-cache", 1);
+			request.onupgradeneeded = () => {
+				const db = request.result;
+				if (!db.objectStoreNames.contains("repos")) {
+					db.createObjectStore("repos");
+				}
+			};
+			request.onsuccess = () => {
+				const db = request.result;
+				const tx = db.transaction("repos", "readonly");
+				const getReq = tx.objectStore("repos").get(key);
+				getReq.onsuccess = () => {
+					const data = getReq.result;
+					if (data && data.sha && Array.isArray(data.chunks)) {
+						resolve({
+							sha: data.sha,
+							chunks: data.chunks,
+							graph: data.graph || {},
+						});
+					} else {
+						resolve(null);
+					}
+				};
+				getReq.onerror = () => resolve(null);
+			};
+			request.onerror = () => resolve(null);
+		});
+	}
+
+	/**
+	 * Replace in-memory store with the given blob (chunks + graph).
+	 * Rebuilds chunkBinaries and chunksByFile. Used for incremental indexing.
+	 */
+	setFromBlob(data: {
+		chunks: EmbeddedChunk[];
+		graph: Record<string, { imports: string[]; definitions: string[] }>;
+	}): void {
+		this.chunks = [...data.chunks];
+		this.graph = { ...data.graph };
+		this.chunksByFile.clear();
+		this.chunkBinaries = [];
+		for (const chunk of this.chunks) {
+			const fileChunks = this.chunksByFile.get(chunk.filePath) || [];
+			fileChunks.push(chunk);
+			this.chunksByFile.set(chunk.filePath, fileChunks);
+			this.chunkBinaries.push(binarize(chunk.embedding));
+		}
+		this.resolveFileDataCache = null;
+		this.resolveFileDataDirty = true;
+	}
+
+	/**
+	 * Remove all chunks whose filePath is in the given set (or array).
+	 * Rebuilds chunks, chunkBinaries, chunksByFile, and removes graph entries for those paths.
+	 */
+	removeChunksByFilePaths(paths: Set<string> | string[]): void {
+		const pathSet = paths instanceof Set ? paths : new Set(paths);
+		const kept: EmbeddedChunk[] = [];
+		const keptBinaries: Uint32Array[] = [];
+		this.chunksByFile.clear();
+		for (let i = 0; i < this.chunks.length; i++) {
+			const chunk = this.chunks[i];
+			if (!pathSet.has(chunk.filePath)) {
+				kept.push(chunk);
+				keptBinaries.push(this.chunkBinaries[i]);
+				const fileChunks = this.chunksByFile.get(chunk.filePath) || [];
+				fileChunks.push(chunk);
+				this.chunksByFile.set(chunk.filePath, fileChunks);
+			}
+		}
+		this.chunks = kept;
+		this.chunkBinaries = keptBinaries;
+		for (const p of pathSet) {
+			delete this.graph[p];
+		}
+		this.resolveFileDataCache = null;
+		this.resolveFileDataDirty = true;
+	}
+
+	/**
 	 * Persist the store to IndexedDB keyed by owner/repo.
 	 */
 	async persist(owner: string, repo: string, sha: string): Promise<void> {
