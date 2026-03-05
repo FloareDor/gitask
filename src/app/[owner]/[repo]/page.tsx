@@ -279,6 +279,7 @@ function shouldPromptForLLMSettings(errorMessage: string): boolean {
 	const message = errorMessage.toLowerCase();
 	return (
 		message.includes("gemini") ||
+		message.includes("groq") ||
 		message.includes("api key") ||
 		message.includes("authentication") ||
 		message.includes("unauthorized") ||
@@ -290,6 +291,7 @@ function shouldPromptForLLMSettings(errorMessage: string): boolean {
 		message.includes("web-llm") ||
 		message.includes("local web") ||
 		message.includes("switch to gemini") ||
+		message.includes("switch to groq") ||
 		message.includes("unlock")
 	);
 }
@@ -1194,7 +1196,7 @@ export default function RepoPage({
 			const context = safeContext.safeContext;
 			setContextMeta(safeContext.meta);
 
-			const personality = config.provider === "gemini"
+			const personality = config.provider === "gemini" || config.provider === "groq"
 				? "Answer as a direct, helpful code assistant: direct, human, simple English. Use correct technical terms but no fluff or filler phrases. Cite file paths naturally. If the context does not cover the question, say so plainly."
 				: "Be concise. Cite file paths when relevant. Say if the context does not cover the question.";
 
@@ -1218,7 +1220,7 @@ ${context}`;
 
 			if (getLLMStatus() === "error") {
 				throw new Error(
-					"LLM failed to initialize. Open LLM Settings and switch to Gemini with a valid API key."
+					"LLM failed to initialize. Open LLM Settings and switch to Gemini or Groq with a valid API key."
 				);
 			}
 
@@ -1237,7 +1239,8 @@ ${context}`;
 				return;
 			}
 
-			const historyLimit = config.provider === "gemini" ? 10 : 6;
+			const historyLimit =
+				config.provider === "gemini" || config.provider === "groq" ? 10 : 6;
 			const recentHistory = messagesRef.current.slice(-historyLimit);
 			const chatMessages: ChatMessage[] = [
 				{ role: "system", content: systemPrompt },
@@ -1339,7 +1342,7 @@ ${context}`;
 		} catch (err) {
 			const errorMessage = err instanceof Error ? err.message : String(err);
 			if (shouldPromptForLLMSettings(errorMessage)) {
-				setToastMessage("LLM authentication failed. Open LLM Settings to update your Gemini key.");
+				setToastMessage("LLM authentication failed. Open LLM Settings to update your API key.");
 				if (typeof window !== "undefined") {
 					window.dispatchEvent(new Event("gitask-open-llm-settings"));
 				}

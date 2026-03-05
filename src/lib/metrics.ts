@@ -8,6 +8,8 @@
 const STORAGE_KEY = "gitask-metrics-v1";
 const MAX_EVENTS = 200;
 
+export type MetricEventType = "llm" | "embed" | "index" | "search";
+export type LLMProvider = "gemini" | "groq" | "mlc";
 export type MetricEventType = "llm" | "embed" | "index" | "search" | "safety";
 export type LLMProvider = "gemini" | "mlc";
 export type InjectionRiskLevel = "none" | "low" | "medium" | "high";
@@ -34,6 +36,7 @@ export interface MetricEvent {
 export interface AggregateTotals {
 	llmCalls: number;
 	geminiCalls: number;
+	groqCalls: number;
 	mlcCalls: number;
 	embedCalls: number;
 	indexCalls: number;
@@ -60,6 +63,7 @@ function blankTotals(): AggregateTotals {
 	return {
 		llmCalls: 0,
 		geminiCalls: 0,
+		groqCalls: 0,
 		mlcCalls: 0,
 		embedCalls: 0,
 		indexCalls: 0,
@@ -128,6 +132,7 @@ function appendEvent(event: MetricEvent): void {
 	if (event.type === "llm") {
 		t.llmCalls += 1;
 		if (event.provider === "gemini") t.geminiCalls += 1;
+		if (event.provider === "groq") t.groqCalls += 1;
 		if (event.provider === "mlc") t.mlcCalls += 1;
 		t.totalTokensIn += event.tokensIn ?? 0;
 		t.totalTokensOut += event.tokensOut ?? 0;

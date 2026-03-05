@@ -1,23 +1,27 @@
 /**
- * LLM wrapper — provides a unified interface to WebLLM and Gemini.
+ * LLM wrapper — provides a unified interface to WebLLM, Gemini, and Groq.
  *
- * Supports switching between local WebGPU inference (MLC) and cloud inference (Gemini).
- * Gemini BYOK keys can be stored encrypted (vault) or plain local (fallback).
+ * Supports switching between local WebGPU inference (MLC) and cloud inference.
+ * Cloud BYOK keys can be stored encrypted (vault) or plain local (fallback).
  */
 
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import { getGeminiVault } from "./gemini-vault";
+import { getGroqVault } from "./groq-vault";
 import { detectWebGPUAvailability } from "./webgpu";
 import { recordLLM } from "./metrics";
 
 export type LLMStatus = "idle" | "loading" | "ready" | "generating" | "error";
 
-export type LLMProvider = "mlc" | "gemini";
-export type GeminiStorageMode = "vault" | "local";
+export type LLMProvider = "mlc" | "gemini" | "groq";
+export type CloudStorageMode = "vault" | "local";
+export type GeminiStorageMode = CloudStorageMode;
 
 export interface LLMConfig {
 	provider: LLMProvider;
-	geminiStorage?: GeminiStorageMode;
+	cloudStorage?: CloudStorageMode;
+	/** @deprecated For legacy migration; replaced by cloudStorage */
+	geminiStorage?: CloudStorageMode;
 	/** @deprecated For legacy migration only; BYOK keys now in vault */
 	apiKey?: string;
 }
@@ -52,6 +56,40 @@ function normalizeGeminiError(err: unknown): Error {
 	return new Error(message);
 }
 
+function normalizeGroqError(err: unknown): Error {
+	const message = err instanceof Error ? err.message : String(err);
+	const lower = message.toLowerCase();
+
+	if (
+		lower.includes("invalid api key") ||
+		lower.includes("authentication") ||
+		lower.includes("unauthorized") ||
+		lower.includes("invalid_api_key")
+	) {
+		return new Error(
+			"Groq API key is invalid or rejected. Open LLM Settings and update your key."
+		);
+	}
+
+	if (
+		lower.includes("quota") ||
+		lower.includes("rate limit") ||
+		lower.includes("too many requests")
+	) {
+		return new Error(
+			"Groq API rate limit or quota exceeded. Wait a moment and try again."
+		);
+	}
+
+	if (lower.includes("permission") || lower.includes("forbidden")) {
+		return new Error(
+			"Groq request was denied. Check your API key permissions in LLM Settings."
+		);
+	}
+
+	return new Error(message);
+}
+
 function normalizeMLCInitError(err: unknown): Error {
 	const message = err instanceof Error ? err.message : String(err);
 	const lower = message.toLowerCase();
@@ -62,11 +100,11 @@ function normalizeMLCInitError(err: unknown): Error {
 		lower.includes("adapter")
 	) {
 		return new Error(
-			"Local Web-LLM is unavailable in this browser. Open LLM Settings, switch to Gemini, and add your API key."
+			"Local Web-LLM is unavailable in this browser. Open LLM Settings, switch to Gemini or Groq, and add your API key."
 		);
 	}
 	return new Error(
-		`Failed to initialize local Web-LLM: ${message}. Switch to Gemini in LLM Settings if this continues.`
+		`Failed to initialize local Web-LLM: ${message}. Switch to Gemini or Groq in LLM Settings if this continues.`
 	);
 }
 
@@ -127,16 +165,23 @@ export function getLLMStatus(): LLMStatus {
 
 const STORAGE_KEY = "gitask_llm_config";
 const GEMINI_LOCAL_KEY_STORAGE = "gitask_gemini_api_key_local";
+const GROQ_LOCAL_KEY_STORAGE = "gitask_groq_api_key_local";
 
-function normalizeGeminiStorageMode(value: unknown): GeminiStorageMode {
+function normalizeCloudStorageMode(value: unknown): CloudStorageMode {
 	return value === "local" ? "local" : "vault";
 }
 
-export function getGeminiLocalApiKey(): string | null {
+function getLocalKeyStorage(provider: "gemini" | "groq"): string {
+	return provider === "gemini"
+		? GEMINI_LOCAL_KEY_STORAGE
+		: GROQ_LOCAL_KEY_STORAGE;
+}
+
+function getLocalApiKey(provider: "gemini" | "groq"): string | null {
 	if (typeof window === "undefined") return null;
 	let key: string | null = null;
 	try {
-		key = localStorage.getItem(GEMINI_LOCAL_KEY_STORAGE);
+		key = localStorage.getItem(getLocalKeyStorage(provider));
 	} catch {
 		return null;
 	}
@@ -144,19 +189,42 @@ export function getGeminiLocalApiKey(): string | null {
 	return key.trim().length > 0 ? key : null;
 }
 
+export function getGeminiLocalApiKey(): string | null {
+	return getLocalApiKey("gemini");
+}
+
 export function hasGeminiLocalApiKey(): boolean {
 	return !!getGeminiLocalApiKey();
 }
 
 export function setGeminiLocalApiKey(apiKey: string | null): void {
+	setCloudLocalApiKey("gemini", apiKey);
+}
+
+export function getGroqLocalApiKey(): string | null {
+	return getLocalApiKey("groq");
+}
+
+export function hasGroqLocalApiKey(): boolean {
+	return !!getGroqLocalApiKey();
+}
+
+export function setGroqLocalApiKey(apiKey: string | null): void {
+	setCloudLocalApiKey("groq", apiKey);
+}
+
+function setCloudLocalApiKey(
+	provider: "gemini" | "groq",
+	apiKey: string | null
+): void {
 	if (typeof window === "undefined") return;
 	const next = apiKey?.trim() ?? "";
 	try {
 		if (!next) {
-			localStorage.removeItem(GEMINI_LOCAL_KEY_STORAGE);
+			localStorage.removeItem(getLocalKeyStorage(provider));
 			return;
 		}
-		localStorage.setItem(GEMINI_LOCAL_KEY_STORAGE, next);
+		localStorage.setItem(getLocalKeyStorage(provider), next);
 	} catch {
 		// Ignore localStorage failures in restricted browser modes.
 	}
@@ -169,10 +237,15 @@ export function getLLMConfig(): LLMConfig {
 			const stored = localStorage.getItem(STORAGE_KEY);
 			if (stored) {
 				const parsed = JSON.parse(stored) as Partial<LLMConfig>;
-				const provider: LLMProvider = parsed.provider === "gemini" ? "gemini" : "mlc";
+				const provider: LLMProvider =
+					parsed.provider === "gemini" || parsed.provider === "groq"
+						? parsed.provider
+						: "mlc";
 				const baseConfig: LLMConfig = { provider };
-				if (provider === "gemini") {
-					baseConfig.geminiStorage = normalizeGeminiStorageMode(parsed.geminiStorage);
+				if (provider === "gemini" || provider === "groq") {
+					baseConfig.cloudStorage = normalizeCloudStorageMode(
+						parsed.cloudStorage ?? parsed.geminiStorage
+					);
 				}
 				if (typeof parsed.apiKey === "string" && parsed.apiKey.trim().length > 0) {
 					baseConfig.apiKey = parsed.apiKey;
@@ -188,7 +261,10 @@ export function getLLMConfig(): LLMConfig {
 	// If we have an env key, default to Gemini as requested ("use gemini shit by default")
 	// NOW: we check boolean flag, since key is hidden
 	if (typeof process !== "undefined" && process.env.NEXT_PUBLIC_HAS_GEMINI_KEY) {
-		return { provider: "gemini", geminiStorage: "vault" };
+		return { provider: "gemini", cloudStorage: "vault" };
+	}
+	if (typeof process !== "undefined" && process.env.NEXT_PUBLIC_HAS_GROQ_KEY) {
+		return { provider: "groq", cloudStorage: "vault" };
 	}
 
 	return { provider: "mlc" };
@@ -198,16 +274,21 @@ export function getLLMConfig(): LLMConfig {
  * Check if there is a legacy plain-text apiKey in config (for migration).
  */
 export function hasLegacyApiKey(config: LLMConfig): boolean {
-	return config.provider === "gemini" && !!config.apiKey;
+	return (config.provider === "gemini" || config.provider === "groq") && !!config.apiKey;
 }
 
 export function setLLMConfig(config: LLMConfig) {
 	if (typeof window === "undefined") return;
 	const safeConfig: LLMConfig = {
-		provider: config.provider === "gemini" ? "gemini" : "mlc",
+		provider:
+			config.provider === "gemini" || config.provider === "groq"
+				? config.provider
+				: "mlc",
 	};
-	if (safeConfig.provider === "gemini") {
-		safeConfig.geminiStorage = normalizeGeminiStorageMode(config.geminiStorage);
+	if (safeConfig.provider === "gemini" || safeConfig.provider === "groq") {
+		safeConfig.cloudStorage = normalizeCloudStorageMode(
+			config.cloudStorage ?? config.geminiStorage
+		);
 	}
 	try {
 		localStorage.setItem(STORAGE_KEY, JSON.stringify(safeConfig));
@@ -511,6 +592,250 @@ class GeminiEngineWrapper implements LLMEngine {
 	}
 }
 
+// ─── Groq Implementation ────────────────────────────────────────────────────
+
+class GroqEngineWrapper implements LLMEngine {
+	private vault: BYOKVaultRef | null;
+	private useProxy: boolean;
+	private apiKey: string | null;
+	lastUsage: { tokensIn?: number; tokensOut?: number } | null = null;
+
+	constructor(
+		vaultOrProxy: { vault: BYOKVaultRef } | { useProxy: true } | { apiKey: string }
+	) {
+		if ("vault" in vaultOrProxy) {
+			this.vault = vaultOrProxy.vault;
+			this.useProxy = false;
+			this.apiKey = null;
+		} else if ("apiKey" in vaultOrProxy) {
+			this.vault = null;
+			this.useProxy = false;
+			this.apiKey = vaultOrProxy.apiKey;
+		} else {
+			this.vault = null;
+			this.useProxy = true;
+			this.apiKey = null;
+		}
+	}
+
+	private toOpenAIChatMessages(messages: ChatMessage[]) {
+		return messages.map((m) => ({ role: m.role, content: m.content }));
+	}
+
+	private async collectGroqStream(
+		messages: ChatMessage[],
+		apiKey: string
+	): Promise<{ chunks: string[]; tokensIn?: number; tokensOut?: number }> {
+		try {
+			const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: `Bearer ${apiKey}`,
+				},
+				body: JSON.stringify({
+					model: "llama-3.3-70b-versatile",
+					messages: this.toOpenAIChatMessages(messages),
+					stream: true,
+					stream_options: { include_usage: true },
+					temperature: 0.2,
+				}),
+			});
+
+			if (!response.ok) {
+				const details = await extractErrorText(response);
+				throw new Error(`Groq API request failed (${response.status}): ${details}`);
+			}
+			if (!response.body) throw new Error("No response body");
+
+			const reader = response.body.getReader();
+			const decoder = new TextDecoder();
+			let buffer = "";
+			const out: string[] = [];
+			let usage: { prompt_tokens?: number; completion_tokens?: number } | undefined;
+
+			while (true) {
+				const { done, value } = await reader.read();
+				if (done) {
+					buffer += decoder.decode();
+					break;
+				}
+				buffer += decoder.decode(value, { stream: true });
+
+				const frames = buffer.split("\n\n");
+				buffer = frames.pop() ?? "";
+				for (const frame of frames) {
+					for (const rawLine of frame.split("\n")) {
+						const line = rawLine.trim();
+						if (!line.startsWith("data:")) continue;
+						const payload = line.slice(5).trim();
+						if (!payload || payload === "[DONE]") continue;
+						const json = JSON.parse(payload) as {
+							choices?: Array<{ delta?: { content?: string } }>;
+							usage?: { prompt_tokens?: number; completion_tokens?: number };
+							error?: { message?: string };
+						};
+						if (json.error?.message) {
+							throw new Error(json.error.message);
+						}
+						if (json.usage) usage = json.usage;
+						const text = json.choices?.[0]?.delta?.content;
+						if (text) out.push(text);
+					}
+				}
+			}
+
+			const trailing = buffer.trim();
+			if (trailing.length > 0) {
+				for (const rawLine of trailing.split("\n")) {
+					const line = rawLine.trim();
+					if (!line.startsWith("data:")) continue;
+					const payload = line.slice(5).trim();
+					if (!payload || payload === "[DONE]") continue;
+					const json = JSON.parse(payload) as {
+						choices?: Array<{ delta?: { content?: string } }>;
+						usage?: { prompt_tokens?: number; completion_tokens?: number };
+					};
+					if (json.usage) usage = json.usage;
+					const text = json.choices?.[0]?.delta?.content;
+					if (text) out.push(text);
+				}
+			}
+
+			return {
+				chunks: out,
+				tokensIn: usage?.prompt_tokens,
+				tokensOut: usage?.completion_tokens,
+			};
+		} catch (err) {
+			throw normalizeGroqError(err);
+		}
+	}
+
+	async *generateStream(
+		messages: ChatMessage[]
+	): AsyncGenerator<string, void, undefined> {
+		if (this.useProxy) {
+			const response = await fetch("/api/groq", {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({ messages }),
+			});
+
+			if (!response.ok) {
+				const details = await extractErrorText(response);
+				throw normalizeGroqError(
+					new Error(`Groq API request failed (${response.status}): ${details}`)
+				);
+			}
+			if (!response.body) throw new Error("No response body");
+			const reader = response.body.getReader();
+			const decoder = new TextDecoder();
+			const contentType = response.headers.get("content-type")?.toLowerCase() ?? "";
+
+			try {
+				if (contentType.includes("application/x-ndjson")) {
+					let buffer = "";
+					const parseFrameLine = (line: string): { token?: string; error?: Error } => {
+						const frame = JSON.parse(line) as {
+							type?: string;
+							text?: string;
+							code?: string;
+							message?: string;
+						};
+						if (frame.type === "chunk") {
+							if (typeof frame.text === "string" && frame.text.length > 0) {
+								return { token: frame.text };
+							}
+							return {};
+						}
+						if (frame.type === "error") {
+							const msg = typeof frame.message === "string"
+								? frame.message
+								: "Groq stream failed.";
+							const code = typeof frame.code === "string" ? frame.code : "UNKNOWN_ERROR";
+							return { error: new Error(`${msg} (${code})`) };
+						}
+						return {};
+					};
+					while (true) {
+						const { done, value } = await reader.read();
+						if (done) {
+							buffer += decoder.decode();
+							break;
+						}
+						buffer += decoder.decode(value, { stream: true });
+
+						let newline = buffer.indexOf("\n");
+						while (newline !== -1) {
+							const line = buffer.slice(0, newline).trim();
+							buffer = buffer.slice(newline + 1);
+							if (line) {
+								const parsed = parseFrameLine(line);
+								if (parsed.error) throw parsed.error;
+								if (parsed.token) yield parsed.token;
+							}
+							newline = buffer.indexOf("\n");
+						}
+					}
+
+					const tailLines = buffer.split("\n");
+					for (const rawLine of tailLines) {
+						const line = rawLine.trim();
+						if (!line) continue;
+						const parsed = parseFrameLine(line);
+						if (parsed.error) throw parsed.error;
+						if (parsed.token) yield parsed.token;
+					}
+				} else {
+					while (true) {
+						const { done, value } = await reader.read();
+						if (done) break;
+						yield decoder.decode(value, { stream: true });
+					}
+				}
+			} catch (err) {
+				throw normalizeGroqError(err);
+			}
+			return;
+		}
+
+		if (this.apiKey) {
+			this.lastUsage = null;
+			const result = await this.collectGroqStream(messages, this.apiKey);
+			this.lastUsage = { tokensIn: result.tokensIn, tokensOut: result.tokensOut };
+			for (const chunk of result.chunks) {
+				yield chunk;
+			}
+			return;
+		}
+
+		if (!this.vault) throw new Error("Vault not configured");
+		this.lastUsage = null;
+		const runWithKey = (apiKey: string) => this.collectGroqStream(messages, apiKey);
+		const result = await this.vault.withKeyScope(async () =>
+			this.vault!.withKey(runWithKey)
+		);
+		this.lastUsage = { tokensIn: result.tokensIn, tokensOut: result.tokensOut };
+		for (const chunk of result.chunks) {
+			yield chunk;
+		}
+	}
+
+	async generateFull(messages: ChatMessage[]): Promise<string> {
+		let fullText = "";
+		for await (const chunk of this.generateStream(messages)) {
+			fullText += chunk;
+		}
+		return fullText;
+	}
+
+	async dispose(): Promise<void> {
+		this.vault = null;
+		this.apiKey = null;
+	}
+}
+
 // ─── Initialization ─────────────────────────────────────────────────────────
 
 /**
@@ -527,33 +852,54 @@ export async function initLLM(
 
 	initPromise = (async () => {
 		try {
-			if (config.provider === "gemini") {
-				const vault = getGeminiVault();
-				const hasDefault = process.env.NEXT_PUBLIC_HAS_GEMINI_KEY;
-				const storageMode = normalizeGeminiStorageMode(config.geminiStorage);
-				const localKey = storageMode === "local" ? getGeminiLocalApiKey() : null;
+			if (config.provider === "gemini" || config.provider === "groq") {
+				const provider = config.provider;
+				const vault = provider === "gemini" ? getGeminiVault() : getGroqVault();
+				const hasDefault =
+					provider === "gemini"
+						? process.env.NEXT_PUBLIC_HAS_GEMINI_KEY
+						: process.env.NEXT_PUBLIC_HAS_GROQ_KEY;
+				const storageMode = normalizeCloudStorageMode(
+					config.cloudStorage ?? config.geminiStorage
+				);
+				const localKey =
+					storageMode === "local"
+						? provider === "gemini"
+							? getGeminiLocalApiKey()
+							: getGroqLocalApiKey()
+						: null;
 				const canUseVault = vault?.canCall();
+				const providerLabel = provider === "gemini" ? "Gemini" : "Groq";
 
 				if (localKey) {
-					onProgress?.("Initializing Gemini (Local Key)...");
-					activeEngine = new GeminiEngineWrapper({ apiKey: localKey });
+					onProgress?.(`Initializing ${providerLabel} (Local Key)...`);
+					activeEngine =
+						provider === "gemini"
+							? new GeminiEngineWrapper({ apiKey: localKey })
+							: new GroqEngineWrapper({ apiKey: localKey });
 				} else if (canUseVault && vault) {
-					onProgress?.("Initializing Gemini (Custom Key)...");
-					activeEngine = new GeminiEngineWrapper({ vault });
+					onProgress?.(`Initializing ${providerLabel} (Custom Key)...`);
+					activeEngine =
+						provider === "gemini"
+							? new GeminiEngineWrapper({ vault })
+							: new GroqEngineWrapper({ vault });
 				} else if (hasDefault) {
-					onProgress?.("Initializing Gemini (Proxy)...");
-					activeEngine = new GeminiEngineWrapper({ useProxy: true });
+					onProgress?.(`Initializing ${providerLabel} (Proxy)...`);
+					activeEngine =
+						provider === "gemini"
+							? new GeminiEngineWrapper({ useProxy: true })
+							: new GroqEngineWrapper({ useProxy: true });
 				} else {
 					const state = vault?.getState();
 					throw new Error(
 						storageMode === "local"
-							? "Add your Gemini API key in LLM Settings."
+							? `Add your ${providerLabel} API key in LLM Settings.`
 							: state === "locked"
 							? "Please unlock your API key in Settings."
 							: "Add an API key in Settings or use the default key."
 					);
 				}
-				onProgress?.("Gemini Ready");
+				onProgress?.(`${providerLabel} Ready`);
 			} else {
 				// Default to MLC
 				try {
@@ -627,7 +973,10 @@ export async function* generate(
 		throw new Error("LLM not initialised. Call initLLM() first.");
 
 	const config = getLLMConfig();
-	const provider = config.provider === "gemini" ? "gemini" as const : "mlc" as const;
+	const provider: LLMProvider =
+		config.provider === "gemini" || config.provider === "groq"
+			? config.provider
+			: "mlc";
 
 	// Estimate input tokens from message content (chars / 4)
 	const totalInputChars = messages.reduce((sum, m) => sum + m.content.length, 0);
@@ -647,9 +996,13 @@ export async function* generate(
 		const durationMs = performance.now() - startTime;
 		setStatus("ready");
 
-		// Check if the engine stashed actual token counts (BYOK Gemini path)
-		const geminiEngine = activeEngine instanceof GeminiEngineWrapper ? activeEngine : null;
-		const actualUsage = geminiEngine?.lastUsage;
+		// Check if the cloud engine stashed actual token counts.
+		const cloudEngine =
+			activeEngine instanceof GeminiEngineWrapper ||
+			activeEngine instanceof GroqEngineWrapper
+				? activeEngine
+				: null;
+		const actualUsage = cloudEngine?.lastUsage;
 
 		if (actualUsage?.tokensIn != null || actualUsage?.tokensOut != null) {
 			recordLLM(
