@@ -8,8 +8,9 @@
 const STORAGE_KEY = "gitask-metrics-v1";
 const MAX_EVENTS = 200;
 
-export type MetricEventType = "llm" | "embed" | "index" | "search";
+export type MetricEventType = "llm" | "embed" | "index" | "search" | "safety";
 export type LLMProvider = "gemini" | "mlc";
+export type InjectionRiskLevel = "none" | "low" | "medium" | "high";
 
 export interface MetricEvent {
 	id: string;
@@ -24,6 +25,10 @@ export interface MetricEvent {
 	chunks?: number;
 	files?: number;
 	repo?: string;
+	riskLevel?: InjectionRiskLevel;
+	blocked?: boolean;
+	redactedChunks?: number;
+	signals?: number;
 }
 
 export interface AggregateTotals {
@@ -33,6 +38,9 @@ export interface AggregateTotals {
 	embedCalls: number;
 	indexCalls: number;
 	searchCalls: number;
+	injectionScans: number;
+	injectionBlocks: number;
+	injectionRedactedChunks: number;
 	totalTokensIn: number;
 	totalTokensOut: number;
 	totalLLMMs: number;
@@ -56,6 +64,9 @@ function blankTotals(): AggregateTotals {
 		embedCalls: 0,
 		indexCalls: 0,
 		searchCalls: 0,
+		injectionScans: 0,
+		injectionBlocks: 0,
+		injectionRedactedChunks: 0,
 		totalTokensIn: 0,
 		totalTokensOut: 0,
 		totalLLMMs: 0,
@@ -132,6 +143,10 @@ function appendEvent(event: MetricEvent): void {
 	} else if (event.type === "search") {
 		t.searchCalls += 1;
 		t.totalSearchMs += event.durationMs;
+	} else if (event.type === "safety") {
+		t.injectionScans += 1;
+		if (event.blocked) t.injectionBlocks += 1;
+		t.injectionRedactedChunks += event.redactedChunks ?? 0;
 	}
 
 	saveStore(store);
@@ -193,6 +208,24 @@ export function recordSearch(durationMs: number): void {
 		ts: Date.now(),
 		type: "search",
 		durationMs,
+	});
+}
+
+export function recordSafetyScan(
+	riskLevel: InjectionRiskLevel,
+	blocked: boolean,
+	redactedChunks: number,
+	signals: number
+): void {
+	appendEvent({
+		id: makeId(),
+		ts: Date.now(),
+		type: "safety",
+		durationMs: 0,
+		riskLevel,
+		blocked,
+		redactedChunks,
+		signals,
 	});
 }
 
