@@ -335,6 +335,53 @@ function buildGroundedCitationResults(
 	return matched.length > 0 ? matched : positive;
 }
 
+function countTermHits(chunk: SearchResult["chunk"], terms: string[]): number {
+	let hits = 0;
+	for (const term of terms) {
+		if (chunkContainsTerm(chunk, term)) hits++;
+	}
+	return hits;
+}
+
+function buildCorrelatedCitationResults(
+	results: SearchResult[],
+	query: string,
+	answer: string
+): SearchResult[] {
+	const positive = results.filter((result) => result.score > 0);
+	if (positive.length === 0) return [];
+
+	const queryTerms = extractEvidenceTerms(query);
+	const answerTerms = extractEvidenceTerms(answer).slice(0, 18);
+	const answerLower = answer.toLowerCase();
+
+	const ranked = positive
+		.map((result) => {
+			const queryHits = countTermHits(result.chunk, queryTerms);
+			const answerHits = countTermHits(result.chunk, answerTerms);
+			const fileMentioned = answerLower.includes(result.chunk.filePath.toLowerCase());
+			const correlation =
+				answerHits * 3 +
+				queryHits +
+				(fileMentioned ? 4 : 0) +
+				Math.min(2, result.score * 2);
+			return { result, queryHits, answerHits, fileMentioned, correlation };
+		})
+		.filter(
+			(item) =>
+				item.fileMentioned ||
+				item.answerHits > 0 ||
+				(item.queryHits >= 2 && item.result.score >= 0.55)
+		)
+		.sort((a, b) => b.correlation - a.correlation || b.result.score - a.result.score)
+		.map((item) => item.result);
+
+	if (ranked.length > 0) return ranked;
+
+	// Prefer no sources over weakly-related sources.
+	return [];
+}
+
 function evaluateEvidenceCoverage(
 	evidenceTerms: string[],
 	results: SearchResult[]
@@ -1003,7 +1050,7 @@ export default function RepoPage({
 			}
 			const mergedResults = [...results, ...baselineChunks];
 			const groundedCitationResults = buildGroundedCitationResults(results, evidenceTerms);
-			const responseCitations = groundedCitationResults.length > 0
+			let responseCitations = groundedCitationResults.length > 0
 				? buildMessageCitations(groundedCitationResults)
 				: [];
 			const evidenceCoverage = evaluateEvidenceCoverage(evidenceTerms, results);
@@ -1116,10 +1163,10 @@ ${context}`;
 				},
 			]);
 
-			for await (const token of generate(chatMessages)) {
-				fullResponse += token;
-				sawStreamToken = true;
-				setMessages((prev) => {
+				for await (const token of generate(chatMessages)) {
+					fullResponse += token;
+					sawStreamToken = true;
+					setMessages((prev) => {
 					if (!assistantMessageId) return prev;
 					let changed = false;
 				const updated = prev.map((message) => {
@@ -1132,26 +1179,56 @@ ${context}`;
 						citations: responseCitations.length > 0 ? responseCitations : undefined,
 					};
 				});
+						return changed ? updated : prev;
+					});
+				}
+
+				const correlatedCitationResults = buildCorrelatedCitationResults(
+					results,
+					userMessage,
+					fullResponse
+				);
+				responseCitations = correlatedCitationResults.length > 0
+					? buildMessageCitations(correlatedCitationResults)
+					: [];
+				setMessages((prev) => {
+					if (!assistantMessageId) return prev;
+					let changed = false;
+					const updated = prev.map((message) => {
+						if (message.id !== assistantMessageId) return message;
+						changed = true;
+						return {
+							...message,
+							citations: responseCitations.length > 0 ? responseCitations : undefined,
+						};
+					});
 					return changed ? updated : prev;
 				});
-			}
 
-			if (coveEnabled) {
-				try {
-					const refined = await verifyAndRefine(fullResponse, userMessage, storeRef.current);
-					if (refined && refined !== fullResponse && refined.length > 20) {
-						setMessages((prev) => {
-							if (!assistantMessageId) return prev;
-							let changed = false;
-							const updated = prev.map((message) => {
-								if (message.id !== assistantMessageId) return message;
+				if (coveEnabled) {
+					try {
+						const refined = await verifyAndRefine(fullResponse, userMessage, storeRef.current);
+						if (refined && refined !== fullResponse && refined.length > 20) {
+							const refinedCitationResults = buildCorrelatedCitationResults(
+								results,
+								userMessage,
+								refined
+							);
+							responseCitations = refinedCitationResults.length > 0
+								? buildMessageCitations(refinedCitationResults)
+								: [];
+							setMessages((prev) => {
+								if (!assistantMessageId) return prev;
+								let changed = false;
+								const updated = prev.map((message) => {
+									if (message.id !== assistantMessageId) return message;
 								changed = true;
 								return {
-									...message,
-									role: "assistant" as const,
-									content: refined,
-									citations: responseCitations.length > 0 ? responseCitations : undefined,
-								};
+										...message,
+										role: "assistant" as const,
+										content: refined,
+										citations: responseCitations.length > 0 ? responseCitations : undefined,
+									};
 							});
 							return changed ? updated : prev;
 						});
@@ -1189,6 +1266,7 @@ ${context}`;
 								...prior,
 								role: "assistant" as const,
 								content: current.length > 0 ? `${current}${suffix}` : `Error: ${errorMessage}`,
+								citations: undefined,
 							};
 						}
 					} else {
@@ -1196,6 +1274,7 @@ ${context}`;
 							...prior,
 							role: "assistant" as const,
 							content: `Error: ${errorMessage}`,
+							citations: undefined,
 						};
 					}
 					return next;
@@ -1613,10 +1692,10 @@ ${context}`;
 											{isGenerating && i === messages.length - 1 ? (
 												<pre style={styles.messageContent}>{msg.content || "Thinking..."}</pre>
 											) : (
-												<div style={{ ...styles.messageContent, whiteSpace: "normal" }} className="chat-markdown">
-													<ReactMarkdown>{msg.content}</ReactMarkdown>
-												</div>
-											)}
+											<div style={styles.assistantMarkdownContent} className="chat-markdown">
+												<ReactMarkdown>{msg.content}</ReactMarkdown>
+											</div>
+										)}
 											{msg.citations && msg.citations.length > 0 && (
 												<div style={styles.citationsDisclosure}>
 													<button
@@ -2012,6 +2091,15 @@ const styles: Record<string, React.CSSProperties> = {
 		whiteSpace: "pre-wrap",
 		wordBreak: "break-word",
 		margin: 0,
+	},
+	assistantMarkdownContent: {
+		fontFamily: "var(--font-sans)",
+		fontSize: "14px",
+		lineHeight: 1.6,
+		whiteSpace: "normal",
+		wordBreak: "break-word",
+		margin: 0,
+		paddingLeft: "6px",
 	},
 	assistantMessageBody: {
 		display: "flex",
