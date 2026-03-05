@@ -130,11 +130,17 @@ export async function POST(req: Request) {
 			);
 		}
 
-		const { messages } = await req.json();
+		const { messages, safetyMeta } = await req.json();
 
 		if (!messages || !Array.isArray(messages)) {
 			return NextResponse.json(
 				{ error: "Invalid request body" },
+				{ status: 400 }
+			);
+		}
+		if (safetyMeta && typeof safetyMeta === "object" && safetyMeta.blocked === true) {
+			return NextResponse.json(
+				{ error: "Request blocked by client safety policy." },
 				{ status: 400 }
 			);
 		}
