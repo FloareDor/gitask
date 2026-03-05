@@ -8,10 +8,8 @@
 const STORAGE_KEY = "gitask-metrics-v1";
 const MAX_EVENTS = 200;
 
-export type MetricEventType = "llm" | "embed" | "index" | "search";
-export type LLMProvider = "gemini" | "groq" | "mlc";
 export type MetricEventType = "llm" | "embed" | "index" | "search" | "safety";
-export type LLMProvider = "gemini" | "mlc";
+export type LLMProvider = "gemini" | "groq" | "mlc";
 export type InjectionRiskLevel = "none" | "low" | "medium" | "high";
 
 export interface MetricEvent {
