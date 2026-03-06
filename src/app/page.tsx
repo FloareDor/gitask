@@ -401,12 +401,6 @@ export default function LandingPage() {
           </div>
 
           <div style={styles.quickLinks}>
-            <a href="/ablation" style={styles.evalsLink} className="evals-link">
-              Ablation
-            </a>
-            <a href="/metrics" style={styles.evalsLink}>
-              Metrics
-            </a>
             <a
               href={projectRepoUrl}
               target="_blank"
@@ -416,7 +410,7 @@ export default function LandingPage() {
               aria-label="Star GitAsk on GitHub"
               title="Open GitAsk on GitHub"
             >
-              <span style={styles.starIcon}>★ Star</span>
+              <span style={styles.starIcon}>★ Star on GitHub</span>
               <img
                 alt="GitHub stars"
                 src="https://img.shields.io/github/stars/FloareDor/gitask?style=social"
@@ -468,33 +462,18 @@ export default function LandingPage() {
             </div>
           )}
 
-          {/* Feature cards */}
-          <div style={{
-            ...styles.features,
-            ...(isMobile && { gridTemplateColumns: "1fr" }),
-          }}>
+          {/* Feature tags */}
+          <div style={styles.featureTags}>
             {[
-              { icon: "⚡", label: "WebGPU Inference", desc: "Embeddings computed on your GPU via WebGPU" },
-              { icon: "🌲", label: "AST Chunking", desc: "Code split by syntax, not line count" },
-              { icon: "🔍", label: "Hybrid Search", desc: "Combines vector and keyword search" },
-              {
-                icon: "🗜",
-                label: "Binary Quantization",
-                desc: `${STORAGE_COMPARISON.compressionRatio}x smaller index. ${STORAGE_COMPARISON.float32TotalKB.toFixed(0)}KB → ${STORAGE_COMPARISON.binaryTotalKB.toFixed(0)}KB for ${STORAGE_COMPARISON.exampleRepoChunks} chunks.`,
-              },
-              { icon: "🔐", label: "Your Key, Your Browser", desc: "Store API key locally with vault encryption or local fallback." },
-            ].map((f, i) => (
-              <div
-                key={f.label}
-                className="feature-card"
-                style={{
-                  ...styles.featureCard,
-                  ...(!isMobile && { gridColumn: i < 3 ? "span 2" : "span 3" }),
-                }}
-              >
-                <span style={styles.featureIcon}>{f.icon}</span>
-                <strong style={styles.featureLabel}>{f.label}</strong>
-                <span style={styles.featureDesc}>{f.desc}</span>
+              { icon: "⚡", label: "WebGPU Inference" },
+              { icon: "🌲", label: "AST Chunking" },
+              { icon: "🔍", label: "Hybrid Search" },
+              { icon: "🗜", label: "32× Binary Quantization" },
+              { icon: "🔐", label: "Key stays local" },
+            ].map((f) => (
+              <div key={f.label} style={styles.featureTag}>
+                <span style={{ fontSize: "14px" }}>{f.icon}</span>
+                <span style={{ fontSize: "12px", fontWeight: 600, color: "var(--text-secondary)" }}>{f.label}</span>
               </div>
             ))}
           </div>
@@ -514,6 +493,11 @@ export default function LandingPage() {
 
           <ArchitectureDiagram />
         </section>
+      <footer style={{ textAlign: "center", padding: "24px 0 8px", opacity: 0.5 }}>
+        <a href="/ablation" style={{ fontSize: "12px", color: "var(--text-muted)", textDecoration: "none", margin: "0 10px" }}>Ablation</a>
+        <span style={{ color: "var(--text-muted)", fontSize: "12px" }}>·</span>
+        <a href="/metrics" style={{ fontSize: "12px", color: "var(--text-muted)", textDecoration: "none", margin: "0 10px" }}>Metrics</a>
+      </footer>
       </main>
     </div>
   );
@@ -745,41 +729,24 @@ const styles: Record<string, React.CSSProperties> = {
     width: "auto",
     display: "block",
   },
-  features: {
-    display: "grid",
-    gridTemplateColumns: "repeat(6, 1fr)",
-    gap: "12px",
-    width: "100%",
-    marginTop: "16px",
-  },
-  featureCard: {
+  featureTags: {
     display: "flex",
-    flexDirection: "column" as const,
+    flexWrap: "wrap" as const,
+    gap: "8px",
+    justifyContent: "center",
+    width: "100%",
+    maxWidth: "620px",
+    marginTop: "4px",
+  },
+  featureTag: {
+    display: "inline-flex",
     alignItems: "center",
     gap: "6px",
-    padding: "20px 16px",
-    textAlign: "center" as const,
+    padding: "6px 14px",
     background: "var(--bg-card)",
     border: "2px solid var(--border)",
-    borderRadius: "var(--radius)",
-    boxShadow: "3px 3px 0 var(--accent)",
-    transition: "transform 0.1s ease, box-shadow 0.1s ease, border-color 0.1s ease",
-    cursor: "default",
-  },
-  featureIcon: {
-    fontSize: "22px",
-    lineHeight: 1,
-    marginBottom: "2px",
-  },
-  featureLabel: {
-    fontSize: "13px",
-    fontWeight: 700,
-    fontFamily: "var(--font-display)",
-  },
-  featureDesc: {
-    fontSize: "12px",
-    color: "var(--text-secondary)",
-    lineHeight: 1.5,
+    borderRadius: "var(--radius-sm)",
+    whiteSpace: "nowrap" as const,
   },
   savedChatsCard: {
     width: "100%",
