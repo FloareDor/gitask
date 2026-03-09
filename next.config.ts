@@ -1,6 +1,15 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  outputFileTracingExcludes: {
+    "*": [
+      "node_modules/onnxruntime-node/**/*",
+      "node_modules/@huggingface/transformers/**/*",
+      "node_modules/@xenova/transformers/**/*",
+      "node_modules/@img/**/*",
+      "node_modules/sharp/**/*",
+    ],
+  },
   async headers() {
     return [
       {
