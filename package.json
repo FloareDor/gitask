@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "node scripts/dev-cleanup.js && next dev",
-    "build": "next build --webpack",
+    "build": "rimraf .next/cache && next build --webpack",
     "start": "next start"
   },
   "dependencies": {
