@@ -22,6 +22,7 @@ import {
 	buildMessageCitations, encodeGitHubPath,
 	deriveChatTitle, shouldSuggestGitHubToken, shouldPromptForLLMSettings,
 } from "@/lib/chatUtils";
+import { buildChatRequestMessages } from "@/lib/chatHistory";
 import {
 	extractEvidenceTerms, buildGroundedCitationResults,
 	buildCorrelatedCitationResults, evaluateEvidenceCoverage,
@@ -722,13 +723,15 @@ ${context}`;
 				return;
 			}
 
-			const historyLimit = config.provider === "gemini" || config.provider === "groq" ? 10 : 6;
-			const recentHistory = messagesRef.current.slice(-historyLimit);
-			const chatMessages = [
-				{ role: "system" as const, content: systemPrompt },
-				...recentHistory.map((m) => ({ role: m.role as "user" | "assistant", content: m.content })),
-				{ role: "user" as const, content: userMessage },
-			];
+			const chatMessages = buildChatRequestMessages({
+				provider: config.provider,
+				systemPrompt,
+				priorMessages: messagesRef.current.map((message) => ({
+					role: message.role as "user" | "assistant",
+					content: message.content,
+				})),
+				userMessage,
+			});
 
 			let fullResponse = "";
 			appendedAssistantPlaceholder = true;
