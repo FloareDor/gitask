@@ -7,7 +7,7 @@
  *
  * Performance optimizations:
  * - INT8 quantization on WASM (~2-4x faster, ~95% quality)
- * - Adaptive batch size based on device (WebGPU: 32, WASM: 4-8)
+ * - Adaptive batch size based on device (WebGPU: 16-32, WASM: 2-8)
  * - Parallel workers on WASM + multi-core devices (2x throughput)
  */
 
@@ -44,38 +44,39 @@ export function getEmbedderDevice(): "webgpu" | "wasm" | null {
 /**
  * Compute adaptive embedding config based on the active device and CPU count.
  *
- * Conservative by default — avoids bogging down laptops.
- * - WebGPU: moderate batch, single context (GPU is fast enough)
- * - WASM: small batches, parallel workers only on high-core/high-memory desktops
+ * Scales with device capability while staying conservative on weaker machines.
+ * - WebGPU: larger batches are viable with the lighter L6 model
+ * - WASM: scale batches with CPU/RAM, parallel workers only on beefy desktops
  */
 export function resolveEmbedConfig(device: "webgpu" | "wasm"): {
 	batchSize: number;
 	workerCount: number;
 } {
-	if (device === "webgpu") {
-		// GPU handles batches without blocking the CPU; keep it moderate
-		return { batchSize: 8, workerCount: 1 };
-	}
-
-	// WASM runs on CPU — be conservative to avoid slowing the device down
 	const cores =
 		typeof navigator !== "undefined" && Number.isFinite(navigator.hardwareConcurrency)
 			? navigator.hardwareConcurrency
 			: 4;
 
-	// navigator.deviceMemory is Chrome-only, in GB (may be undefined)
 	const memoryGB =
 		typeof navigator !== "undefined"
 			? (navigator as Navigator & { deviceMemory?: number }).deviceMemory ?? 0
 			: 0;
 
-	// Parallel workers each load a full model copy (~45 MB INT8) — only on
-	// beefy desktops (≥16 logical cores AND ≥8 GB RAM reported).
-	const useParallel = cores >= 16 && memoryGB >= 8;
+	if (device === "webgpu") {
+		// L6 is light enough to push larger GPU batches without going straight to max.
+		if (cores >= 16 || memoryGB >= 16) return { batchSize: 32, workerCount: 1 };
+		if (cores >= 8 || memoryGB >= 8) return { batchSize: 24, workerCount: 1 };
+		return { batchSize: 16, workerCount: 1 };
+	}
 
-	if (useParallel) return { batchSize: 4, workerCount: 2 };
-	if (cores > 4)   return { batchSize: 2, workerCount: 1 };
-	return { batchSize: 1, workerCount: 1 }; // ≤4 cores: original throttle
+	// WASM runs on CPU — scale up, but keep weaker devices responsive.
+	// Parallel workers each load a full model copy, so require strong CPU + RAM.
+	const useParallel = cores >= 12 && memoryGB >= 8;
+
+	if (useParallel) return { batchSize: 8, workerCount: 2 };
+	if (cores >= 8 || memoryGB >= 8) return { batchSize: 6, workerCount: 1 };
+	if (cores >= 4 || memoryGB >= 4) return { batchSize: 4, workerCount: 1 };
+	return { batchSize: 2, workerCount: 1 };
 }
 
 /**
@@ -431,7 +432,7 @@ async function embedChunksParallel(
 export async function embedChunks(
 	chunks: CodeChunk[],
 	onProgress?: (done: number, total: number) => void,
-	batchSize: number = 4,
+	batchSize: number = 8,
 	signal?: AbortSignal,
 	onBatchComplete?: (embeddedSoFar: EmbeddedChunk[]) => void,
 	workerCount: number = 1
