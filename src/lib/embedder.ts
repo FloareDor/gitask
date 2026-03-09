@@ -7,7 +7,7 @@
  *
  * Performance optimizations:
  * - INT8 quantization on WASM (~2-4x faster, ~95% quality)
- * - Adaptive batch size based on device (WebGPU: 16-32, WASM: 2-8)
+ * - Adaptive batch size based on device (WebGPU: 8-16, WASM: 2-8)
  * - Parallel workers on WASM + multi-core devices (2x throughput)
  */
 
@@ -46,7 +46,7 @@ export function getEmbedderDevice(): "webgpu" | "wasm" | null {
  * Compute adaptive embedding config based on the active device and CPU count.
  *
  * Scales with device capability while staying conservative on weaker machines.
- * - WebGPU: larger batches are viable with the lighter L6 model
+ * - WebGPU: moderate batches keep laptops responsive with the lighter L6 model
  * - WASM: scale batches with CPU/RAM, parallel workers only on beefy desktops
  */
 export function resolveEmbedConfig(device: "webgpu" | "wasm"): {
@@ -64,10 +64,10 @@ export function resolveEmbedConfig(device: "webgpu" | "wasm"): {
 			: 0;
 
 	if (device === "webgpu") {
-		// L6 is light enough to push larger GPU batches without going straight to max.
-		if (cores >= 16 || memoryGB >= 16) return { batchSize: 32, workerCount: 1 };
-		if (cores >= 8 || memoryGB >= 8) return { batchSize: 24, workerCount: 1 };
-		return { batchSize: 16, workerCount: 1 };
+		// L6 is light enough for larger GPU batches, but keep them moderate for laptops.
+		if (cores >= 16 || memoryGB >= 16) return { batchSize: 16, workerCount: 1 };
+		if (cores >= 8 || memoryGB >= 8) return { batchSize: 12, workerCount: 1 };
+		return { batchSize: 8, workerCount: 1 };
 	}
 
 	// WASM runs on CPU — scale up, but keep weaker devices responsive.

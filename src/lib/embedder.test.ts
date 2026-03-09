@@ -26,13 +26,13 @@ afterEach(() => {
 describe("resolveEmbedConfig", () => {
 	it("uses larger WebGPU batches on stronger devices", () => {
 		setNavigatorStub(16, 16);
-		expect(resolveEmbedConfig("webgpu")).toEqual({ batchSize: 32, workerCount: 1 });
+		expect(resolveEmbedConfig("webgpu")).toEqual({ batchSize: 16, workerCount: 1 });
 
 		setNavigatorStub(8, 8);
-		expect(resolveEmbedConfig("webgpu")).toEqual({ batchSize: 24, workerCount: 1 });
+		expect(resolveEmbedConfig("webgpu")).toEqual({ batchSize: 12, workerCount: 1 });
 
 		setNavigatorStub(4, 4);
-		expect(resolveEmbedConfig("webgpu")).toEqual({ batchSize: 16, workerCount: 1 });
+		expect(resolveEmbedConfig("webgpu")).toEqual({ batchSize: 8, workerCount: 1 });
 	});
 
 	it("scales WASM batches and only enables parallel workers on beefy machines", () => {
