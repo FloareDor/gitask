@@ -312,8 +312,6 @@ export default function LandingPage() {
 
   return (
     <div style={{ minHeight: "100vh", background: "var(--page-bg)", color: "var(--page-text)", fontFamily: "var(--font-sans)" }}>
-      <ModelSettings />
-
       {/* NAV */}
       <nav style={{
         display: "flex",
@@ -330,6 +328,7 @@ export default function LandingPage() {
           gitask
         </span>
         <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
+          <ModelSettings />
           <ThemeToggle />
           <a
             href="https://github.com/FloareDor/gitask"

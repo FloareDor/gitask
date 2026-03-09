@@ -302,7 +302,7 @@ export function ModelSettings() {
 								>
 									<span style={{
 										...styles.dot,
-										background: config.provider === "mlc" ? "#f5f5f0" : "var(--success)",
+										background: config.provider === "mlc" ? "var(--page-bg)" : "var(--success)",
 									}} />
 									local
 								</div>
@@ -324,7 +324,7 @@ export function ModelSettings() {
 								>
 									<span style={{
 										...styles.dot,
-										background: config.provider === "gemini" ? "#f5f5f0" : "#a78bfa",
+										background: config.provider === "gemini" ? "var(--page-bg)" : "#a78bfa",
 									}} />
 									gemini
 								</div>
@@ -346,7 +346,7 @@ export function ModelSettings() {
 								>
 									<span style={{
 										...styles.dot,
-										background: config.provider === "groq" ? "#f5f5f0" : "#f97316",
+										background: config.provider === "groq" ? "var(--page-bg)" : "#f97316",
 									}} />
 									groq
 								</div>
@@ -601,15 +601,15 @@ const styles: Record<string, React.CSSProperties> = {
 		display: "inline-flex",
 		alignItems: "center",
 		gap: "7px",
-		background: "#ffffff",
-		border: "2px solid #0a0a0a",
+		background: "var(--page-surface)",
+		border: "1px solid var(--page-border)",
 		borderRadius: 0,
 		cursor: "pointer",
 		padding: "6px 12px",
 		fontSize: "13px",
 		fontWeight: 600,
-		color: "#0a0a0a",
-		boxShadow: "2px 2px 0 rgba(0,0,0,0.12)",
+		color: "var(--page-text)",
+		boxShadow: "var(--page-shadow-sm)",
 		fontFamily: "var(--font-sans)",
 	},
 	dot: {
@@ -622,7 +622,7 @@ const styles: Record<string, React.CSSProperties> = {
 	overlay: {
 		position: "fixed",
 		inset: 0,
-		background: "rgba(0,0,0,0.4)",
+		background: "rgba(0,0,0,0.5)",
 		zIndex: 1000,
 	},
 	sheet: {
@@ -631,8 +631,8 @@ const styles: Record<string, React.CSSProperties> = {
 		right: 0,
 		height: "100%",
 		width: "min(560px, 100vw)",
-		background: "#fafaf8",
-		borderLeft: "2px solid #0a0a0a",
+		background: "var(--page-bg)",
+		borderLeft: "2px solid var(--page-border)",
 		overflowY: "auto",
 		zIndex: 1001,
 		display: "flex",
@@ -640,7 +640,7 @@ const styles: Record<string, React.CSSProperties> = {
 	},
 	sheetHeader: {
 		padding: "20px 28px",
-		borderBottom: "2px solid #0a0a0a",
+		borderBottom: "2px solid var(--page-border)",
 		display: "flex",
 		justifyContent: "space-between",
 		alignItems: "center",
@@ -649,16 +649,16 @@ const styles: Record<string, React.CSSProperties> = {
 		fontFamily: "var(--font-display)",
 		fontWeight: 800,
 		fontSize: "1.2rem",
-		color: "#0a0a0a",
+		color: "var(--page-text)",
 	},
 	closeBtn: {
-		border: "2px solid #0a0a0a",
-		background: "#fff",
+		border: "2px solid var(--page-border)",
+		background: "var(--page-surface)",
 		padding: "4px 10px",
 		cursor: "pointer",
 		fontSize: "1rem",
 		fontWeight: "bold",
-		color: "#0a0a0a",
+		color: "var(--page-text)",
 		lineHeight: 1,
 	},
 	sheetBody: {
@@ -671,7 +671,7 @@ const styles: Record<string, React.CSSProperties> = {
 		fontSize: "11px",
 		textTransform: "uppercase",
 		letterSpacing: "0.08em",
-		color: "#888",
+		color: "var(--page-text-muted)",
 		marginBottom: 12,
 	} as React.CSSProperties,
 	providerCard: {
@@ -687,15 +687,15 @@ const styles: Record<string, React.CSSProperties> = {
 		fontWeight: 600,
 	},
 	providerCardSelected: {
-		borderColor: "#0a0a0a",
-		background: "#0a0a0a",
-		color: "#f5f5f0",
+		borderColor: "var(--page-text)",
+		background: "var(--page-text)",
+		color: "var(--page-bg)",
 		boxShadow: "2px 2px 0 #16a34a",
 	},
 	providerCardUnselected: {
-		borderColor: "#ddd",
-		background: "#fff",
-		color: "#0a0a0a",
+		borderColor: "var(--page-border)",
+		background: "var(--page-surface)",
+		color: "var(--page-text)",
 	},
 	cloudSection: {
 		display: "flex",
@@ -703,7 +703,7 @@ const styles: Record<string, React.CSSProperties> = {
 		gap: "10px",
 	},
 	sectionDivider: {
-		borderTop: "2px solid #e5e5e5",
+		borderTop: "2px solid var(--page-border)",
 		margin: "20px 0",
 	},
 	field: {
@@ -716,7 +716,7 @@ const styles: Record<string, React.CSSProperties> = {
 		fontSize: "11px",
 		textTransform: "uppercase" as const,
 		letterSpacing: "0.08em",
-		color: "#888",
+		color: "var(--page-text-muted)",
 	},
 	switchInlineRow: {
 		display: "inline-flex",
@@ -727,8 +727,8 @@ const styles: Record<string, React.CSSProperties> = {
 		width: "46px",
 		height: "26px",
 		borderRadius: "999px",
-		border: "2px solid #ddd",
-		background: "#fff",
+		border: "2px solid var(--page-border)",
+		background: "var(--page-surface)",
 		cursor: "pointer",
 		padding: "2px",
 		display: "flex",
@@ -742,7 +742,7 @@ const styles: Record<string, React.CSSProperties> = {
 		width: "16px",
 		height: "16px",
 		borderRadius: "50%",
-		background: "#aaa",
+		background: "var(--page-text-muted)",
 		transform: "translateX(0)",
 		transition: "transform 0.12s ease, background 0.12s ease",
 	},
@@ -757,7 +757,7 @@ const styles: Record<string, React.CSSProperties> = {
 	switchState: {
 		fontSize: "11px",
 		fontWeight: 700,
-		color: "#888",
+		color: "var(--page-text-muted)",
 		fontFamily: "var(--font-mono)",
 		minWidth: "24px",
 	},
@@ -769,7 +769,7 @@ const styles: Record<string, React.CSSProperties> = {
 	},
 	hint: {
 		fontSize: "12px",
-		color: "#4a4a4a",
+		color: "var(--page-text-dim)",
 		margin: 0,
 		lineHeight: 1.5,
 	},
@@ -787,44 +787,44 @@ const styles: Record<string, React.CSSProperties> = {
 	input: {
 		width: "100%",
 		padding: "12px 16px",
-		border: "2px solid #0a0a0a",
-		background: "#fff",
+		border: "2px solid var(--page-border)",
+		background: "var(--page-surface)",
 		fontFamily: "var(--font-mono)",
 		fontSize: "13px",
 		outline: "none",
 		marginBottom: "12px",
-		color: "#0a0a0a",
+		color: "var(--page-text)",
 		boxSizing: "border-box",
 	},
 	status: {
 		fontFamily: "var(--font-mono)",
 		fontSize: "12px",
-		color: "#4a4a4a",
+		color: "var(--page-text-dim)",
 		padding: "8px 12px",
-		background: "#f0ede8",
-		border: "1px solid #ddd",
+		background: "var(--page-surface-alt)",
+		border: "1px solid var(--page-border)",
 		marginTop: "12px",
 	},
 	saveBtn: {
-		background: "#0a0a0a",
-		color: "#f5f5f0",
-		border: "2px solid #0a0a0a",
+		background: "var(--page-text)",
+		color: "var(--page-bg)",
+		border: "2px solid var(--page-border)",
 		padding: "12px 24px",
 		fontWeight: 700,
 		fontSize: "14px",
 		cursor: "pointer",
 		width: "100%",
-		boxShadow: "3px 3px 0 #0a0a0a",
+		boxShadow: "3px 3px 0 var(--page-text)",
 		fontFamily: "var(--font-display)",
 	},
 	ghostBtn: {
 		background: "transparent",
-		border: "2px solid #0a0a0a",
+		border: "2px solid var(--page-border)",
 		padding: "8px 16px",
 		fontSize: "13px",
 		cursor: "pointer",
 		fontWeight: 600,
-		color: "#0a0a0a",
+		color: "var(--page-text)",
 		fontFamily: "var(--font-sans)",
 	},
 };

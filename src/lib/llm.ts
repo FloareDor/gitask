@@ -168,7 +168,9 @@ const GEMINI_LOCAL_KEY_STORAGE = "gitask_gemini_api_key_local";
 const GROQ_LOCAL_KEY_STORAGE = "gitask_groq_api_key_local";
 
 function normalizeCloudStorageMode(value: unknown): CloudStorageMode {
-	return value === "local" ? "local" : "vault";
+	// Explicit "vault" stays vault; anything else (including undefined) defaults to "local"
+	// so that keys persist across browser sessions without requiring vault unlock.
+	return value === "vault" ? "vault" : "local";
 }
 
 function getLocalKeyStorage(provider: "gemini" | "groq"): string {
@@ -258,13 +260,12 @@ export function getLLMConfig(): LLMConfig {
 	}
 
 	// 2. Default if nothing saved
-	// If we have an env key, default to Gemini as requested ("use gemini shit by default")
-	// NOW: we check boolean flag, since key is hidden
+	// Use "local" storage so keys persist across sessions without requiring vault unlock.
 	if (typeof process !== "undefined" && process.env.NEXT_PUBLIC_HAS_GEMINI_KEY) {
-		return { provider: "gemini", cloudStorage: "vault" };
+		return { provider: "gemini", cloudStorage: "local" };
 	}
 	if (typeof process !== "undefined" && process.env.NEXT_PUBLIC_HAS_GROQ_KEY) {
-		return { provider: "groq", cloudStorage: "vault" };
+		return { provider: "groq", cloudStorage: "local" };
 	}
 
 	return { provider: "mlc" };
