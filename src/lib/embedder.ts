@@ -44,29 +44,38 @@ export function getEmbedderDevice(): "webgpu" | "wasm" | null {
 /**
  * Compute adaptive embedding config based on the active device and CPU count.
  *
- * - WebGPU: large batch (GPU handles it), single execution context
- * - WASM + many cores: smaller batches per worker, 2 parallel workers
- * - WASM + few cores: single worker, moderate batch
+ * Conservative by default — avoids bogging down laptops.
+ * - WebGPU: moderate batch, single context (GPU is fast enough)
+ * - WASM: small batches, parallel workers only on high-core/high-memory desktops
  */
 export function resolveEmbedConfig(device: "webgpu" | "wasm"): {
 	batchSize: number;
 	workerCount: number;
 } {
 	if (device === "webgpu") {
-		// GPU handles large batches natively; no benefit to extra workers
-		return { batchSize: 32, workerCount: 1 };
+		// GPU handles batches without blocking the CPU; keep it moderate
+		return { batchSize: 8, workerCount: 1 };
 	}
 
+	// WASM runs on CPU — be conservative to avoid slowing the device down
 	const cores =
 		typeof navigator !== "undefined" && Number.isFinite(navigator.hardwareConcurrency)
 			? navigator.hardwareConcurrency
 			: 4;
 
-	// Parallel workers load a full model copy each (~45 MB INT8).
-	// Only worth it on high-core machines where CPU parallelism outweighs memory cost.
-	if (cores >= 8) return { batchSize: 8, workerCount: 2 };
-	if (cores >= 4) return { batchSize: 4, workerCount: 1 };
-	return { batchSize: 2, workerCount: 1 };
+	// navigator.deviceMemory is Chrome-only, in GB (may be undefined)
+	const memoryGB =
+		typeof navigator !== "undefined"
+			? (navigator as Navigator & { deviceMemory?: number }).deviceMemory ?? 0
+			: 0;
+
+	// Parallel workers each load a full model copy (~45 MB INT8) — only on
+	// beefy desktops (≥16 logical cores AND ≥8 GB RAM reported).
+	const useParallel = cores >= 16 && memoryGB >= 8;
+
+	if (useParallel) return { batchSize: 4, workerCount: 2 };
+	if (cores > 4)   return { batchSize: 2, workerCount: 1 };
+	return { batchSize: 1, workerCount: 1 }; // ≤4 cores: original throttle
 }
 
 /**
