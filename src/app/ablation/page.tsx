@@ -1,6 +1,9 @@
+"use client";
+
 import type { CSSProperties } from "react";
 import { DATASET_META } from "@/lib/eval-data";
 import { ABLATION_RESULTS, EVAL_EMBEDDING_MODEL } from "@/lib/eval-results";
+import { ThemeToggle } from "@/components/ThemeToggle";
 
 const DATASET_BADGE = `${DATASET_META.name} — ${DATASET_META.queryCount} queries — ${DATASET_META.chunkCount} candidates — human-labeled`;
 
@@ -13,9 +16,12 @@ export default function AblationPage() {
   return (
     <main style={styles.page}>
       <div style={styles.container}>
-        <a href="/" style={styles.back} className="ablation-back">
-          ← back
-        </a>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+          <a href="/" style={styles.back} className="ablation-back">
+            ← back
+          </a>
+          <ThemeToggle />
+        </div>
 
         <header style={styles.header}>
           <div style={styles.titleRow}>
@@ -126,9 +132,10 @@ export default function AblationPage() {
 
 const styles: Record<string, CSSProperties> = {
   page: {
+    color: "var(--page-text)",
     minHeight: "100vh",
     background:
-      "radial-gradient(circle at 10% 10%, rgba(99, 102, 241, 0.08), transparent 40%), radial-gradient(circle at 85% 15%, rgba(234, 88, 12, 0.07), transparent 45%), var(--bg-primary)",
+      "radial-gradient(circle at 10% 10%, rgba(99, 102, 241, 0.08), transparent 40%), radial-gradient(circle at 85% 15%, rgba(234, 88, 12, 0.07), transparent 45%), var(--page-bg)",
   },
   container: {
     maxWidth: "900px",
@@ -140,13 +147,13 @@ const styles: Record<string, CSSProperties> = {
   },
   back: {
     width: "fit-content",
-    color: "var(--text-secondary)",
+    color: "var(--page-text-dim)",
     textDecoration: "none",
     fontSize: "12px",
     fontFamily: "var(--font-mono)",
-    border: "2px solid var(--border)",
+    border: "2px solid var(--page-border)",
     padding: "6px 12px",
-    background: "var(--bg-card)",
+    background: "var(--page-surface)",
   },
   header: {
     display: "flex",
@@ -164,7 +171,7 @@ const styles: Record<string, CSSProperties> = {
     fontSize: "34px",
     fontWeight: 800,
     letterSpacing: "-0.03em",
-    color: "var(--text-primary)",
+    color: "var(--page-text)",
   },
   countChip: {
     fontSize: "11px",
@@ -179,7 +186,7 @@ const styles: Record<string, CSSProperties> = {
   },
   subtitle: {
     margin: 0,
-    color: "var(--text-secondary)",
+    color: "var(--page-text-dim)",
     lineHeight: 1.55,
     maxWidth: "68ch",
     fontSize: "14px",
@@ -189,10 +196,10 @@ const styles: Record<string, CSSProperties> = {
     width: "fit-content",
     fontSize: "11px",
     fontFamily: "var(--font-mono)",
-    border: "2px solid var(--border)",
-    background: "var(--bg-secondary)",
+    border: "2px solid var(--page-border)",
+    background: "var(--page-surface-alt)",
     padding: "6px 12px",
-    color: "var(--text-secondary)",
+    color: "var(--page-text-dim)",
     textDecoration: "none",
   },
   modelBadge: {
@@ -200,14 +207,14 @@ const styles: Record<string, CSSProperties> = {
     width: "fit-content",
     fontSize: "11px",
     fontFamily: "var(--font-mono)",
-    border: "2px solid var(--border)",
-    background: "var(--bg-card)",
+    border: "2px solid var(--page-border)",
+    background: "var(--page-surface)",
     padding: "6px 12px",
-    color: "var(--text-primary)",
+    color: "var(--page-text)",
   },
   tableCard: {
-    border: "2px solid var(--border)",
-    background: "var(--bg-card)",
+    border: "2px solid var(--page-border)",
+    background: "var(--page-surface)",
     boxShadow: "4px 4px 0 var(--accent)",
   },
   tableTopBar: {
@@ -215,8 +222,8 @@ const styles: Record<string, CSSProperties> = {
     alignItems: "center",
     justifyContent: "space-between",
     padding: "10px 14px",
-    borderBottom: "2px solid var(--border)",
-    background: "var(--bg-secondary)",
+    borderBottom: "2px solid var(--page-border)",
+    background: "var(--page-surface-alt)",
   },
   tableBarLabel: {
     fontSize: "11px",
@@ -229,7 +236,7 @@ const styles: Record<string, CSSProperties> = {
   tableBarHint: {
     fontSize: "11px",
     fontFamily: "var(--font-mono)",
-    color: "var(--text-muted)",
+    color: "var(--page-text-muted)",
   },
   tableScroll: {
     overflowX: "auto",
@@ -245,10 +252,10 @@ const styles: Record<string, CSSProperties> = {
     letterSpacing: "0.08em",
     textTransform: "uppercase",
     padding: "10px 14px",
-    borderBottom: "2px solid var(--border)",
-    color: "var(--text-muted)",
+    borderBottom: "2px solid var(--page-border)",
+    color: "var(--page-text-muted)",
     fontFamily: "var(--font-mono)",
-    background: "var(--bg-secondary)",
+    background: "var(--page-surface-alt)",
   },
   thRight: {
     textAlign: "right",
@@ -256,10 +263,10 @@ const styles: Record<string, CSSProperties> = {
     letterSpacing: "0.08em",
     textTransform: "uppercase",
     padding: "10px 14px",
-    borderBottom: "2px solid var(--border)",
-    color: "var(--text-muted)",
+    borderBottom: "2px solid var(--page-border)",
+    color: "var(--page-text-muted)",
     fontFamily: "var(--font-mono)",
-    background: "var(--bg-secondary)",
+    background: "var(--page-surface-alt)",
   },
   row: {},
   baselineRow: {
@@ -268,23 +275,23 @@ const styles: Record<string, CSSProperties> = {
   },
   tdConfig: {
     padding: "13px 14px",
-    borderBottom: "1px solid var(--border)",
+    borderBottom: "1px solid var(--page-border)",
     display: "flex",
     alignItems: "center",
     gap: "10px",
   },
   tdRight: {
     padding: "13px 14px",
-    borderBottom: "1px solid var(--border)",
+    borderBottom: "1px solid var(--page-border)",
     textAlign: "right",
     fontFamily: "var(--font-mono)",
     fontSize: "13px",
-    color: "var(--text-primary)",
+    color: "var(--page-text)",
   },
   configName: {
     fontSize: "14px",
     fontWeight: 600,
-    color: "var(--text-primary)",
+    color: "var(--page-text)",
   },
   baselineTag: {
     fontSize: "10px",
@@ -311,7 +318,7 @@ const styles: Record<string, CSSProperties> = {
     gap: "8px",
     fontSize: "11px",
     fontFamily: "var(--font-mono)",
-    color: "var(--text-muted)",
+    color: "var(--page-text-muted)",
   },
   footerSep: {
     opacity: 0.55,
