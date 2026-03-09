@@ -3,466 +3,50 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { indexRepository, IndexAbortError, type IndexProgress, type AstNode } from "@/lib/indexer";
-import { VectorStore, type SearchResult } from "@/lib/vectorStore";
+import { VectorStore } from "@/lib/vectorStore";
 import { multiPathHybridSearch } from "@/lib/search";
 import { expandQuery } from "@/lib/queryExpansion";
 import { defaultLimitsForProvider } from "@/lib/contextAssembly";
 import { fetchRepoTree } from "@/lib/github";
-import { initLLM, generate, getLLMStatus, getLLMConfig, onStatusChange, type LLMStatus, type ChatMessage } from "@/lib/llm";
+import { initLLM, generate, getLLMStatus, getLLMConfig, onStatusChange, type LLMStatus } from "@/lib/llm";
 import { recordSearch, recordSafetyScan } from "@/lib/metrics";
 import { buildSafeContext, scanChunksForInjection } from "@/lib/promptSafety";
 import { verifyAndRefine } from "@/lib/cove";
-import AstTreeView from "@/components/AstTreeView";
-import IndexBrowser from "@/components/IndexBrowser";
 import { ModelSettings } from "@/components/ModelSettings";
-import ReactMarkdown from "react-markdown";
+import { ThemeToggle } from "@/components/ThemeToggle";
 
-interface Message {
-	id: string;
-	role: "user" | "assistant";
-	content: string;
-	citations?: MessageCitation[];
-	ui?: MessageUIState;
-	safety?: MessageSafetyState;
+import type { Message, ContextChunk, ChatSession } from "./types";
+import {
+	makeChatId, makeMessageId, makeNewChat,
+	areMessagesEqual, normalizeMessage,
+	buildMessageCitations, encodeGitHubPath,
+	deriveChatTitle, shouldSuggestGitHubToken, shouldPromptForLLMSettings,
+} from "@/lib/chatUtils";
+import {
+	extractEvidenceTerms, buildGroundedCitationResults,
+	buildCorrelatedCitationResults, evaluateEvidenceCoverage,
+} from "@/lib/citationUtils";
+import { shouldInjectBaselineContext, isFactSeekingQuery } from "@/lib/queryUtils";
+
+import { RepoHeader } from "@/components/chat/RepoHeader";
+import { ChatSidebar } from "@/components/chat/ChatSidebar";
+import { ChatMessage } from "@/components/chat/ChatMessage";
+import { EmptyChat } from "@/components/chat/EmptyChat";
+import { ContextDrawer } from "@/components/chat/ContextDrawer";
+import { ChatInput } from "@/components/chat/ChatInput";
+import { FileBrowser } from "@/components/chat/FileBrowser";
+import { IndexingOverlay } from "@/components/chat/IndexingOverlay";
+import { TokenInput } from "@/components/chat/TokenInput";
+
+// ─── Helpers ────────────────────────────────────────────────────────────────
+
+function formatTimeRemaining(ms: number): string {
+	if (ms < 60_000) return `~${Math.round(ms / 1000)} sec`;
+	if (ms < 3600_000) return `~${Math.round(ms / 60_000)} min`;
+	return `~${(ms / 3600_000).toFixed(1)} hr`;
 }
 
-interface MessageCitation {
-	filePath: string;
-	startLine: number;
-	endLine: number;
-	score: number;
-	chunkCount: number;
-}
-
-interface MessageUIState {
-	sourcesExpanded?: boolean;
-}
-
-interface MessageSafetyState {
-	blocked?: boolean;
-	reason?: string;
-	signals?: string[];
-}
-
-interface ContextChunk {
-	filePath: string;
-	code: string;
-	score: number;
-	nodeType: string;
-}
-
-interface ChatSession {
-	chat_id: string;
-	title: string;
-	messages: Message[];
-	updatedAt: number;
-}
-
-function makeChatId(): string {
-	return `chat_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-}
-
-function makeMessageId(): string {
-	return `msg_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-}
-
-function makeNewChat(label = "New Chat"): ChatSession {
-	return {
-		chat_id: makeChatId(),
-		title: label,
-		messages: [],
-		updatedAt: Date.now(),
-	};
-}
-
-function areMessagesEqual(a: Message[], b: Message[]): boolean {
-	if (a.length !== b.length) return false;
-	for (let i = 0; i < a.length; i++) {
-		if (
-			a[i].id !== b[i].id ||
-			a[i].role !== b[i].role ||
-			a[i].content !== b[i].content
-		) {
-			return false;
-		}
-		if (!areCitationsEqual(a[i].citations, b[i].citations)) return false;
-		if (!areMessageUiEqual(a[i].ui, b[i].ui)) return false;
-		if (!areMessageSafetyEqual(a[i].safety, b[i].safety)) return false;
-	}
-	return true;
-}
-
-function areMessageUiEqual(a?: MessageUIState, b?: MessageUIState): boolean {
-	return Boolean(a?.sourcesExpanded) === Boolean(b?.sourcesExpanded);
-}
-
-function areMessageSafetyEqual(
-	a?: MessageSafetyState,
-	b?: MessageSafetyState
-): boolean {
-	if (Boolean(a?.blocked) !== Boolean(b?.blocked)) return false;
-	if ((a?.reason ?? "") !== (b?.reason ?? "")) return false;
-	const aSignals = a?.signals ?? [];
-	const bSignals = b?.signals ?? [];
-	if (aSignals.length !== bSignals.length) return false;
-	for (let i = 0; i < aSignals.length; i++) {
-		if (aSignals[i] !== bSignals[i]) return false;
-	}
-	return true;
-}
-
-function areCitationsEqual(
-	a?: MessageCitation[],
-	b?: MessageCitation[]
-): boolean {
-	if (!a?.length && !b?.length) return true;
-	if (!a || !b || a.length !== b.length) return false;
-	for (let i = 0; i < a.length; i++) {
-		if (
-			a[i].filePath !== b[i].filePath ||
-			a[i].startLine !== b[i].startLine ||
-			a[i].endLine !== b[i].endLine ||
-			a[i].score !== b[i].score ||
-			a[i].chunkCount !== b[i].chunkCount
-		) {
-			return false;
-		}
-	}
-	return true;
-}
-
-function normalizeMessage(raw: unknown): Message | null {
-	if (!raw || typeof raw !== "object") return null;
-	const value = raw as {
-		id?: unknown;
-		role?: unknown;
-		content?: unknown;
-		citations?: unknown;
-		ui?: unknown;
-		safety?: unknown;
-	};
-	const role =
-		value.role === "user" || value.role === "assistant"
-			? value.role
-			: null;
-	if (!role || typeof value.content !== "string") return null;
-
-	const id = typeof value.id === "string" && value.id.trim().length > 0
-		? value.id
-		: makeMessageId();
-	const citations = normalizeCitations(value.citations);
-	const ui = normalizeMessageUi(value.ui);
-	const safety = normalizeMessageSafety(value.safety);
-	const normalized: Message = { id, role, content: value.content };
-	if (citations?.length) normalized.citations = citations;
-	if (ui) normalized.ui = ui;
-	if (safety) normalized.safety = safety;
-	return normalized;
-}
-
-function normalizeMessageUi(raw: unknown): MessageUIState | undefined {
-	if (!raw || typeof raw !== "object") return undefined;
-	const value = raw as { sourcesExpanded?: unknown };
-	if (typeof value.sourcesExpanded !== "boolean") return undefined;
-	return { sourcesExpanded: value.sourcesExpanded };
-}
-
-function normalizeMessageSafety(raw: unknown): MessageSafetyState | undefined {
-	if (!raw || typeof raw !== "object") return undefined;
-	const value = raw as {
-		blocked?: unknown;
-		reason?: unknown;
-		signals?: unknown;
-	};
-	const normalized: MessageSafetyState = {};
-	if (typeof value.blocked === "boolean") normalized.blocked = value.blocked;
-	if (typeof value.reason === "string" && value.reason.length > 0) normalized.reason = value.reason;
-	if (Array.isArray(value.signals)) {
-		const safeSignals = value.signals
-			.filter((signal): signal is string => typeof signal === "string" && signal.length > 0)
-			.slice(0, 8);
-		if (safeSignals.length > 0) normalized.signals = safeSignals;
-	}
-	return Object.keys(normalized).length > 0 ? normalized : undefined;
-}
-
-function normalizeCitations(raw: unknown): MessageCitation[] | undefined {
-	if (!Array.isArray(raw)) return undefined;
-	const safe: MessageCitation[] = [];
-	for (const item of raw) {
-		if (!item || typeof item !== "object") continue;
-		const value = item as {
-			filePath?: unknown;
-			startLine?: unknown;
-			endLine?: unknown;
-			score?: unknown;
-			chunkCount?: unknown;
-		};
-		if (typeof value.filePath !== "string" || value.filePath.length === 0) continue;
-		if (
-			typeof value.startLine !== "number" ||
-			typeof value.endLine !== "number" ||
-			typeof value.score !== "number" ||
-			typeof value.chunkCount !== "number"
-		) {
-			continue;
-		}
-		safe.push({
-			filePath: value.filePath,
-			startLine: Math.max(1, Math.floor(value.startLine)),
-			endLine: Math.max(1, Math.floor(value.endLine)),
-			score: value.score,
-			chunkCount: Math.max(1, Math.floor(value.chunkCount)),
-		});
-	}
-	return safe.length > 0 ? safe : undefined;
-}
-
-function buildMessageCitations(results: SearchResult[], limit: number = 6): MessageCitation[] {
-	const byFile = new Map<string, MessageCitation>();
-	for (const result of results) {
-		const filePath = result.chunk.filePath;
-		const startLine = Math.max(1, Math.floor(result.chunk.startLine ?? 1));
-		const endLine = Math.max(startLine, Math.floor(result.chunk.endLine ?? startLine));
-		const existing = byFile.get(filePath);
-		if (!existing) {
-			byFile.set(filePath, {
-				filePath,
-				startLine,
-				endLine,
-				score: result.score,
-				chunkCount: 1,
-			});
-			continue;
-		}
-		existing.startLine = Math.min(existing.startLine, startLine);
-		existing.endLine = Math.max(existing.endLine, endLine);
-		existing.score = Math.max(existing.score, result.score);
-		existing.chunkCount += 1;
-	}
-	return [...byFile.values()]
-		.sort((a, b) => b.score - a.score)
-		.slice(0, limit);
-}
-
-function encodeGitHubPath(filePath: string): string {
-	return filePath
-		.split("/")
-		.map((segment) => encodeURIComponent(segment))
-		.join("/");
-}
-
-function deriveChatTitle(messages: Message[], fallback: string): string {
-	const firstUserMessage = messages.find(
-		(msg) => msg.role === "user" && msg.content.trim().length > 0
-	);
-	if (!firstUserMessage) return fallback;
-	const compact = firstUserMessage.content.trim().replace(/\s+/g, " ");
-	return compact.length > 40 ? `${compact.slice(0, 40)}...` : compact;
-}
-
-function shouldSuggestGitHubToken(errorMessage: string): boolean {
-	const message = errorMessage.toLowerCase();
-	return (
-		message.includes("private") ||
-		message.includes("not found") ||
-		message.includes("token") ||
-		message.includes("rate limit") ||
-		message.includes("denied") ||
-		message.includes("permission") ||
-		message.includes("403") ||
-		message.includes("401")
-	);
-}
-
-function shouldPromptForLLMSettings(errorMessage: string): boolean {
-	const message = errorMessage.toLowerCase();
-	return (
-		message.includes("gemini") ||
-		message.includes("groq") ||
-		message.includes("api key") ||
-		message.includes("authentication") ||
-		message.includes("unauthorized") ||
-		message.includes("invalid") ||
-		message.includes("rejected") ||
-		message.includes("permission") ||
-		message.includes("forbidden") ||
-		message.includes("webgpu") ||
-		message.includes("web-llm") ||
-		message.includes("local web") ||
-		message.includes("switch to gemini") ||
-		message.includes("switch to groq") ||
-		message.includes("unlock")
-	);
-}
-
-const EVIDENCE_STOP_WORDS = new Set([
-	"the",
-	"a",
-	"an",
-	"and",
-	"or",
-	"but",
-	"to",
-	"for",
-	"of",
-	"in",
-	"on",
-	"at",
-	"by",
-	"with",
-	"from",
-	"is",
-	"are",
-	"was",
-	"were",
-	"be",
-	"what",
-	"which",
-	"how",
-	"does",
-	"do",
-	"did",
-	"this",
-	"that",
-	"these",
-	"those",
-	"value",
-	"values",
-	"config",
-	"configuration",
-	"model",
-	"models",
-	"repo",
-	"repository",
-	"project",
-]);
-
-function shouldInjectBaselineContext(query: string): boolean {
-	const normalized = query.toLowerCase();
-	return (
-		/\b(what does|what is|tell me about)\b.*\b(project|repo|repository)\b/.test(normalized) ||
-		/\b(project|repo|repository)\b.*\b(overview|summary|purpose|about)\b/.test(normalized) ||
-		/\b(main|key)\s+(entry\s+points?|components|modules|data\s+flow|architecture)\b/.test(normalized) ||
-		/\b(high[-\s]?level|big picture)\b/.test(normalized)
-	);
-}
-
-function isFactSeekingQuery(query: string): boolean {
-	const normalized = query.toLowerCase();
-	return (
-		/\b(hyperparameter|dropout|temperature|top[_\s-]?p|top[_\s-]?k|learning[_\s-]?rate|batch[_\s-]?size)\b/.test(normalized) ||
-		/\b(default|exact|specific|numeric|number|value|values|setting|settings|config|configuration)\b/.test(normalized) ||
-		/^\s*(what|which|how many|where)\b/.test(normalized)
-	);
-}
-
-function extractEvidenceTerms(query: string): string[] {
-	const raw = query.toLowerCase().match(/[a-z0-9][a-z0-9._/-]{1,}/g) ?? [];
-	const terms = raw
-		.map((term) => term.trim())
-		.filter((term) => term.length >= 3 && !EVIDENCE_STOP_WORDS.has(term));
-	return [...new Set(terms)].slice(0, 12);
-}
-
-function chunkContainsTerm(chunk: SearchResult["chunk"], term: string): boolean {
-	const haystack = `${chunk.filePath}\n${chunk.code}`.toLowerCase();
-	return haystack.includes(term);
-}
-
-function buildGroundedCitationResults(
-	results: SearchResult[],
-	evidenceTerms: string[]
-): SearchResult[] {
-	const positive = results.filter((result) => result.score > 0);
-	if (positive.length === 0) return [];
-	if (evidenceTerms.length === 0) return positive;
-	const matched = positive.filter((result) =>
-		evidenceTerms.some((term) => chunkContainsTerm(result.chunk, term))
-	);
-	return matched.length > 0 ? matched : positive;
-}
-
-function countTermHits(chunk: SearchResult["chunk"], terms: string[]): number {
-	let hits = 0;
-	for (const term of terms) {
-		if (chunkContainsTerm(chunk, term)) hits++;
-	}
-	return hits;
-}
-
-function buildCorrelatedCitationResults(
-	results: SearchResult[],
-	query: string,
-	answer: string,
-	excludedChunkIds?: Set<string>
-): SearchResult[] {
-	const positive = results.filter(
-		(result) =>
-			result.score > 0 &&
-			(!excludedChunkIds || !excludedChunkIds.has(result.chunk.id))
-	);
-	if (positive.length === 0) return [];
-
-	const queryTerms = extractEvidenceTerms(query);
-	const answerTerms = extractEvidenceTerms(answer).slice(0, 18);
-	const answerLower = answer.toLowerCase();
-
-	const ranked = positive
-		.map((result) => {
-			const queryHits = countTermHits(result.chunk, queryTerms);
-			const answerHits = countTermHits(result.chunk, answerTerms);
-			const fileMentioned = answerLower.includes(result.chunk.filePath.toLowerCase());
-			const correlation =
-				answerHits * 3 +
-				queryHits +
-				(fileMentioned ? 4 : 0) +
-				Math.min(2, result.score * 2);
-			return { result, queryHits, answerHits, fileMentioned, correlation };
-		})
-		.filter(
-			(item) =>
-				item.fileMentioned ||
-				item.answerHits > 0 ||
-				(item.queryHits >= 2 && item.result.score >= 0.55)
-		)
-		.sort((a, b) => b.correlation - a.correlation || b.result.score - a.result.score)
-		.map((item) => item.result);
-
-	if (ranked.length > 0) return ranked;
-
-	// Prefer no sources over weakly-related sources.
-	return [];
-}
-
-function evaluateEvidenceCoverage(
-	evidenceTerms: string[],
-	results: SearchResult[]
-): { matched: string[]; missing: string[]; maxScore: number } {
-	if (evidenceTerms.length === 0 || results.length === 0) {
-		return {
-			matched: [],
-			missing: evidenceTerms,
-			maxScore: results[0]?.score ?? 0,
-		};
-	}
-	const matched: string[] = [];
-	const missing: string[] = [];
-	for (const term of evidenceTerms) {
-		const has = results.some((result) => chunkContainsTerm(result.chunk, term));
-		if (has) matched.push(term);
-		else missing.push(term);
-	}
-	const maxScore = results.reduce((max, result) => Math.max(max, result.score), 0);
-	return { matched, missing, maxScore };
-}
-
-const STARTER_SUGGESTIONS = [
-	"What does this project do?",
-	"Walk me through the main data flow",
-	"What are the key entry points?",
-	"How is error handling structured?",
-];
+// ─── Component ──────────────────────────────────────────────────────────────
 
 export default function RepoPage({
 	params,
@@ -492,7 +76,6 @@ export default function RepoPage({
 		compactionStage: "none" | "file" | "directory" | "repo" | "truncated";
 	} | null>(null);
 	const [showContext, setShowContext] = useState(false);
-	const [showBrowse, setShowBrowse] = useState(false);
 	const [token, setToken] = useState("");
 	const [tokenDraft, setTokenDraft] = useState("");
 	const [showTokenInput, setShowTokenInput] = useState(false);
@@ -501,23 +84,26 @@ export default function RepoPage({
 	const [reindexKey, setReindexKey] = useState(0);
 	const [toastMessage, setToastMessage] = useState<string | null>(null);
 	const [notificationPermission, setNotificationPermission] = useState<NotificationPermission | null>(null);
-	const [showOverflow, setShowOverflow] = useState(false);
 	const [isMobile, setIsMobile] = useState(false);
 	const [coveEnabled, setCoveEnabled] = useState(false);
 	const [indexedSha, setIndexedSha] = useState<string | null>(null);
 	const [repoStale, setRepoStale] = useState(false);
-	const projectRepoUrl = "https://github.com/FloareDor/gitask";
+	const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+	const [fileBrowserOpen, setFileBrowserOpen] = useState(false);
+	const [fileBrowserTab, setFileBrowserTab] = useState<"tree" | "chunks">("tree");
+
 	const completedWhileHiddenRef = useRef(false);
 	const indexStartTimeRef = useRef<number | null>(null);
-	const overflowRef = useRef<HTMLDivElement>(null);
 	const chatLoadedRef = useRef(false);
 	const messagesRef = useRef<Message[]>([]);
 	const pendingChatSwitchRef = useRef<string | null>(null);
 	const staleNoticeShownRef = useRef(false);
 	const isGeneratingRef = useRef(false);
-
 	const storeRef = useRef(new VectorStore());
 	const chatEndRef = useRef<HTMLDivElement>(null);
+	const prevMessageCountRef = useRef(0);
+
+	// ─── Effects ──────────────────────────────────────────────────────────
 
 	useEffect(() => {
 		const check = () => setIsMobile(window.innerWidth < 640);
@@ -526,7 +112,6 @@ export default function RepoPage({
 		return () => window.removeEventListener("resize", check);
 	}, []);
 
-	// Resolve params
 	useEffect(() => {
 		params.then((p) => {
 			setOwner(p.owner);
@@ -540,33 +125,23 @@ export default function RepoPage({
 		staleNoticeShownRef.current = false;
 	}, [owner, repo]);
 
-	// Listen to LLM status
 	useEffect(() => {
 		return onStatusChange(setLlmStatus);
 	}, []);
 
-	// Load CoVE preference (default OFF)
 	useEffect(() => {
 		try {
 			const saved = localStorage.getItem("gitask-cove-enabled");
 			if (saved === "true") setCoveEnabled(true);
-		} catch {
-			// Ignore storage failures
-		}
+		} catch { /* ignore */ }
 	}, []);
 
-	// Persist CoVE preference
 	useEffect(() => {
 		try {
 			localStorage.setItem("gitask-cove-enabled", coveEnabled ? "true" : "false");
-		} catch {
-			// Ignore storage failures
-		}
+		} catch { /* ignore */ }
 	}, [coveEnabled]);
 
-	// Persist chat toolbar minimized preference
-	// Load per-repo chat sessions from localStorage.
-	// Supports migration from legacy Message[] format.
 	useEffect(() => {
 		chatLoadedRef.current = false;
 		setMessages([]);
@@ -582,7 +157,6 @@ export default function RepoPage({
 					| unknown[]
 					| { sessions?: Array<Omit<ChatSession, "messages"> & { messages?: unknown[] }>; activeChatId?: string };
 
-				// Legacy format: plain Message[] for one chat.
 				if (Array.isArray(parsed)) {
 					const legacyMessages = parsed
 						.map((message) => normalizeMessage(message))
@@ -599,7 +173,6 @@ export default function RepoPage({
 					return;
 				}
 
-				// New format: { sessions, activeChatId }
 				if (parsed && Array.isArray(parsed.sessions) && parsed.sessions.length > 0) {
 					const sessions = parsed.sessions
 						.filter((session) => session && typeof session.chat_id === "string")
@@ -637,9 +210,7 @@ export default function RepoPage({
 					}
 				}
 			}
-		} catch {
-			// Ignore corrupted data
-		}
+		} catch { /* corrupted data */ }
 
 		const fresh = makeNewChat("Chat 1");
 		setChatSessions([fresh]);
@@ -649,7 +220,6 @@ export default function RepoPage({
 		chatLoadedRef.current = true;
 	}, [chatStorageKey]);
 
-	// Keep visible messages aligned with active chat.
 	useEffect(() => {
 		if (!chatLoadedRef.current || !activeChatId) return;
 		const active = chatSessions.find((session) => session.chat_id === activeChatId);
@@ -657,12 +227,8 @@ export default function RepoPage({
 		setMessages((prev) => (areMessagesEqual(prev, nextMessages) ? prev : nextMessages));
 	}, [chatSessions, activeChatId]);
 
-	// Persist visible messages to the active chat.
 	useEffect(() => {
-		// Avoid per-token session rewrites while streaming; persist once generation settles.
 		if (!chatLoadedRef.current || !activeChatId || isGenerating) return;
-
-		// Skip one persist cycle when switching chats so we never write stale messages into the target chat.
 		if (pendingChatSwitchRef.current === activeChatId) {
 			const active = chatSessions.find((session) => session.chat_id === activeChatId);
 			const activeMessages = active?.messages ?? [];
@@ -682,44 +248,34 @@ export default function RepoPage({
 					return session;
 				}
 				changed = true;
-				return {
-					...session,
-					title: nextTitle,
-					messages: trimmed,
-					updatedAt: Date.now(),
-				};
+				return { ...session, title: nextTitle, messages: trimmed, updatedAt: Date.now() };
 			});
 			return changed ? next : prev;
 		});
 	}, [messages, activeChatId, isGenerating, chatSessions]);
 
-	// Persist all chats for this repo.
 	useEffect(() => {
 		if (!chatStorageKey || !chatLoadedRef.current || chatSessions.length === 0) return;
 		try {
-			localStorage.setItem(
-				chatStorageKey,
-				JSON.stringify({
-					activeChatId,
-					sessions: chatSessions,
-				})
-			);
+			localStorage.setItem(chatStorageKey, JSON.stringify({ activeChatId, sessions: chatSessions }));
 		} catch (e) {
 			console.warn("Failed to persist chat sessions to localStorage:", e);
 			setToastMessage("Warning: chat history could not be saved — your browser storage may be full.");
 		}
 	}, [chatStorageKey, chatSessions, activeChatId]);
 
-	// Auto-scroll chat
 	useEffect(() => {
-		chatEndRef.current?.scrollIntoView({ behavior: isGenerating ? "auto" : "smooth" });
+		const countChanged = messages.length !== prevMessageCountRef.current;
+		prevMessageCountRef.current = messages.length;
+		if (isGenerating || countChanged) {
+			chatEndRef.current?.scrollIntoView({ behavior: isGenerating ? "auto" : "smooth" });
+		}
 	}, [messages, isGenerating]);
 
 	useEffect(() => {
 		messagesRef.current = messages;
 	}, [messages]);
 
-	// Listen for visibility change — show toast when user returns after indexing completed in background
 	useEffect(() => {
 		const handleVisibilityChange = () => {
 			if (document.visibilityState === "visible" && completedWhileHiddenRef.current) {
@@ -731,37 +287,22 @@ export default function RepoPage({
 		return () => document.removeEventListener("visibilitychange", handleVisibilityChange);
 	}, []);
 
-	// Auto-dismiss toast after 4 seconds
 	useEffect(() => {
 		if (!toastMessage) return;
 		const timer = setTimeout(() => setToastMessage(null), 4000);
 		return () => clearTimeout(timer);
 	}, [toastMessage]);
 
-	// Close overflow menu on outside click
-	useEffect(() => {
-		if (!showOverflow) return;
-		const handleClick = (e: MouseEvent) => {
-			if (overflowRef.current && !overflowRef.current.contains(e.target as Node)) {
-				setShowOverflow(false);
-			}
-		};
-		document.addEventListener("mousedown", handleClick);
-		return () => document.removeEventListener("mousedown", handleClick);
-	}, [showOverflow]);
-
 	useEffect(() => {
 		if (!showTokenInput) return;
 		setTokenDraft(token);
 	}, [showTokenInput, token]);
 
-	// Sync notification permission when indexing starts
 	useEffect(() => {
 		if (typeof Notification === "undefined") return;
 		setNotificationPermission(Notification.permission);
 	}, [owner, repo, reindexKey]);
 
-	// Start indexing when owner/repo are ready
 	useEffect(() => {
 		if (!owner || !repo) return;
 		completedWhileHiddenRef.current = false;
@@ -777,9 +318,7 @@ export default function RepoPage({
 		(async () => {
 			try {
 				const result = await indexRepository(
-					owner,
-					repo,
-					storeRef.current,
+					owner, repo, storeRef.current,
 					(progress) => {
 						if (aborted) return;
 						safeSetState(setIndexProgress, progress);
@@ -797,9 +336,7 @@ export default function RepoPage({
 							new Notification("GitAsk", {
 								body: `Indexing complete for ${owner}/${repo}. You can ask questions now.`,
 							});
-						} catch {
-							// Ignore notification errors
-						}
+						} catch { /* ignore */ }
 					}
 				}
 				safeSetState(setIsIndexed, true);
@@ -824,17 +361,17 @@ export default function RepoPage({
 						window.dispatchEvent(new Event("gitask-open-llm-settings"));
 					}
 				});
-				} catch (err) {
-					if (err instanceof IndexAbortError || aborted) return;
-					const errorMessage = err instanceof Error ? err.message : String(err);
-					if (shouldSuggestGitHubToken(errorMessage)) {
-						safeSetState(setShowTokenInput, true);
-					}
-					safeSetState(setToastMessage, `Indexing failed: ${errorMessage}`);
-					safeSetState(setIndexProgress, {
-						phase: "done",
-						message: `Error: ${errorMessage}`,
-						current: 0,
+			} catch (err) {
+				if (err instanceof IndexAbortError || aborted) return;
+				const errorMessage = err instanceof Error ? err.message : String(err);
+				if (shouldSuggestGitHubToken(errorMessage)) {
+					safeSetState(setShowTokenInput, true);
+				}
+				safeSetState(setToastMessage, `Indexing failed: ${errorMessage}`);
+				safeSetState(setIndexProgress, {
+					phase: "done",
+					message: `Error: ${errorMessage}`,
+					current: 0,
 					total: 0,
 				});
 			}
@@ -846,7 +383,6 @@ export default function RepoPage({
 		};
 	}, [owner, repo, token, reindexKey]);
 
-	// Detect upstream repo changes and flag stale context.
 	useEffect(() => {
 		if (!owner || !repo || !isIndexed || !indexedSha) return;
 		let cancelled = false;
@@ -866,9 +402,7 @@ export default function RepoPage({
 					staleNoticeShownRef.current = true;
 					setToastMessage("Repository changed on GitHub. Re-index for fresh context.");
 				}
-				if (!isStale) {
-					staleNoticeShownRef.current = false;
-				}
+				if (!isStale) staleNoticeShownRef.current = false;
 			} catch (e) {
 				consecutiveFailures++;
 				console.warn("Stale context check failed:", e);
@@ -880,15 +414,11 @@ export default function RepoPage({
 		};
 
 		void checkForStaleContext();
-		const intervalId = window.setInterval(() => {
-			void checkForStaleContext();
-		}, 120_000);
-
-		return () => {
-			cancelled = true;
-			window.clearInterval(intervalId);
-		};
+		const intervalId = window.setInterval(() => { void checkForStaleContext(); }, 120_000);
+		return () => { cancelled = true; window.clearInterval(intervalId); };
 	}, [owner, repo, isIndexed, indexedSha, token]);
+
+	// ─── Handlers ─────────────────────────────────────────────────────────
 
 	const handleRequestNotificationPermission = useCallback(async () => {
 		if (typeof Notification === "undefined") return;
@@ -900,11 +430,7 @@ export default function RepoPage({
 		const nextToken = tokenDraft.trim();
 		if (nextToken === token) return;
 		setToken(nextToken);
-		setToastMessage(
-			nextToken
-				? "GitHub token applied. Re-indexing..."
-				: "GitHub token removed. Re-indexing..."
-		);
+		setToastMessage(nextToken ? "GitHub token applied. Re-indexing..." : "GitHub token removed. Re-indexing...");
 	}, [tokenDraft, token]);
 
 	const handleToggleSources = useCallback((messageId: string) => {
@@ -913,31 +439,19 @@ export default function RepoPage({
 			const updated = prev.map((message) => {
 				if (message.id !== messageId) return message;
 				changed = true;
-				return {
-					...message,
-					ui: {
-						...message.ui,
-						sourcesExpanded: !message.ui?.sourcesExpanded,
-					},
-				};
+				return { ...message, ui: { ...message.ui, sourcesExpanded: !message.ui?.sourcesExpanded } };
 			});
 			return changed ? updated : prev;
 		});
 	}, []);
 
 	const handleClearChat = useCallback(() => {
-		if (isGeneratingRef.current) return;
-		if (!activeChatId) return;
+		if (isGeneratingRef.current || !activeChatId) return;
 		setMessages([]);
 		setChatSessions((prev) =>
 			prev.map((session) =>
 				session.chat_id === activeChatId
-					? {
-						...session,
-						messages: [],
-						title: "Chat 1",
-						updatedAt: Date.now(),
-					}
+					? { ...session, messages: [], title: "Chat 1", updatedAt: Date.now() }
 					: session
 			)
 		);
@@ -959,8 +473,7 @@ export default function RepoPage({
 	}, [chatSessions.length]);
 
 	const handleSelectChat = useCallback((chatId: string) => {
-		if (isGeneratingRef.current) return;
-		if (!chatId || chatId === activeChatId) return;
+		if (isGeneratingRef.current || !chatId || chatId === activeChatId) return;
 		const target = chatSessions.find((session) => session.chat_id === chatId);
 		pendingChatSwitchRef.current = chatId;
 		setActiveChatId(chatId);
@@ -971,8 +484,7 @@ export default function RepoPage({
 	}, [activeChatId, chatSessions]);
 
 	const handleDeleteActiveChat = useCallback(async () => {
-		if (isGeneratingRef.current) return;
-		if (!activeChatId) return;
+		if (isGeneratingRef.current || !activeChatId) return;
 		const current = chatSessions.find((session) => session.chat_id === activeChatId);
 		const isLastChat = chatSessions.length <= 1;
 		const confirmMessage = isLastChat
@@ -984,11 +496,7 @@ export default function RepoPage({
 		if (isLastChat) {
 			try {
 				if (chatStorageKey) {
-					try {
-						localStorage.removeItem(chatStorageKey);
-					} catch {
-						// Ignore localStorage failures.
-					}
+					try { localStorage.removeItem(chatStorageKey); } catch { /* ignore */ }
 				}
 				if (owner && repo) {
 					await storeRef.current.clearCache(owner, repo);
@@ -1010,7 +518,6 @@ export default function RepoPage({
 		const currentIndex = chatSessions.findIndex((session) => session.chat_id === activeChatId);
 		const nextSessions = chatSessions.filter((session) => session.chat_id !== activeChatId);
 		const fallback = nextSessions[Math.max(0, currentIndex - 1)] ?? nextSessions[0] ?? null;
-
 		setChatSessions(nextSessions);
 		setActiveChatId(fallback?.chat_id ?? null);
 		setMessages(fallback?.messages ?? []);
@@ -1051,7 +558,7 @@ export default function RepoPage({
 			setRepoStale(false);
 			staleNoticeShownRef.current = false;
 			if (chatStorageKey) {
-				try { localStorage.removeItem(chatStorageKey); } catch { }
+				try { localStorage.removeItem(chatStorageKey); } catch { /* ignore */ }
 			}
 			router.push("/");
 		} catch (err) {
@@ -1085,9 +592,6 @@ export default function RepoPage({
 			recordSearch(performance.now() - searchStart);
 			const evidenceTerms = extractEvidenceTerms(userMessage);
 
-			// Always inject README / package.json as baseline context so
-			// project-overview questions ("what does this project do?") have a
-			// useful starting point rather than landing on unrelated code chunks.
 			const BASELINE_FILES = ["readme.md", "README.md", "README", "package.json"];
 			const resultIds = new Set(results.map((r) => r.chunk.id));
 			const baselineChunks: typeof results = [];
@@ -1106,8 +610,7 @@ export default function RepoPage({
 			const mergedResults = [...results, ...baselineChunks];
 			const injectionScan = scanChunksForInjection(mergedResults);
 			const riskyDominance = injectionScan.riskyChunkIds.length >= Math.max(
-				2,
-				Math.ceil(Math.min(mergedResults.length, 5) / 2)
+				2, Math.ceil(Math.min(mergedResults.length, 5) / 2)
 			);
 			const shouldStrictBlock = injectionScan.level === "high" || riskyDominance;
 			if (shouldStrictBlock) {
@@ -1119,20 +622,12 @@ export default function RepoPage({
 						role: "assistant",
 						content: [
 							"Request blocked due to likely prompt-injection content in retrieved repository context.",
-							injectionScan.signals.length > 0
-								? `Signals: ${injectionScan.signals.join(", ")}.`
-								: "",
+							injectionScan.signals.length > 0 ? `Signals: ${injectionScan.signals.join(", ")}.` : "",
 							"I did not execute generation to avoid following untrusted instructions in repository text.",
 							"Try narrowing the question to exact file paths/symbols, or re-index and retry.",
-						]
-							.filter(Boolean)
-							.join("\n"),
+						].filter(Boolean).join("\n"),
 						ui: { sourcesExpanded: false },
-						safety: {
-							blocked: true,
-							reason: "prompt_injection_risk",
-							signals: injectionScan.signals,
-						},
+						safety: { blocked: true, reason: "prompt_injection_risk", signals: injectionScan.signals },
 					},
 				]);
 				setIsGenerating(false);
@@ -1140,12 +635,7 @@ export default function RepoPage({
 			}
 
 			const safeContext = buildSafeContext(mergedResults, limits, injectionScan);
-			recordSafetyScan(
-				injectionScan.level,
-				false,
-				safeContext.redactedChunkIds.size,
-				injectionScan.signals.length
-			);
+			recordSafetyScan(injectionScan.level, false, safeContext.redactedChunkIds.size, injectionScan.signals.length);
 
 			const groundedCitationResults = buildGroundedCitationResults(results, evidenceTerms)
 				.filter((result) => !safeContext.excludedCitationIds.has(result.chunk.id));
@@ -1154,23 +644,18 @@ export default function RepoPage({
 				: [];
 			const evidenceCoverage = evaluateEvidenceCoverage(evidenceTerms, results);
 			const sparseCoverage = evidenceTerms.length >= 2 && evidenceCoverage.matched.length === 0;
-			const weakCoverage = evidenceTerms.length >= 3 &&
-				evidenceCoverage.matched.length < Math.ceil(evidenceTerms.length / 3);
+			const weakCoverage = evidenceTerms.length >= 3 && evidenceCoverage.matched.length < Math.ceil(evidenceTerms.length / 3);
 			const weakSignal = evidenceCoverage.maxScore < 0.35;
 			const shouldBlockUngroundedAnswer = isFactSeekingQuery(userMessage) && (sparseCoverage || (weakSignal && weakCoverage));
 
 			if (shouldBlockUngroundedAnswer) {
-				const missingLabel = evidenceCoverage.missing.slice(0, 5)
-					.map((term) => `"${term}"`)
-					.join(", ");
+				const missingLabel = evidenceCoverage.missing.slice(0, 5).map((term) => `"${term}"`).join(", ");
 				const groundedFallback = [
 					"I can't find grounded evidence in the indexed repo context for this request, so I won't guess.",
 					missingLabel ? `Missing terms in retrieved code: ${missingLabel}.` : "",
 					"",
 					"Try re-indexing, or ask with exact file/symbol names to narrow retrieval.",
-				]
-					.filter(Boolean)
-					.join("\n");
+				].filter(Boolean).join("\n");
 				setMessages((prev) => [
 					...prev,
 					{
@@ -1193,7 +678,6 @@ export default function RepoPage({
 					nodeType: r.chunk.nodeType,
 				}))
 			);
-
 			const context = safeContext.safeContext;
 			setContextMeta(safeContext.meta);
 
@@ -1220,9 +704,7 @@ Code context:
 ${context}`;
 
 			if (getLLMStatus() === "error") {
-				throw new Error(
-					"LLM failed to initialize. Open LLM Settings and switch to Gemini or Groq with a valid API key."
-				);
+				throw new Error("LLM failed to initialize. Open LLM Settings and switch to Gemini or Groq with a valid API key.");
 			}
 
 			if (getLLMStatus() !== "ready" && getLLMStatus() !== "generating") {
@@ -1240,11 +722,10 @@ ${context}`;
 				return;
 			}
 
-			const historyLimit =
-				config.provider === "gemini" || config.provider === "groq" ? 10 : 6;
+			const historyLimit = config.provider === "gemini" || config.provider === "groq" ? 10 : 6;
 			const recentHistory = messagesRef.current.slice(-historyLimit);
-			const chatMessages: ChatMessage[] = [
-				{ role: "system", content: systemPrompt },
+			const chatMessages = [
+				{ role: "system" as const, content: systemPrompt },
 				...recentHistory.map((m) => ({ role: m.role as "user" | "assistant", content: m.content })),
 				{ role: "user" as const, content: userMessage },
 			];
@@ -1264,81 +745,60 @@ ${context}`;
 				},
 			]);
 
-				for await (const token of generate(chatMessages)) {
-					fullResponse += token;
-					sawStreamToken = true;
-					setMessages((prev) => {
-					if (!assistantMessageId) return prev;
-					let changed = false;
-				const updated = prev.map((message) => {
-					if (message.id !== assistantMessageId) return message;
-					changed = true;
-					return {
-						...message,
-						role: "assistant" as const,
-						content: fullResponse,
-						citations: responseCitations.length > 0 ? responseCitations : undefined,
-					};
-				});
-						return changed ? updated : prev;
-					});
-				}
-
-				const correlatedCitationResults = buildCorrelatedCitationResults(
-					results,
-					userMessage,
-					fullResponse,
-					safeContext.excludedCitationIds
-				);
-				responseCitations = correlatedCitationResults.length > 0
-					? buildMessageCitations(correlatedCitationResults)
-					: [];
+			for await (const token of generate(chatMessages)) {
+				fullResponse += token;
+				sawStreamToken = true;
 				setMessages((prev) => {
 					if (!assistantMessageId) return prev;
 					let changed = false;
 					const updated = prev.map((message) => {
 						if (message.id !== assistantMessageId) return message;
 						changed = true;
-						return {
-							...message,
-							citations: responseCitations.length > 0 ? responseCitations : undefined,
-						};
+						return { ...message, role: "assistant" as const, content: fullResponse, citations: responseCitations.length > 0 ? responseCitations : undefined };
 					});
 					return changed ? updated : prev;
 				});
+			}
 
-				if (coveEnabled) {
-					try {
-						const refined = await verifyAndRefine(fullResponse, userMessage, storeRef.current);
-						if (refined && refined !== fullResponse && refined.length > 20) {
-							const refinedCitationResults = buildCorrelatedCitationResults(
-								results,
-								userMessage,
-								refined,
-								safeContext.excludedCitationIds
-							);
-							responseCitations = refinedCitationResults.length > 0
-								? buildMessageCitations(refinedCitationResults)
-								: [];
-							setMessages((prev) => {
-								if (!assistantMessageId) return prev;
-								let changed = false;
-								const updated = prev.map((message) => {
-									if (message.id !== assistantMessageId) return message;
+			const correlatedCitationResults = buildCorrelatedCitationResults(
+				results, userMessage, fullResponse, safeContext.excludedCitationIds
+			);
+			responseCitations = correlatedCitationResults.length > 0
+				? buildMessageCitations(correlatedCitationResults)
+				: [];
+			setMessages((prev) => {
+				if (!assistantMessageId) return prev;
+				let changed = false;
+				const updated = prev.map((message) => {
+					if (message.id !== assistantMessageId) return message;
+					changed = true;
+					return { ...message, citations: responseCitations.length > 0 ? responseCitations : undefined };
+				});
+				return changed ? updated : prev;
+			});
+
+			if (coveEnabled) {
+				try {
+					const refined = await verifyAndRefine(fullResponse, userMessage, storeRef.current);
+					if (refined && refined !== fullResponse && refined.length > 20) {
+						const refinedCitationResults = buildCorrelatedCitationResults(
+							results, userMessage, refined, safeContext.excludedCitationIds
+						);
+						responseCitations = refinedCitationResults.length > 0
+							? buildMessageCitations(refinedCitationResults)
+							: [];
+						setMessages((prev) => {
+							if (!assistantMessageId) return prev;
+							let changed = false;
+							const updated = prev.map((message) => {
+								if (message.id !== assistantMessageId) return message;
 								changed = true;
-								return {
-										...message,
-										role: "assistant" as const,
-										content: refined,
-										citations: responseCitations.length > 0 ? responseCitations : undefined,
-									};
+								return { ...message, role: "assistant" as const, content: refined, citations: responseCitations.length > 0 ? responseCitations : undefined };
 							});
 							return changed ? updated : prev;
 						});
 					}
-				} catch {
-					// CoVe is optional, don't break on failure
-				}
+				} catch { /* CoVE is optional */ }
 			}
 		} catch (err) {
 			const errorMessage = err instanceof Error ? err.message : String(err);
@@ -1354,11 +814,9 @@ ${context}`;
 					? next.findIndex((message) => message.id === assistantMessageId)
 					: -1;
 				const lastAssistantIndex = next.length > 0 && next[next.length - 1].role === "assistant"
-					? next.length - 1
-					: -1;
+					? next.length - 1 : -1;
 				const targetIndex = placeholderIndex >= 0 ? placeholderIndex : lastAssistantIndex;
 
-				// If generation already opened an assistant message, annotate it in place.
 				if (appendedAssistantPlaceholder && targetIndex >= 0) {
 					const prior = next[targetIndex];
 					const current = prior.content ?? "";
@@ -1392,11 +850,20 @@ ${context}`;
 					},
 				];
 			});
-			} finally {
-				isGeneratingRef.current = false;
-				setIsGenerating(false);
-			}
-		}, [input, isIndexed, owner, repo, llmStatus, coveEnabled]);
+		} finally {
+			isGeneratingRef.current = false;
+			setIsGenerating(false);
+		}
+	}, [input, isIndexed, owner, repo, llmStatus, coveEnabled]);
+
+	const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+		if (e.key === "Enter" && !e.shiftKey) {
+			e.preventDefault();
+			void handleSend();
+		}
+	}, [handleSend]);
+
+	// ─── Derived values ────────────────────────────────────────────────────
 
 	const progressPercent =
 		indexProgress && indexProgress.total > 0
@@ -1422,891 +889,175 @@ ${context}`;
 		() => [...chatSessions].sort((a, b) => b.updatedAt - a.updatedAt),
 		[chatSessions]
 	);
+
 	const normalizedTokenDraft = tokenDraft.trim();
 	const tokenChanged = normalizedTokenDraft !== token;
+	const isIndexing = !isIndexed && !!indexProgress && indexProgress.phase !== "done";
+	const indexingFailed = !isIndexed && !!indexProgress && indexProgress.phase === "done" && indexProgress.message?.startsWith("Error:");
+
+	// ─── Render ───────────────────────────────────────────────────────────
 
 	return (
-		<div style={styles.layout}>
+		<div style={{ display: "flex", flexDirection: "column", height: "100vh", background: "var(--bg-app)", color: "var(--text-on-dark)", fontFamily: "var(--font-sans)", overflow: "hidden" }}>
+
 			{/* Toast */}
 			{toastMessage && (
 				<div
 					role="status"
 					aria-live="polite"
 					style={{
-						position: "fixed",
-						bottom: "24px",
-						left: "50%",
-						transform: "translate(-50%, 0)",
-						padding: "12px 20px",
-						background: "var(--bg-card)",
-						border: "2px solid var(--border-accent)",
-						borderRadius: "var(--radius)",
-						boxShadow: "4px 4px 0 var(--accent)",
-						fontSize: "14px",
-						fontWeight: 600,
-						zIndex: 1000,
-						animation: "toast-in 0.2s ease-out",
-						fontFamily: "var(--font-display)",
+						position: "fixed", bottom: "24px", left: "50%", transform: "translate(-50%, 0)",
+						padding: "12px 20px", background: "var(--bg-card-dark)", border: "2px solid var(--border-dark)",
+						boxShadow: "var(--shadow-card-dark)", fontSize: "14px", fontWeight: 600,
+						zIndex: 1000, fontFamily: "var(--font-display)", color: "var(--text-on-dark)",
 					}}
 				>
 					{toastMessage}
 				</div>
 			)}
 
-			{/* Header */}
-			<header style={styles.header}>
-				<a href="/" style={styles.logo}>
-					GitAsk
-				</a>
-				<a
-					href={`https://github.com/${owner}/${repo}`}
-					target="_blank"
-					rel="noopener noreferrer"
-					style={styles.repoName}
-					title={`Open ${owner}/${repo} on GitHub`}
-					className="repo-link"
-				>
-					<span style={styles.ownerText}>{owner}</span>
-					<span style={styles.slash}>/</span>
-					<span style={styles.repoText}>{repo}</span>
-				</a>
-				<div style={styles.headerActions}>
-					{/* LLM status */}
-					<div style={styles.statusPill}>
-						<div
-							style={getStatusDotStyle(llmStatus)}
-							className={llmStatus === "loading" ? "pulse" : undefined}
-							title={`LLM: ${llmStatus}`}
-						/>
-						{!isMobile && <span style={styles.statusText}>{llmStatus}</span>}
-					</div>
-					<ModelSettings />
-					{/* Consolidated overflow menu */}
-					<div ref={overflowRef} style={{ position: "relative" }}>
-						<button
-							className="btn btn-ghost"
-							style={{ fontSize: "16px", padding: "4px 10px", lineHeight: 1 }}
-							onClick={() => setShowOverflow((v) => !v)}
-							title="More options"
-							aria-label="More options"
-						>
-							⋯
-						</button>
-						{showOverflow && (
-							<div style={styles.overflowMenu}>
-								<button className="btn btn-ghost" style={styles.overflowItem}
-									onClick={() => { setShowTokenInput((v) => !v); setShowOverflow(false); }}>
-									GH Token
-								</button>
-								{isIndexed && (
-									<button className="btn btn-ghost" style={styles.overflowItem}
-										onClick={() => { setShowContext((v) => !v); setShowOverflow(false); }}>
-										{showContext ? "Hide context" : "View context"}
-									</button>
-								)}
-								<button className="btn btn-ghost"
-									style={{ ...styles.overflowItem, color: coveEnabled ? "var(--success)" : undefined }}
-									onClick={() => setCoveEnabled((v) => !v)}
-									title="Chain-of-Verification (adds ~2-4s latency)">
-									CoVE {coveEnabled ? "on" : "off"}
-								</button>
-								{isIndexed && (
-									<button className="btn btn-ghost" style={styles.overflowItem}
-										onClick={() => { setShowBrowse((v) => !v); setShowOverflow(false); }}>
-										{showBrowse ? "Hide index" : "Browse index"}
-									</button>
-								)}
-								{isIndexed && (
-									<button className="btn btn-ghost" style={styles.overflowItem}
-										onClick={() => { void handleClearCacheAndReindex(); setShowOverflow(false); }}>
-										Re-index
-									</button>
-								)}
-								{messages.length > 0 && (
-									<button className="btn btn-ghost" style={styles.overflowItem}
-										onClick={() => { handleClearChat(); setShowOverflow(false); }}
-										disabled={isGenerating}>
-										Clear chat
-									</button>
-								)}
-								<div style={styles.overflowDivider} />
-								{owner && repo && (
-									<button className="btn btn-ghost"
-										style={{ ...styles.overflowItem, color: "var(--error)" }}
-										onClick={() => { void handleDeleteEmbeddings(); setShowOverflow(false); }}>
-										Delete embeddings
-									</button>
-								)}
-								<div style={styles.overflowDivider} />
-								<a href="/metrics"
-									style={{ ...styles.overflowItem, textDecoration: "none", color: "var(--text-secondary)", display: "flex" }}>
-									Metrics
-								</a>
-								<a href={projectRepoUrl} target="_blank" rel="noopener noreferrer"
-									style={{ ...styles.overflowItem, textDecoration: "none", color: "var(--text-secondary)", display: "flex" }}>
-									Star on GitHub
-								</a>
-							</div>
-						)}
-					</div>
-				</div>
-			</header>
+			<RepoHeader
+				owner={owner}
+				repo={repo}
+				isIndexed={isIndexed}
+				repoStale={repoStale}
+				llmStatus={llmStatus}
+				sidebarCollapsed={sidebarCollapsed}
+				showContext={showContext}
+				coveEnabled={coveEnabled}
+				isGenerating={isGenerating}
+				messages={messages}
+				fileBrowserOpen={fileBrowserOpen}
+				onExpandSidebar={() => setSidebarCollapsed(false)}
+				onReindex={() => { void handleClearCacheAndReindex(); }}
+				onToggleTokenInput={() => setShowTokenInput((v) => !v)}
+				onToggleContext={() => setShowContext((v) => !v)}
+				onToggleCove={() => setCoveEnabled((v) => !v)}
+				onClearChat={handleClearChat}
+				onDeleteEmbeddings={() => { void handleDeleteEmbeddings(); }}
+				onToggleFileBrowser={() => setFileBrowserOpen((v) => !v)}
+			/>
 
-			{/* Token input */}
 			{showTokenInput && (
-				<div style={styles.tokenBar}>
-					<input
-						className="input"
-						type="password"
-						placeholder="GitHub Personal Access Token (optional, for higher rate limits)"
-						value={tokenDraft}
-						onChange={(e) => setTokenDraft(e.target.value)}
-						onKeyDown={(e) => {
-							if (e.key === "Enter") {
-								e.preventDefault();
-								handleApplyToken();
-							}
-						}}
-						style={{ flex: 1, fontSize: "13px" }}
-					/>
-					<button
-						type="button"
-						className="btn btn-ghost"
-						style={{ fontSize: "12px", padding: "5px 10px" }}
-						onClick={handleApplyToken}
-						disabled={!tokenChanged}
-					>
-						Apply
-					</button>
-				</div>
+				<TokenInput
+					tokenDraft={tokenDraft}
+					tokenChanged={tokenChanged}
+					onChange={setTokenDraft}
+					onApply={handleApplyToken}
+				/>
 			)}
 
-			{isIndexed && repoStale && (
-				<div style={styles.staleBanner}>
-					<span style={styles.staleBannerText}>
-						This repository has new commits on GitHub. Current context may be stale.
-					</span>
-					<button
-						type="button"
-						className="btn btn-primary"
-						style={styles.staleBannerBtn}
-						onClick={() => { void handleClearCacheAndReindex(); }}
-					>
-						Re-index Now
-					</button>
-				</div>
-			)}
+			<div style={{ display: "flex", flex: 1, overflow: "hidden" }}>
 
-			{/* Progress bar */}
-			{!isIndexed && indexProgress && (
-				<div style={styles.progressContainer}>
-					<div className="progress-bar" style={styles.progressBar}>
-						<div
-							className="progress-bar-fill"
-							style={{ width: `${progressPercent}%` }}
+				<ChatSidebar
+					isIndexed={isIndexed}
+					isIndexing={isIndexing}
+					indexingFailed={indexingFailed}
+					indexProgress={indexProgress}
+					progressPercent={progressPercent}
+					timeRemaining={timeRemaining}
+					notificationPermission={notificationPermission}
+					chunkCount={storeRef.current.size}
+					orderedChatSessions={orderedChatSessions}
+					activeChatId={activeChatId}
+					astNodes={astNodes}
+					textChunkCounts={textChunkCounts}
+					sidebarCollapsed={sidebarCollapsed}
+					onSelectChat={handleSelectChat}
+					onCreateChat={handleCreateChat}
+					onCollapse={() => setSidebarCollapsed((v) => !v)}
+					onRequestNotification={handleRequestNotificationPermission}
+				/>
+
+				<main style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", background: "var(--bg-app)" }}>
+
+					{isIndexing && (
+						<IndexingOverlay
+							indexProgress={indexProgress}
+							progressPercent={progressPercent}
+							timeRemaining={timeRemaining}
+							onRetry={() => { void handleClearCacheAndReindex(); }}
 						/>
-					</div>
-					<span style={styles.progressText}>
-						{indexProgress.message}
-						{indexProgress.estimatedSizeBytes != null && indexProgress.estimatedSizeBytes > 0 && (
-							<span style={{ color: "var(--text-muted)", marginLeft: "8px" }}>
-								(~{formatBytes(indexProgress.estimatedSizeBytes)})
-							</span>
-						)}
-						{timeRemaining && (
-							<span style={{ color: "var(--text-muted)", marginLeft: "8px" }}>
-								{timeRemaining} remaining
-							</span>
-						)}
-						{typeof Notification !== "undefined" && notificationPermission === "default" && (
-							<button
-								type="button"
-								className="btn btn-ghost"
-								style={{
-									marginLeft: "12px",
-									fontSize: "12px",
-									padding: "2px 8px",
-									color: "var(--text-muted)",
-								}}
-								onClick={handleRequestNotificationPermission}
-								title="Get a system notification when indexing completes (optional)"
-							>
-								Notify when ready (optional)
-							</button>
-						)}
-					</span>
-				</div>
-			)}
+					)}
 
-			{/* Main content */}
-			<div style={styles.content}>
-				{/* AST Tree visualization during indexing */}
-				{!isIndexed && astNodes.length > 0 && (
-					<div style={styles.astPanel}>
-						<AstTreeView
-							astNodes={astNodes}
-							textChunkCounts={textChunkCounts}
+					{indexingFailed && (
+						<IndexingOverlay
+							indexProgress={indexProgress}
+							progressPercent={progressPercent}
+							timeRemaining={timeRemaining}
+							onRetry={() => { void handleClearCacheAndReindex(); }}
+							isError
 						/>
-					</div>
-				)}
+					)}
 
-				{/* Chat panel */}
-				<div style={{
-					...styles.chatPanel,
-					display: !isIndexed && astNodes.length > 0 ? "none" : "flex",
-				}}>
-						<div style={styles.chatToolbar}>
-						<select
-							value={activeChatId ?? ""}
-							onChange={(e) => handleSelectChat(e.target.value)}
-							style={styles.chatSelect}
-							aria-label="Select chat session"
-							disabled={isGenerating}
-						>
-							{orderedChatSessions.map((session) => (
-								<option key={session.chat_id} value={session.chat_id}>
-									{session.title}
-								</option>
-							))}
-						</select>
-						<button
-							className="btn btn-ghost"
-							style={styles.chatToolbarBtn}
-							onClick={handleCreateChat}
-							type="button"
-							disabled={isGenerating}
-							title="New chat"
-						>
-							+ New
-						</button>
-						<button
-							className="btn btn-ghost"
-							style={{ ...styles.chatToolbarBtn, color: "var(--text-muted)" }}
-							onClick={handleDeleteActiveChat}
-							type="button"
-							title={chatSessions.length <= 1 ? "Delete messages in current chat" : "Delete current chat"}
-							disabled={isGenerating}
-						>
-							×
-						</button>
-					</div>
-					<div style={styles.messageList}>
-						{messages.length === 0 && isIndexed && (
-							<div style={styles.emptyState}>
-								<div style={styles.emptyStateIcon}>💬</div>
-								<p style={styles.emptyStateTitle}>Ask about this repo</p>
-								<p style={styles.emptyStateHint}>Try one of these to get started</p>
-								<div style={styles.chipRow}>
-									{STARTER_SUGGESTIONS.map((q) => (
-										<button
-											key={q}
-											className="btn btn-ghost"
-											style={styles.chip}
-											onClick={() => handleSend(q)}
-											disabled={isGenerating}
-										>
-											{q}
-										</button>
-									))}
-								</div>
-							</div>
-						)}
+					{(isIndexed || (!isIndexing && !indexingFailed)) && (
+						<div style={{ flex: 1, overflowY: "auto", padding: "24px 32px", display: "flex", flexDirection: "column", gap: 20 }}>
+							{messages.length === 0 && isIndexed && (
+								<EmptyChat
+									owner={owner}
+									repo={repo}
+									onSelectSuggestion={setInput}
+								/>
+							)}
 
-						{messages.map((msg, i) => {
-							const sourcesExpanded = Boolean(msg.ui?.sourcesExpanded);
-							const sourcesPanelId = `sources-${msg.id}`;
-							return (
-								<div
+							{messages.map((msg, i) => (
+								<ChatMessage
 									key={msg.id}
-									style={{
-										...styles.message,
-										alignSelf: msg.role === "user" ? "flex-end" : "flex-start",
-										background: msg.role === "user" ? "var(--accent)" : "var(--bg-card)",
-										maxWidth: msg.role === "user" ? "70%" : "90%",
-										border: msg.role === "user"
-											? "2px solid var(--accent)"
-											: "2px solid var(--border)",
-										boxShadow: msg.role === "user"
-											? "3px 3px 0 rgba(0,0,0,0.5)"
-											: "3px 3px 0 var(--bg-secondary)",
-									}}
-									className="chat-message"
-								>
-									{msg.role === "assistant" ? (
-										<div style={styles.assistantMessageBody}>
-											{isGenerating && i === messages.length - 1 ? (
-												<pre style={styles.messageContent}>{msg.content || "Thinking..."}</pre>
-											) : (
-											<div style={styles.assistantMarkdownContent} className="chat-markdown">
-												<ReactMarkdown>{msg.content}</ReactMarkdown>
-											</div>
-										)}
-											{msg.citations && msg.citations.length > 0 && (
-												<div style={styles.citationsDisclosure}>
-													<button
-														type="button"
-														style={styles.citationsSummaryButton}
-														onClick={() => handleToggleSources(msg.id)}
-														aria-expanded={sourcesExpanded}
-														aria-controls={sourcesPanelId}
-													>
-														<span style={styles.citationsSummaryText}>
-															Sources ({msg.citations.length})
-														</span>
-														<span
-															style={{
-																...styles.citationsChevron,
-																transform: sourcesExpanded ? "rotate(90deg)" : "rotate(0deg)",
-															}}
-															aria-hidden="true"
-														>
-															▸
-														</span>
-													</button>
-													{sourcesExpanded && (
-														<div id={sourcesPanelId} style={styles.citationsWrap}>
-															<div style={styles.citationsList}>
-																{msg.citations.map((citation) => {
-																	const lineLabel = citation.startLine === citation.endLine
-																		? `L${citation.startLine}`
-																		: `L${citation.startLine}-L${citation.endLine}`;
-																	const commitRef = indexedSha ?? "HEAD";
-																	const githubUrl = `https://github.com/${owner}/${repo}/blob/${commitRef}/${encodeGitHubPath(citation.filePath)}#L${citation.startLine}`;
-																	const extraChunks = citation.chunkCount - 1;
-																	const extraChunkLabel = extraChunks > 0
-																		? ` (+${extraChunks} ${extraChunks === 1 ? "chunk" : "chunks"})`
-																		: "";
-																	return (
-																		<a
-																			key={`${citation.filePath}:${citation.startLine}:${citation.endLine}`}
-																			href={githubUrl}
-																			target="_blank"
-																			rel="noopener noreferrer"
-																			style={styles.citationLink}
-																			title={`${citation.filePath} (${lineLabel})`}
-																		>
-																			{citation.filePath}:{lineLabel}
-																			{extraChunkLabel}
-																		</a>
-																	);
-																})}
-															</div>
-														</div>
-													)}
-												</div>
-											)}
-										</div>
-									) : (
-										<pre style={styles.messageContent}>{msg.content}</pre>
-									)}
+									msg={msg}
+									isGenerating={isGenerating}
+									isLast={i === messages.length - 1}
+									owner={owner}
+									repo={repo}
+									commitRef={indexedSha ?? "HEAD"}
+									onToggleSources={handleToggleSources}
+								/>
+							))}
+
+							{isGenerating && (
+								<div style={{ alignSelf: "flex-start", display: "flex", gap: 4, padding: "12px 18px", border: "2px solid var(--border-dark)", background: "var(--bg-card-dark)" }}>
+									<span className="pulse" style={{ width: 6, height: 6, borderRadius: "50%", background: "#16a34a", display: "inline-block" }} />
+									<span className="pulse" style={{ width: 6, height: 6, borderRadius: "50%", background: "#16a34a", display: "inline-block", animationDelay: "0.2s" }} />
+									<span className="pulse" style={{ width: 6, height: 6, borderRadius: "50%", background: "#16a34a", display: "inline-block", animationDelay: "0.4s" }} />
 								</div>
-							);
-						})}
-						<div ref={chatEndRef} />
-					</div>
+							)}
 
-					{/* Input bar */}
-					<form
-						onSubmit={(e) => {
-							e.preventDefault();
-							handleSend();
-						}}
-						style={styles.inputBar}
-					>
-						<input
-							className="input"
-							type="text"
-							placeholder={isIndexed ? "Ask a question…" : "Indexing repository…"}
-							value={input}
-							onChange={(e) => setInput(e.target.value)}
-							disabled={!isIndexed || isGenerating}
-							id="chat-input"
-							style={styles.chatInput}
+							<div ref={chatEndRef} />
+						</div>
+					)}
+
+					{showContext && contextChunks.length > 0 && (
+						<ContextDrawer
+							contextChunks={contextChunks}
+							contextMeta={contextMeta}
+							isMobile={isMobile}
+							onClose={() => setShowContext(false)}
 						/>
-						<button
-							type="submit"
-							className="btn btn-primary"
-							disabled={!isIndexed || isGenerating || !input.trim()}
-							id="send-btn"
-							style={styles.sendBtn}
-						>
-							{isGenerating ? "…" : "Send"}
-						</button>
-					</form>
-				</div>
+					)}
 
-				{/* Browse drawer */}
-				{showBrowse && isIndexed && (
-					<aside style={{
-						...styles.browseDrawer,
-						...(isMobile && { position: "fixed" as const, inset: 0, width: "100%", minWidth: "unset", zIndex: 100, borderLeft: "none" }),
-					}}>
-						<IndexBrowser
-							chunks={storeRef.current.getAll()}
-							onClose={() => setShowBrowse(false)}
-						/>
-					</aside>
-				)}
+					<ChatInput
+						input={input}
+						isIndexed={isIndexed}
+						isGenerating={isGenerating}
+						owner={owner}
+						repo={repo}
+						onChange={setInput}
+						onSend={() => { void handleSend(); }}
+						onKeyDown={handleKeyDown}
+					/>
+				</main>
 
-				{/* Context drawer */}
-				{showContext && contextChunks.length > 0 && (
-					<aside style={{
-						...styles.contextDrawer,
-						...(isMobile && { position: "fixed" as const, inset: 0, width: "100%", minWidth: "unset", zIndex: 100, borderLeft: "none" }),
-					}}>
-						<h3 style={styles.drawerTitle}>
-							Retrieved Context ({contextChunks.length} chunks)
-						</h3>
-						<p style={{ fontSize: "11px", color: "var(--text-muted)", marginBottom: "8px", fontFamily: "var(--font-mono)" }}>
-							Top results from hybrid search
-						</p>
-						{contextMeta && contextMeta.compactionStage !== "none" && (
-							<div style={{ fontSize: "11px", color: "var(--warning)", background: "rgba(245,158,11,0.08)", padding: "8px 10px", border: "2px solid rgba(245,158,11,0.3)", borderRadius: "var(--radius-sm)", marginBottom: "8px" }}>
-								⚠ LLM context compacted ({contextMeta.compactionStage}): {contextMeta.totalChars} chars / ~{contextMeta.estimatedTokens.toLocaleString()} tokens → {contextMeta.maxChars.toLocaleString()} chars / {contextMeta.maxTokens.toLocaleString()} token budget
-							</div>
-						)}
-						{contextChunks.map((chunk, i) => (
-							<div key={i} style={styles.contextItem}>
-								<div style={styles.contextMeta}>
-									<span style={styles.filePath}>{chunk.filePath}</span>
-									<span style={styles.score}>
-										{(chunk.score * 100).toFixed(1)}%
-									</span>
-								</div>
-								<pre className="code" style={{ fontSize: "11px", maxHeight: "300px", overflow: "auto", whiteSpace: "pre-wrap", wordBreak: "break-all" }}>
-									{chunk.code}
-								</pre>
-								{chunk.code.length > 500 && (
-									<span style={{ fontSize: "10px", color: "var(--text-muted)", fontFamily: "var(--font-mono)" }}>
-										{chunk.code.length} chars
-									</span>
-								)}
-							</div>
-						))}
-					</aside>
+				{fileBrowserOpen && isIndexed && (
+					<FileBrowser
+						isMobile={isMobile}
+						fileBrowserTab={fileBrowserTab}
+						astNodes={astNodes}
+						textChunkCounts={textChunkCounts}
+						store={storeRef.current}
+						onTabChange={setFileBrowserTab}
+						onClose={() => setFileBrowserOpen(false)}
+					/>
 				)}
 			</div>
 		</div>
 	);
 }
-
-function formatBytes(bytes: number): string {
-	if (bytes < 1024) return `${bytes} B`;
-	if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-	return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-}
-
-function formatTimeRemaining(ms: number): string {
-	if (ms < 60_000) return `~${Math.round(ms / 1000)} sec`;
-	if (ms < 3600_000) return `~${Math.round(ms / 60_000)} min`;
-	return `~${(ms / 3600_000).toFixed(1)} hr`;
-}
-
-function getStatusDotStyle(status: LLMStatus): React.CSSProperties {
-	return {
-		width: "8px",
-		height: "8px",
-		borderRadius: "50%",
-		flexShrink: 0,
-		background:
-			status === "ready"
-				? "var(--success)"
-				: status === "generating"
-					? "var(--warning)"
-					: status === "loading"
-						? "var(--accent)"
-						: "var(--text-muted)",
-	};
-}
-
-const styles: Record<string, React.CSSProperties> = {
-	layout: {
-		display: "flex",
-		flexDirection: "column",
-		height: "100vh",
-		overflow: "hidden",
-	},
-	header: {
-		display: "flex",
-		alignItems: "center",
-		gap: "12px",
-		padding: "10px 20px",
-		borderBottom: "2px solid var(--border)",
-		background: "var(--bg-secondary)",
-		position: "relative" as const,
-		zIndex: 10,
-	},
-	logo: {
-		fontWeight: 800,
-		fontSize: "16px",
-		color: "var(--accent)",
-		textDecoration: "none",
-		letterSpacing: "-0.02em",
-		fontFamily: "var(--font-display)",
-	},
-	repoName: {
-		display: "flex",
-		alignItems: "center",
-		gap: "4px",
-		flex: 1,
-		textDecoration: "none",
-		color: "inherit",
-		transition: "opacity 0.15s ease",
-		cursor: "pointer",
-	},
-	overflowMenu: {
-		position: "absolute" as const,
-		top: "calc(100% + 6px)",
-		right: 0,
-		background: "var(--bg-card)",
-		border: "2px solid var(--border)",
-		borderRadius: "var(--radius)",
-		boxShadow: "4px 4px 0 var(--accent)",
-		padding: "6px",
-		display: "flex",
-		flexDirection: "column" as const,
-		gap: "2px",
-		zIndex: 30,
-		minWidth: "200px",
-	},
-	overflowItem: {
-		fontSize: "13px",
-		padding: "8px 14px",
-		justifyContent: "flex-start",
-		width: "100%",
-		border: "none",
-		boxShadow: "none",
-		background: "transparent",
-		borderRadius: "var(--radius-sm)",
-	},
-	overflowDivider: {
-		height: "1px",
-		background: "var(--border)",
-		margin: "4px 0",
-	},
-	ownerText: { color: "var(--text-secondary)", fontSize: "14px", fontWeight: 500 },
-	slash: { color: "var(--text-muted)", fontSize: "14px" },
-	repoText: { fontWeight: 700, fontSize: "14px" },
-	headerActions: {
-		display: "flex",
-		alignItems: "center",
-		gap: "6px",
-		flexWrap: "wrap" as const,
-	},
-	statusPill: {
-		display: "inline-flex",
-		alignItems: "center",
-		gap: "6px",
-		padding: "4px 10px",
-		border: "2px solid var(--border)",
-		borderRadius: "var(--radius-sm)",
-		background: "var(--bg-card)",
-	},
-	statusText: {
-		fontSize: "12px",
-		color: "var(--text-secondary)",
-		minWidth: "56px",
-		fontFamily: "var(--font-mono)",
-	},
-	tokenBar: {
-		padding: "8px 20px",
-		borderBottom: "2px solid var(--border)",
-		display: "flex",
-		gap: "8px",
-		background: "var(--bg-secondary)",
-	},
-	staleBanner: {
-		display: "flex",
-		alignItems: "center",
-		justifyContent: "space-between",
-		gap: "12px",
-		padding: "10px 20px",
-		background: "rgba(245,158,11,0.08)",
-		borderBottom: "2px solid rgba(245,158,11,0.35)",
-	},
-	staleBannerText: {
-		fontSize: "12px",
-		color: "var(--warning)",
-		fontFamily: "var(--font-mono)",
-	},
-	staleBannerBtn: {
-		fontSize: "12px",
-		padding: "5px 10px",
-		flexShrink: 0,
-	},
-	progressContainer: {
-		padding: "12px 20px",
-		display: "flex",
-		flexDirection: "column",
-		gap: "8px",
-		background: "var(--bg-secondary)",
-		borderBottom: "2px solid var(--border)",
-	},
-	progressBar: {
-		height: "8px",
-	},
-	progressText: {
-		fontSize: "12px",
-		color: "var(--text-secondary)",
-		fontFamily: "var(--font-mono)",
-	},
-	content: {
-		display: "flex",
-		flex: 1,
-		overflow: "hidden",
-	},
-	astPanel: {
-		flex: 1,
-		overflow: "auto",
-		padding: "16px 20px",
-	},
-	chatPanel: {
-		flex: 1,
-		display: "flex",
-		flexDirection: "column",
-		overflow: "hidden",
-	},
-	chatToolbar: {
-		display: "flex",
-		alignItems: "center",
-		gap: "8px",
-		padding: "10px 20px",
-		borderBottom: "2px solid var(--border)",
-		background: "var(--bg-secondary)",
-		maxWidth: "900px",
-		margin: "0 auto",
-		width: "100%",
-	},
-	chatSelect: {
-		flex: 1,
-		minWidth: "160px",
-		maxWidth: "360px",
-		padding: "8px 10px",
-		borderRadius: "var(--radius-sm)",
-		border: "2px solid var(--border)",
-		background: "var(--bg-card)",
-		color: "var(--text-primary)",
-		fontSize: "12px",
-		fontFamily: "var(--font-mono)",
-	},
-	chatToolbarBtn: {
-		fontSize: "12px",
-		padding: "6px 10px",
-	},
-	messageList: {
-		flex: 1,
-		overflow: "auto",
-		padding: "24px",
-		display: "flex",
-		flexDirection: "column",
-		gap: "16px",
-		maxWidth: "900px",
-		margin: "0 auto",
-		width: "100%",
-	},
-	emptyState: {
-		display: "flex",
-		flexDirection: "column",
-		alignItems: "center",
-		justifyContent: "center",
-		gap: "12px",
-		flex: 1,
-		color: "var(--text-secondary)",
-		padding: "48px 24px",
-	},
-	emptyStateIcon: {
-		fontSize: "40px",
-		opacity: 0.7,
-		lineHeight: 1,
-	},
-	emptyStateTitle: {
-		fontWeight: 800,
-		fontSize: "20px",
-		color: "var(--text-primary)",
-		fontFamily: "var(--font-display)",
-	},
-	emptyStateHint: {
-		color: "var(--text-muted)",
-		fontSize: "13px",
-		lineHeight: 1.5,
-		textAlign: "center",
-		maxWidth: "320px",
-	},
-	chipRow: {
-		display: "flex",
-		flexWrap: "wrap" as const,
-		gap: "8px",
-		justifyContent: "center",
-		maxWidth: "520px",
-		marginTop: "4px",
-	},
-	chip: {
-		fontSize: "12px",
-		padding: "6px 14px",
-		borderRadius: "var(--radius-sm)",
-		whiteSpace: "nowrap" as const,
-		fontWeight: 500,
-	},
-	message: {
-		padding: "14px 18px",
-		borderRadius: "var(--radius)",
-		fontSize: "14px",
-		lineHeight: 1.65,
-	},
-	messageContent: {
-		fontFamily: "var(--font-sans)",
-		fontSize: "14px",
-		lineHeight: 1.6,
-		whiteSpace: "pre-wrap",
-		wordBreak: "break-word",
-		margin: 0,
-	},
-	assistantMarkdownContent: {
-		fontFamily: "var(--font-sans)",
-		fontSize: "14px",
-		lineHeight: 1.6,
-		whiteSpace: "normal",
-		wordBreak: "break-word",
-		margin: 0,
-		paddingLeft: "6px",
-	},
-	assistantMessageBody: {
-		display: "flex",
-		flexDirection: "column",
-		gap: "10px",
-	},
-	citationsDisclosure: {
-		border: "1px solid var(--border)",
-		borderRadius: "var(--radius-sm)",
-		background: "var(--bg-secondary)",
-		overflow: "hidden",
-	},
-	citationsSummaryButton: {
-		display: "flex",
-		alignItems: "center",
-		justifyContent: "space-between",
-		gap: "8px",
-		width: "100%",
-		border: "none",
-		background: "transparent",
-		cursor: "pointer",
-		padding: "7px 9px",
-		fontSize: "11px",
-		color: "var(--text-muted)",
-		fontFamily: "var(--font-mono)",
-		userSelect: "none",
-		textAlign: "left",
-	},
-	citationsSummaryText: {
-		fontSize: "11px",
-		color: "var(--text-muted)",
-		fontFamily: "var(--font-mono)",
-	},
-	citationsChevron: {
-		display: "inline-flex",
-		alignItems: "center",
-		justifyContent: "center",
-		color: "var(--text-muted)",
-		fontSize: "12px",
-		transition: "transform 120ms ease",
-		flexShrink: 0,
-	},
-	citationsWrap: {
-		borderTop: "1px dashed var(--border)",
-		padding: "8px",
-		display: "flex",
-		flexDirection: "column",
-		gap: "6px",
-	},
-	citationsList: {
-		display: "flex",
-		flexWrap: "wrap" as const,
-		gap: "6px",
-		alignItems: "flex-start",
-	},
-	citationLink: {
-		fontSize: "11px",
-		fontFamily: "var(--font-mono)",
-		color: "var(--accent)",
-		textDecoration: "none",
-		padding: "3px 6px",
-		border: "1px solid var(--border)",
-		borderRadius: "var(--radius-sm)",
-		background: "var(--bg-secondary)",
-		maxWidth: "100%",
-		overflowWrap: "anywhere",
-		wordBreak: "break-word",
-		lineHeight: 1.35,
-	},
-	inputBar: {
-		display: "flex",
-		gap: "12px",
-		padding: "14px 20px",
-		borderTop: "2px solid var(--border)",
-		background: "var(--bg-secondary)",
-		flexShrink: 0,
-		maxWidth: "900px",
-		margin: "0 auto",
-		width: "100%",
-	},
-	chatInput: { flex: 1 },
-	sendBtn: {
-		flexShrink: 0,
-		fontFamily: "var(--font-display)",
-		fontWeight: 700,
-	},
-	browseDrawer: {
-		width: "480px",
-		minWidth: "400px",
-		overflow: "hidden",
-		padding: "20px",
-		borderLeft: "2px solid var(--border)",
-		display: "flex",
-		flexDirection: "column",
-		background: "var(--bg-card)",
-	},
-	contextDrawer: {
-		width: "360px",
-		minWidth: "280px",
-		overflow: "auto",
-		padding: "20px",
-		borderLeft: "2px solid var(--border)",
-		display: "flex",
-		flexDirection: "column",
-		gap: "14px",
-		background: "var(--bg-card)",
-	},
-	drawerTitle: {
-		fontSize: "12px",
-		fontWeight: 700,
-		color: "var(--text-muted)",
-		textTransform: "uppercase" as const,
-		letterSpacing: "0.08em",
-		fontFamily: "var(--font-display)",
-	},
-	contextItem: {
-		display: "flex",
-		flexDirection: "column",
-		gap: "8px",
-		padding: "12px",
-		background: "var(--bg-secondary)",
-		border: "2px solid var(--border)",
-		borderRadius: "var(--radius)",
-	},
-	contextMeta: {
-		display: "flex",
-		justifyContent: "space-between",
-		alignItems: "center",
-	},
-	filePath: {
-		fontSize: "12px",
-		fontFamily: "var(--font-mono)",
-		color: "var(--accent)",
-		fontWeight: 500,
-	},
-	score: {
-		fontSize: "11px",
-		color: "var(--text-muted)",
-		fontFamily: "var(--font-mono)",
-	},
-};

@@ -2,7 +2,7 @@
 
 import { ArchitectureDiagram } from "@/components/ArchitectureDiagram";
 import { ModelSettings } from "@/components/ModelSettings";
-import { STORAGE_COMPARISON } from "@/lib/eval-results";
+import { ThemeToggle } from "@/components/ThemeToggle";
 import { detectWebGPUAvailability } from "@/lib/webgpu";
 import { useEffect, useState, useRef, useCallback } from "react";
 import { useRouter } from "next/navigation";
@@ -307,539 +307,387 @@ export default function LandingPage() {
     window.dispatchEvent(new Event("gitask-open-llm-settings"));
   }
 
-  const projectRepoUrl = "https://github.com/FloareDor/gitask";
+  // isMobile is kept in state for potential future use; CSS grid handles responsive layout
+  void isMobile;
 
   return (
-    <div style={{ ...styles.wrapper, overflowX: "hidden" }}>
-      {/* Settings - fixed top-right */}
-      <div style={styles.settingsFixed}>
-        <ModelSettings />
-      </div>
+    <div style={{ minHeight: "100vh", background: "var(--page-bg)", color: "var(--page-text)", fontFamily: "var(--font-sans)" }}>
+      <ModelSettings />
 
-      {/* Decorative corner accent lines */}
-      <div style={styles.cornerTL} />
-      <div style={styles.cornerBR} />
+      {/* NAV */}
+      <nav style={{
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "space-between",
+        padding: "20px 40px",
+        borderBottom: "1px solid var(--page-border)",
+        background: "var(--page-bg)",
+        position: "sticky",
+        top: 0,
+        zIndex: 40,
+      }}>
+        <span style={{ fontFamily: "var(--font-display)", fontWeight: 800, fontSize: "1.1rem", letterSpacing: "-0.02em", color: "var(--page-text)" }}>
+          gitask
+        </span>
+        <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
+          <ThemeToggle />
+          <a
+            href="https://github.com/FloareDor/gitask"
+            target="_blank"
+            rel="noopener noreferrer"
+            style={{
+              fontSize: "13px",
+              fontWeight: 600,
+              color: "var(--page-text)",
+              textDecoration: "none",
+              border: "1px solid var(--page-border)",
+              padding: "6px 14px",
+              fontFamily: "var(--font-sans)",
+            }}
+          >
+            GitHub ↗
+          </a>
+        </div>
+      </nav>
 
-      <main style={styles.main}>
-        <div className="fade-in" style={styles.hero}>
-          {/* Badge */}
-          <div style={styles.badge}>
-            <span style={styles.badgeDot} className="pulse" />
-            Client-side · Free · No server
-          </div>
+      {/* HERO */}
+      <section style={{
+        minHeight: "80vh",
+        display: "flex",
+        flexDirection: "column",
+        alignItems: "center",
+        justifyContent: "center",
+        padding: "80px 24px",
+        textAlign: "center",
+        background: "var(--page-bg)",
+      }}>
+        {/* Status badge */}
+        <div style={{
+          display: "inline-flex",
+          alignItems: "center",
+          gap: 8,
+          padding: "5px 14px",
+          border: "1px solid var(--page-border)",
+          fontFamily: "var(--font-mono)",
+          fontSize: "11px",
+          fontWeight: 600,
+          letterSpacing: "0.06em",
+          textTransform: "uppercase",
+          color: "var(--page-text-dim)",
+          marginBottom: 28,
+          background: "var(--page-surface)",
+        }}>
+          <span style={{ width: 7, height: 7, borderRadius: "50%", background: "#16a34a", display: "inline-block" }} className="pulse" />
+          Browser-native · No server · Keys stay local
+        </div>
 
-          <h1 style={styles.title}>
-            Turn any GitHub repo into a
-            <span style={styles.gradient}> chat you can query</span>
-          </h1>
+        <h1 style={{
+          fontFamily: "var(--font-display)",
+          fontSize: "clamp(3rem, 8vw, 6.5rem)",
+          fontWeight: 800,
+          lineHeight: 1.0,
+          letterSpacing: "-0.04em",
+          color: "var(--page-text)",
+          marginBottom: 24,
+          maxWidth: 900,
+        }}>
+          Ask any GitHub<br />repo anything.
+        </h1>
 
-          <p style={styles.subtitle}>
-            Browser-native RAG. Embeddings, retrieval, and storage. All on-device
-            via WebGPU. API keys stay local (vault encryption optional).
-          </p>
+        <p style={{
+          fontSize: "clamp(1rem, 2vw, 1.2rem)",
+          color: "var(--page-text-dim)",
+          lineHeight: 1.6,
+          maxWidth: 540,
+          marginBottom: 40,
+        }}>
+          Index any repo in your browser. Chat with its code using your own API key.
+          Embeddings, retrieval, and storage — all on-device.
+        </p>
 
-          {!gpuSupported && (
-            <div style={styles.webgpuWarning}>
-              <strong style={styles.webgpuWarningTitle}>Local Web-LLM is unavailable in this browser.</strong>
-              <p style={styles.webgpuWarningText}>
-                Use Gemini or Groq mode instead: open LLM settings and enter your API key.
-                Local indexing still works with CPU fallback but may be slower.
-                {gpuSupportReason !== "ok" ? ` Reason: ${gpuSupportReason}.` : ""}
-              </p>
-              <button
-                type="button"
-                className="btn btn-ghost"
-                style={styles.webgpuWarningBtn}
-                onClick={handleOpenLLMSettings}
-              >
-                Open LLM Settings
-              </button>
-            </div>
-          )}
-
-          {/* Search form */}
-          <div style={styles.formWrapper}>
-            <form
-              onSubmit={handleSubmit}
+        {/* WebGPU warning — only when !gpuSupported */}
+        {!gpuSupported && (
+          <div style={{
+            width: "100%",
+            maxWidth: 600,
+            textAlign: "left",
+            border: "1px solid #92400e",
+            background: "#1c1408",
+            padding: "14px 18px",
+            marginBottom: 24,
+            display: "flex",
+            flexDirection: "column",
+            gap: 8,
+          }}>
+            <strong style={{ fontSize: "13px", color: "#d97706", fontFamily: "var(--font-display)" }}>
+              Local WebGPU inference unavailable in this browser.
+            </strong>
+            <p style={{ margin: 0, fontSize: "12px", color: "#a16207", lineHeight: 1.5 }}>
+              Use Gemini or Groq instead — open settings and enter your API key.
+              Local indexing still works via CPU fallback.
+              {gpuSupportReason !== "ok" ? ` Reason: ${gpuSupportReason}.` : ""}
+            </p>
+            <button
+              type="button"
+              onClick={handleOpenLLMSettings}
               style={{
-                ...styles.form,
-                ...(isMobile && { flexDirection: "column" as const }),
+                alignSelf: "flex-start",
+                fontSize: "12px",
+                padding: "6px 12px",
+                border: "1px solid #92400e",
+                background: "transparent",
+                cursor: "pointer",
+                fontWeight: 700,
+                color: "#d97706",
+                fontFamily: "var(--font-sans)",
               }}
             >
-              <input
-                className="input"
-                type="text"
-                placeholder="https://github.com/owner/repo"
-                value={url}
-                onChange={(e) => setUrl(e.target.value)}
-                style={styles.urlInput}
-                id="repo-url-input"
-              />
-              <button type="submit" className="btn btn-primary" id="go-btn" style={styles.goBtn}>
-                Ask →
-              </button>
-            </form>
-            {error && <p style={styles.error}>{error}</p>}
+              Open Settings
+            </button>
           </div>
+        )}
 
-          <div style={styles.examples}>
-            <span style={styles.examplesLabel}>Example Repositories</span>
-            <div style={styles.examplesList}>
-              {EXAMPLE_REPOSITORIES.map((example) => (
-                <button
-                  key={`${example.owner}/${example.repo}`}
-                  type="button"
-                  className="btn btn-ghost"
-                  style={styles.exampleRepoBtn}
-                  onClick={() => router.push(`/${example.owner}/${example.repo}`)}
-                  title={`Open ${example.owner}/${example.repo}`}
+        {/* URL form */}
+        <div style={{ width: "100%", maxWidth: 620, display: "flex", flexDirection: "column", gap: 10 }}>
+          <form
+            onSubmit={handleSubmit}
+            style={{
+              display: "flex",
+              width: "100%",
+              border: "1px solid var(--page-border)",
+              boxShadow: "var(--page-shadow)",
+            }}
+          >
+            <input
+              type="text"
+              placeholder="github.com/owner/repo"
+              value={url}
+              onChange={(e) => setUrl(e.target.value)}
+              id="repo-url-input"
+              style={{
+                flex: 1,
+                padding: "16px 20px",
+                fontFamily: "var(--font-mono)",
+                fontSize: "1rem",
+                border: "none",
+                outline: "none",
+                background: "var(--page-surface)",
+                color: "var(--page-text)",
+              }}
+            />
+            <button
+              type="submit"
+              id="go-btn"
+              style={{
+                padding: "16px 28px",
+                background: "#0a0a0a",
+                color: "#f5f5f0",
+                border: "none",
+                cursor: "pointer",
+                fontWeight: 700,
+                fontSize: "1rem",
+                fontFamily: "var(--font-display)",
+                whiteSpace: "nowrap",
+                transition: "background 0.15s",
+              }}
+              onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.background = "#16a34a"; }}
+              onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.background = "#0a0a0a"; }}
+            >
+              Explore Repo →
+            </button>
+          </form>
+          {error && (
+            <p style={{
+              color: "#f87171",
+              fontSize: "13px",
+              textAlign: "left",
+              fontFamily: "var(--font-mono)",
+              padding: "8px 12px",
+              background: "#1c0a0a",
+              border: "1px solid #7f1d1d",
+            }}>
+              {error}
+            </p>
+          )}
+        </div>
+
+        {/* GitHub star link */}
+        <div style={{ marginTop: 24, display: "flex", alignItems: "center", gap: 12 }}>
+          <a
+            href="https://github.com/FloareDor/gitask"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="star-link"
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 8,
+              fontSize: "13px",
+              color: "var(--page-text-dim)",
+              textDecoration: "none",
+              border: "1px solid var(--page-border)",
+              padding: "5px 12px",
+              fontFamily: "var(--font-sans)",
+            }}
+          >
+            ★ Star on GitHub
+            <img
+              alt="GitHub stars"
+              src="https://img.shields.io/github/stars/FloareDor/gitask?style=social"
+              style={{ height: 18 }}
+            />
+          </a>
+        </div>
+      </section>
+
+      {/* RECENT CHATS — only if savedChats.length > 0 */}
+      {savedChats.length > 0 && (
+        <section style={{ padding: "40px 24px", background: "var(--page-bg)", borderTop: "1px solid var(--page-border)" }}>
+          <div style={{ maxWidth: 900, margin: "0 auto" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+              <p style={{ fontFamily: "var(--font-mono)", fontSize: "11px", textTransform: "uppercase", letterSpacing: "0.1em", color: "var(--page-text-muted)" }}>
+                Recent chats
+              </p>
+              <button
+                onClick={handleDeleteAllSavedChats}
+                style={{ fontSize: "11px", color: "var(--page-text-muted)", background: "none", border: "none", cursor: "pointer", textDecoration: "underline" }}
+              >
+                Clear all
+              </button>
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              {savedChats.slice(0, 5).map((chat) => (
+                <div
+                  key={chat.id}
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => handleOpenSavedChat(chat)}
+                  onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") handleOpenSavedChat(chat); }}
+                  style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 16px", background: "var(--page-surface)", border: "1px solid var(--page-border)", cursor: "pointer", transition: "transform 0.1s ease, box-shadow 0.1s ease, border-color 0.1s ease" }}
+                  onMouseEnter={(e) => {
+                    const el = e.currentTarget;
+                    el.style.transform = "translate(-3px, -3px)";
+                    el.style.boxShadow = "3px 3px 0 #16a34a";
+                    el.style.borderColor = "#16a34a";
+                  }}
+                  onMouseLeave={(e) => {
+                    const el = e.currentTarget;
+                    el.style.transform = "";
+                    el.style.boxShadow = "";
+                    el.style.borderColor = "var(--page-border)";
+                  }}
                 >
-                  {example.owner}/{example.repo}
-                </button>
+                  <span style={{ fontFamily: "var(--font-mono)", fontSize: "0.8rem", fontWeight: 600, color: "var(--page-text)", flexShrink: 0 }}>
+                    {chat.owner}/{chat.repo}
+                  </span>
+                  <span style={{ fontSize: "0.75rem", color: "var(--page-text-dim)", flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    {chat.label} · {chat.messageCount} msg{chat.messageCount === 1 ? "" : "s"}
+                  </span>
+                  <button
+                    onClick={(e) => { e.stopPropagation(); handleDeleteSavedChat(chat); }}
+                    style={{ fontSize: "11px", color: "var(--page-text-muted)", background: "none", border: "none", cursor: "pointer", flexShrink: 0 }}
+                  >
+                    Delete
+                  </button>
+                </div>
               ))}
             </div>
           </div>
+        </section>
+      )}
 
-          <div style={styles.quickLinks}>
-            <a
-              href={projectRepoUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              style={styles.starLink}
-              className="star-link"
-              aria-label="Star GitAsk on GitHub"
-              title="Open GitAsk on GitHub"
-            >
-              <span style={styles.starIcon}>★ Star on GitHub</span>
-              <img
-                alt="GitHub stars"
-                src="https://img.shields.io/github/stars/FloareDor/gitask?style=social"
-                style={styles.starBadge}
-              />
-            </a>
-          </div>
-
-          {savedChats.length > 0 && (
-            <div style={styles.savedChatsCard}>
-              <div style={styles.savedChatsHeader}>
-                <strong style={styles.savedChatsTitle}>Recent Chats</strong>
-                <button
-                  type="button"
-                  className="btn btn-ghost"
-                  style={styles.savedChatsClearAllBtn}
-                  onClick={handleDeleteAllSavedChats}
-                >
-                  Clear all chats
-                </button>
-              </div>
-              <div style={styles.savedChatsList}>
-                {savedChats.map((chat) => (
-                  <div key={chat.id} style={styles.savedChatRow}>
-                    <button
-                      type="button"
-                      className="btn btn-ghost"
-                      style={styles.savedChatOpenBtn}
-                      onClick={() => handleOpenSavedChat(chat)}
-                      title={`Open ${chat.owner}/${chat.repo}`}
-                    >
-                      {chat.owner}/{chat.repo}
-                    </button>
-                    <span style={styles.savedChatMeta}>
-                      {chat.label} · {chat.messageCount} msg{chat.messageCount === 1 ? "" : "s"}
-                    </span>
-                    <button
-                      type="button"
-                      className="btn btn-ghost"
-                      style={styles.savedChatDeleteBtn}
-                      onClick={() => handleDeleteSavedChat(chat)}
-                      title="Delete local chats for this repo"
-                    >
-                      Delete
-                    </button>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* Feature tags */}
-          <div style={styles.featureTags}>
-            {[
-              { icon: "⚡", label: "WebGPU Inference" },
-              { icon: "🌲", label: "AST Chunking" },
-              { icon: "🔍", label: "Hybrid Search" },
-              { icon: "🗜", label: "32× Binary Quantization" },
-              { icon: "🔐", label: "Key stays local" },
-            ].map((f) => (
-              <div key={f.label} style={styles.featureTag}>
-                <span style={{ fontSize: "14px" }}>{f.icon}</span>
-                <span style={{ fontSize: "12px", fontWeight: 600, color: "var(--text-secondary)" }}>{f.label}</span>
-              </div>
+      {/* EXAMPLE REPOS */}
+      <section style={{ padding: "60px 24px", background: "var(--page-bg)", borderTop: "1px solid var(--page-border)" }}>
+        <div style={{ maxWidth: 900, margin: "0 auto" }}>
+          <p style={{ fontFamily: "var(--font-mono)", fontSize: "11px", textTransform: "uppercase", letterSpacing: "0.1em", color: "var(--page-text-muted)", marginBottom: 24 }}>
+            Try an example
+          </p>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 16 }}>
+            {EXAMPLE_REPOSITORIES.map(({ owner, repo }) => (
+              <button
+                key={`${owner}/${repo}`}
+                onClick={() => router.push(`/${owner}/${repo}`)}
+                style={{
+                  display: "flex",
+                  flexDirection: "column",
+                  alignItems: "flex-start",
+                  gap: 10,
+                  padding: "20px 24px",
+                  background: "var(--page-surface)",
+                  border: "1px solid var(--page-border)",
+                  boxShadow: "var(--page-shadow-sm)",
+                  cursor: "pointer",
+                  textAlign: "left",
+                  fontFamily: "inherit",
+                  transition: "transform 0.1s, box-shadow 0.1s",
+                }}
+                onMouseEnter={(e) => { const el = e.currentTarget; el.style.transform = "translate(-2px,-2px)"; el.style.boxShadow = "var(--page-shadow-hover)"; }}
+                onMouseLeave={(e) => { const el = e.currentTarget; el.style.transform = ""; el.style.boxShadow = "var(--page-shadow-sm)"; }}
+              >
+                <span style={{ fontFamily: "var(--font-mono)", fontSize: "0.85rem", fontWeight: 600, color: "var(--page-text)" }}>
+                  {owner}/<span style={{ color: "#16a34a" }}>{repo}</span>
+                </span>
+                <span style={{ fontSize: "0.75rem", fontWeight: 700, color: "#16a34a" }}>Explore →</span>
+              </button>
             ))}
           </div>
         </div>
+      </section>
 
-        {/* Architecture Diagram Section */}
-        <section
-          ref={howSectionRef}
-          style={{
-            ...styles.howSection,
-            ...(isHowVisible ? styles.howSectionVisible : {}),
-          }}
-        >
-          <div style={styles.howHeader}>
-            <h2 style={styles.howTitle}>How It Works</h2>
+      {/* HOW IT WORKS + ARCHITECTURE — merged */}
+      <section
+        ref={howSectionRef}
+        style={{
+          padding: "80px 24px",
+          background: "var(--page-bg)",
+          borderTop: "1px solid var(--page-border)",
+          opacity: isHowVisible ? 1 : 0,
+          transform: isHowVisible ? "translateY(0)" : "translateY(20px)",
+          transition: "opacity 0.5s ease, transform 0.5s ease",
+        }}
+      >
+        <div style={{ maxWidth: 1100, margin: "0 auto" }}>
+          <p style={{ fontFamily: "var(--font-mono)", fontSize: "11px", textTransform: "uppercase", letterSpacing: "0.1em", color: "var(--page-text-muted)", marginBottom: 16, textAlign: "center" }}>
+            How it works
+          </p>
+          <h2 style={{ fontFamily: "var(--font-display)", fontWeight: 800, fontSize: "clamp(1.5rem, 4vw, 2.5rem)", color: "var(--page-text)", textAlign: "center", marginBottom: 48, letterSpacing: "-0.03em" }}>
+            Under the Hood
+          </h2>
+
+          {/* Step cards */}
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 0, marginBottom: 64 }}>
+            {[
+              { num: "01", title: "Paste a GitHub URL", desc: "Any public repo. Private repos with a token." },
+              { num: "02", title: "Index in your browser", desc: "AST chunking + embeddings. No server. Everything local." },
+              { num: "03", title: "Ask questions", desc: "Chat with your LLM of choice. Results cite real code." },
+            ].map((step, i) => (
+              <div key={step.num} style={{
+                padding: "32px 28px",
+                border: "1px solid var(--page-border)",
+                borderRight: i < 2 ? "none" : "1px solid var(--page-border)",
+                background: "var(--page-surface)",
+              }}>
+                <span style={{ fontFamily: "var(--font-mono)", fontSize: "2rem", fontWeight: 700, color: "var(--page-text-muted)", display: "block", marginBottom: 12 }}>{step.num}</span>
+                <h3 style={{ fontFamily: "var(--font-display)", fontWeight: 700, fontSize: "1rem", marginBottom: 8, color: "var(--page-text)" }}>{step.title}</h3>
+                <p style={{ fontSize: "0.85rem", color: "var(--page-text-dim)", lineHeight: 1.5 }}>{step.desc}</p>
+              </div>
+            ))}
           </div>
 
+          {/* Architecture diagram */}
           <ArchitectureDiagram />
-        </section>
-      <footer style={{ textAlign: "center", padding: "24px 0 8px", opacity: 0.5 }}>
-        <a href="/ablation" style={{ fontSize: "12px", color: "var(--text-muted)", textDecoration: "none", margin: "0 10px" }}>Ablation</a>
-        <span style={{ color: "var(--text-muted)", fontSize: "12px" }}>·</span>
-        <a href="/metrics" style={{ fontSize: "12px", color: "var(--text-muted)", textDecoration: "none", margin: "0 10px" }}>Metrics</a>
+        </div>
+      </section>
+
+      {/* FOOTER */}
+      <footer style={{ padding: "24px 40px", background: "var(--page-bg)", borderTop: "1px solid var(--page-border)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <span style={{ fontFamily: "var(--font-display)", fontWeight: 800, fontSize: "0.9rem", color: "var(--page-text-muted)" }}>gitask</span>
+        <div style={{ display: "flex", gap: 16 }}>
+          <a href="/ablation" style={{ fontSize: "12px", color: "var(--page-text-muted)", textDecoration: "none" }}>Ablation</a>
+          <a href="/metrics" style={{ fontSize: "12px", color: "var(--page-text-muted)", textDecoration: "none" }}>Metrics</a>
+          <a href="https://github.com/FloareDor/gitask" target="_blank" rel="noopener noreferrer" style={{ fontSize: "12px", color: "var(--page-text-muted)", textDecoration: "none" }}>GitHub</a>
+        </div>
       </footer>
-      </main>
     </div>
   );
 }
-
-const styles: Record<string, React.CSSProperties> = {
-  wrapper: {
-    minHeight: "100vh",
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    position: "relative",
-    overflow: "hidden",
-  },
-  /* Decorative corner lines — neobrutalism geometric accent */
-  cornerTL: {
-    position: "absolute",
-    top: 0,
-    left: 0,
-    width: "220px",
-    height: "220px",
-    borderRight: "2px solid #2d2d42",
-    borderBottom: "2px solid #2d2d42",
-    borderBottomRightRadius: "0",
-    pointerEvents: "none",
-    opacity: 0.5,
-  },
-  cornerBR: {
-    position: "absolute",
-    bottom: 0,
-    right: 0,
-    width: "220px",
-    height: "220px",
-    borderLeft: "2px solid #2d2d42",
-    borderTop: "2px solid #2d2d42",
-    pointerEvents: "none",
-    opacity: 0.5,
-  },
-  main: {
-    position: "relative",
-    zIndex: 1,
-    width: "100%",
-    maxWidth: "820px",
-    padding: "40px 24px",
-    textAlign: "center",
-  },
-  hero: {
-    display: "flex",
-    flexDirection: "column",
-    alignItems: "center",
-    gap: "28px",
-  },
-  badge: {
-    display: "inline-flex",
-    alignItems: "center",
-    gap: "8px",
-    padding: "6px 16px",
-    borderRadius: "2px",
-    fontSize: "12px",
-    fontWeight: 600,
-    letterSpacing: "0.04em",
-    textTransform: "uppercase" as const,
-    color: "var(--text-secondary)",
-    background: "var(--bg-card)",
-    border: "2px solid var(--border)",
-    fontFamily: "var(--font-mono)",
-  },
-  badgeDot: {
-    width: "7px",
-    height: "7px",
-    borderRadius: "50%",
-    background: "var(--success)",
-    display: "inline-block",
-  },
-  title: {
-    fontSize: "clamp(2rem, 5vw, 3.4rem)",
-    fontWeight: 800,
-    lineHeight: 1.1,
-    letterSpacing: "-0.03em",
-    fontFamily: "var(--font-display)",
-  },
-  gradient: {
-    background: "linear-gradient(135deg, var(--accent), #a78bfa, #60a5fa)",
-    WebkitBackgroundClip: "text",
-    WebkitTextFillColor: "transparent",
-  },
-  subtitle: {
-    fontSize: "16px",
-    color: "var(--text-secondary)",
-    lineHeight: 1.65,
-    maxWidth: "540px",
-  },
-  webgpuWarning: {
-    width: "100%",
-    maxWidth: "620px",
-    textAlign: "left",
-    border: "2px solid rgba(245,158,11,0.5)",
-    background: "rgba(245,158,11,0.08)",
-    borderRadius: "var(--radius)",
-    padding: "12px 14px",
-    display: "flex",
-    flexDirection: "column" as const,
-    gap: "8px",
-  },
-  webgpuWarningTitle: {
-    fontSize: "13px",
-    color: "var(--warning)",
-    fontFamily: "var(--font-display)",
-  },
-  webgpuWarningText: {
-    margin: 0,
-    fontSize: "12px",
-    lineHeight: 1.5,
-    color: "var(--text-secondary)",
-  },
-  webgpuWarningBtn: {
-    alignSelf: "flex-start",
-    fontSize: "12px",
-    padding: "6px 10px",
-  },
-  formWrapper: {
-    width: "100%",
-    maxWidth: "620px",
-    display: "flex",
-    flexDirection: "column" as const,
-    gap: "10px",
-  },
-  form: {
-    display: "flex",
-    gap: "12px",
-    width: "100%",
-  },
-  urlInput: {
-    flex: 1,
-    fontSize: "15px",
-  },
-  goBtn: {
-    flexShrink: 0,
-    padding: "12px 24px",
-    fontSize: "15px",
-    fontFamily: "var(--font-display)",
-    fontWeight: 700,
-  },
-  settingsFixed: {
-    position: "fixed",
-    top: "20px",
-    right: "20px",
-    zIndex: 50,
-  },
-  error: {
-    color: "var(--error)",
-    fontSize: "13px",
-    textAlign: "left" as const,
-    fontFamily: "var(--font-mono)",
-    padding: "8px 12px",
-    background: "rgba(239,68,68,0.08)",
-    border: "2px solid rgba(239,68,68,0.3)",
-    borderRadius: "var(--radius-sm)",
-  },
-  examples: {
-    width: "100%",
-    maxWidth: "620px",
-    display: "flex",
-    flexDirection: "column" as const,
-    gap: "8px",
-    alignItems: "center",
-  },
-  examplesLabel: {
-    fontSize: "11px",
-    letterSpacing: "0.08em",
-    textTransform: "uppercase" as const,
-    color: "var(--text-muted)",
-    fontFamily: "var(--font-mono)",
-  },
-  examplesList: {
-    display: "flex",
-    gap: "8px",
-    flexWrap: "wrap" as const,
-    justifyContent: "center",
-  },
-  exampleRepoBtn: {
-    fontSize: "12px",
-    fontFamily: "var(--font-mono)",
-    border: "2px solid var(--border)",
-    padding: "6px 10px",
-    background: "var(--bg-card)",
-    color: "var(--text-primary)",
-    cursor: "pointer",
-    whiteSpace: "nowrap" as const,
-  },
-  evalsLink: {
-    fontSize: "13px",
-    fontWeight: 600,
-    color: "var(--text-secondary)",
-    textDecoration: "none",
-    padding: "8px 16px",
-    borderRadius: "var(--radius-sm)",
-    border: "2px solid var(--border)",
-    transition: "all 0.1s ease",
-    background: "var(--bg-card)",
-  },
-  quickLinks: {
-    display: "flex",
-    alignItems: "center",
-    gap: "10px",
-    flexWrap: "wrap" as const,
-    justifyContent: "center",
-  },
-  starLink: {
-    fontSize: "13px",
-    fontWeight: 600,
-    color: "var(--text-primary)",
-    textDecoration: "none",
-    padding: "7px 12px",
-    borderRadius: "var(--radius-sm)",
-    border: "2px solid var(--border)",
-    transition: "all 0.1s ease",
-    background: "var(--bg-card)",
-    display: "inline-flex",
-    alignItems: "center",
-    gap: "8px",
-  },
-  starIcon: {
-    fontSize: "13px",
-    fontWeight: 700,
-  },
-  starBadge: {
-    height: "20px",
-    width: "auto",
-    display: "block",
-  },
-  featureTags: {
-    display: "flex",
-    flexWrap: "wrap" as const,
-    gap: "8px",
-    justifyContent: "center",
-    width: "100%",
-    maxWidth: "620px",
-    marginTop: "4px",
-  },
-  featureTag: {
-    display: "inline-flex",
-    alignItems: "center",
-    gap: "6px",
-    padding: "6px 14px",
-    background: "var(--bg-card)",
-    border: "2px solid var(--border)",
-    borderRadius: "var(--radius-sm)",
-    whiteSpace: "nowrap" as const,
-  },
-  savedChatsCard: {
-    width: "100%",
-    maxWidth: "620px",
-    border: "2px solid var(--border)",
-    borderRadius: "var(--radius)",
-    background: "var(--bg-card)",
-    boxShadow: "3px 3px 0 var(--accent)",
-    padding: "12px",
-    display: "flex",
-    flexDirection: "column" as const,
-    gap: "8px",
-  },
-  savedChatsHeader: {
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "space-between",
-    gap: "10px",
-  },
-  savedChatsTitle: {
-    fontSize: "13px",
-    fontFamily: "var(--font-display)",
-    letterSpacing: "0.04em",
-    textTransform: "uppercase" as const,
-    color: "var(--text-secondary)",
-  },
-  savedChatsClearAllBtn: {
-    fontSize: "11px",
-    padding: "4px 8px",
-    color: "var(--text-muted)",
-  },
-  savedChatsList: {
-    display: "flex",
-    flexDirection: "column" as const,
-    gap: "6px",
-  },
-  savedChatRow: {
-    display: "grid",
-    gridTemplateColumns: "minmax(160px, auto) 1fr auto",
-    alignItems: "center",
-    gap: "8px",
-    border: "2px solid var(--border)",
-    borderRadius: "var(--radius-sm)",
-    background: "var(--bg-secondary)",
-    padding: "8px",
-  },
-  savedChatOpenBtn: {
-    justifyContent: "flex-start",
-    width: "100%",
-    fontSize: "12px",
-    padding: "6px 8px",
-    border: "none",
-    boxShadow: "none",
-    color: "var(--accent)",
-    fontFamily: "var(--font-mono)",
-    fontWeight: 700,
-    minWidth: 0,
-  },
-  savedChatMeta: {
-    fontSize: "11px",
-    color: "var(--text-muted)",
-    fontFamily: "var(--font-mono)",
-    textAlign: "left" as const,
-    overflow: "hidden",
-    textOverflow: "ellipsis",
-    whiteSpace: "nowrap" as const,
-  },
-  savedChatDeleteBtn: {
-    fontSize: "11px",
-    padding: "6px 8px",
-    color: "var(--error)",
-    border: "none",
-    boxShadow: "none",
-  },
-  howSection: {
-    width: "100%",
-    marginTop: "120px",
-    opacity: 0,
-    transform: "translateY(24px)",
-    transition: "opacity 0.5s ease, transform 0.5s ease",
-  },
-  howSectionVisible: {
-    opacity: 1,
-    transform: "translateY(0)",
-  },
-  howHeader: {
-    textAlign: "center" as const,
-    marginBottom: "28px",
-  },
-  howTitle: {
-    fontSize: "clamp(1.5rem, 2.4vw, 2rem)",
-    fontWeight: 800,
-    letterSpacing: "-0.02em",
-    fontFamily: "var(--font-display)",
-  },
-};

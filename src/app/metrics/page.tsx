@@ -3,6 +3,7 @@
 import type { CSSProperties } from "react";
 import { useEffect, useState, useCallback } from "react";
 import { getMetrics, clearMetrics, type MetricEvent, type AggregateTotals } from "@/lib/metrics";
+import { ThemeToggle } from "@/components/ThemeToggle";
 
 function fmtMs(ms: number): string {
   if (ms < 1000) return `${ms.toFixed(0)}ms`;
@@ -54,13 +55,13 @@ const barRowStyles: Record<string, CSSProperties> = {
   label: {
     fontSize: "12px",
     fontFamily: "var(--font-mono)",
-    color: "var(--text-secondary)",
+    color: "var(--page-text-dim)",
     textAlign: "right",
   },
   track: {
     height: "14px",
-    background: "var(--bg-secondary)",
-    border: "2px solid var(--border)",
+    background: "var(--page-surface-alt)",
+    border: "2px solid var(--page-border)",
     position: "relative",
     overflow: "hidden",
   },
@@ -74,7 +75,7 @@ const barRowStyles: Record<string, CSSProperties> = {
   detail: {
     fontSize: "12px",
     fontFamily: "var(--font-mono)",
-    color: "var(--text-muted)",
+    color: "var(--page-text-muted)",
   },
 };
 
@@ -122,19 +123,19 @@ const eventRowStyles: Record<string, CSSProperties> = {
     gap: "12px",
     alignItems: "center",
     padding: "7px 14px",
-    borderBottom: "1px solid var(--border)",
+    borderBottom: "1px solid var(--page-border)",
     fontSize: "12px",
     fontFamily: "var(--font-mono)",
   },
   ts: {
-    color: "var(--text-muted)",
+    color: "var(--page-text-muted)",
   },
   type: {
     color: "var(--accent)",
     fontWeight: 700,
   },
   detail: {
-    color: "var(--text-secondary)",
+    color: "var(--page-text-dim)",
     overflow: "hidden",
     textOverflow: "ellipsis",
     whiteSpace: "nowrap",
@@ -231,6 +232,7 @@ export default function MetricsPage() {
             ← back
           </a>
           <h1 style={styles.title}>Compute Metrics</h1>
+          <ThemeToggle />
           <button
             type="button"
             onClick={handleClear}
@@ -376,8 +378,8 @@ const sectionStyles: Record<string, CSSProperties> = {
     gap: "12px",
   },
   statCard: {
-    border: "2px solid var(--border)",
-    background: "var(--bg-card)",
+    border: "2px solid var(--page-border)",
+    background: "var(--page-surface)",
     boxShadow: "3px 3px 0 var(--accent)",
     padding: "16px 14px",
     display: "flex",
@@ -389,12 +391,12 @@ const sectionStyles: Record<string, CSSProperties> = {
     fontSize: "28px",
     fontWeight: 800,
     fontFamily: "var(--font-display)",
-    color: "var(--text-primary)",
+    color: "var(--page-text)",
     letterSpacing: "-0.03em",
   },
   statPrefix: {
     fontSize: "16px",
-    color: "var(--text-muted)",
+    color: "var(--page-text-muted)",
     marginRight: "1px",
   },
   statLabel: {
@@ -403,20 +405,20 @@ const sectionStyles: Record<string, CSSProperties> = {
     fontWeight: 700,
     letterSpacing: "0.07em",
     textTransform: "uppercase",
-    color: "var(--text-muted)",
+    color: "var(--page-text-muted)",
   },
   card: {
-    border: "2px solid var(--border)",
-    background: "var(--bg-card)",
-    boxShadow: "3px 3px 0 var(--border)",
+    border: "2px solid var(--page-border)",
+    background: "var(--page-surface)",
+    boxShadow: "3px 3px 0 var(--page-border)",
   },
   cardTopBar: {
     display: "flex",
     alignItems: "center",
     justifyContent: "space-between",
     padding: "9px 14px",
-    borderBottom: "2px solid var(--border)",
-    background: "var(--bg-secondary)",
+    borderBottom: "2px solid var(--page-border)",
+    background: "var(--page-surface-alt)",
   },
   cardLabel: {
     fontSize: "11px",
@@ -429,12 +431,12 @@ const sectionStyles: Record<string, CSSProperties> = {
   cardHint: {
     fontSize: "11px",
     fontFamily: "var(--font-mono)",
-    color: "var(--text-muted)",
+    color: "var(--page-text-muted)",
   },
   empty: {
     padding: "24px 14px",
     fontSize: "13px",
-    color: "var(--text-muted)",
+    color: "var(--page-text-muted)",
     fontFamily: "var(--font-mono)",
     textAlign: "center",
   },
@@ -442,9 +444,10 @@ const sectionStyles: Record<string, CSSProperties> = {
 
 const styles: Record<string, CSSProperties> = {
   page: {
+    color: "var(--page-text)",
     minHeight: "100vh",
     background:
-      "radial-gradient(circle at 10% 10%, rgba(99, 102, 241, 0.08), transparent 40%), radial-gradient(circle at 85% 15%, rgba(234, 88, 12, 0.07), transparent 45%), var(--bg-primary)",
+      "radial-gradient(circle at 10% 10%, rgba(99, 102, 241, 0.08), transparent 40%), radial-gradient(circle at 85% 15%, rgba(234, 88, 12, 0.07), transparent 45%), var(--page-bg)",
   },
   container: {
     maxWidth: "860px",
@@ -460,13 +463,13 @@ const styles: Record<string, CSSProperties> = {
     gap: "16px",
   },
   back: {
-    color: "var(--text-secondary)",
+    color: "var(--page-text-dim)",
     textDecoration: "none",
     fontSize: "12px",
     fontFamily: "var(--font-mono)",
-    border: "2px solid var(--border)",
+    border: "2px solid var(--page-border)",
     padding: "6px 12px",
-    background: "var(--bg-card)",
+    background: "var(--page-surface)",
     flexShrink: 0,
     transition: "color 0.1s ease, border-color 0.1s ease",
   },
@@ -476,7 +479,7 @@ const styles: Record<string, CSSProperties> = {
     fontSize: "28px",
     fontWeight: 800,
     letterSpacing: "-0.03em",
-    color: "var(--text-primary)",
+    color: "var(--page-text)",
     flex: 1,
   },
   clearBtn: {
@@ -498,8 +501,8 @@ const styles: Record<string, CSSProperties> = {
     gap: "8px",
     fontFamily: "var(--font-mono)",
     fontSize: "11px",
-    color: "var(--text-muted)",
-    borderTop: "2px solid var(--border)",
+    color: "var(--page-text-muted)",
+    borderTop: "2px solid var(--page-border)",
     paddingTop: "14px",
   },
   footerSep: {
