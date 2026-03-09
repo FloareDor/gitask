@@ -141,7 +141,7 @@ export async function initEmbedder(
 
 				const tokenizer = await AutoTokenizer.from_pretrained(EMBEDDING_MODEL_ID);
 
-				// On WebGPU, prefer q4f16 for throughput and memory, then fp16 if needed.
+				// On WebGPU, prefer fp16 and fall back to the default fp32 model.
 				// On WASM, prefer q8 and fall back to the default unquantized model.
 				// eslint-disable-next-line @typescript-eslint/no-explicit-any
 				const modelOptions: Record<string, any> = {
@@ -151,25 +151,16 @@ export async function initEmbedder(
 
 				let model;
 				if (device === "webgpu") {
-					modelOptions.dtype = "q4f16";
+					modelOptions.dtype = "fp16";
 					try {
 						model = await AutoModel.from_pretrained(EMBEDDING_MODEL_ID, modelOptions);
-						console.info("Embedder loaded WebGPU quantized model (q4f16)");
-						onProgress?.("Loaded WebGPU q4f16 model");
-					} catch (q4f16Error) {
-						console.warn("WebGPU q4f16 unavailable, falling back to fp16", q4f16Error);
-						onProgress?.("q4f16 unavailable, falling back to fp16");
-						modelOptions.dtype = "fp16";
-						try {
-							model = await AutoModel.from_pretrained(EMBEDDING_MODEL_ID, modelOptions);
-							console.info("Embedder loaded WebGPU fp16 fallback model");
-							onProgress?.("Loaded WebGPU fp16 fallback");
-						} catch (fp16Error) {
-							console.warn("WebGPU fp16 unavailable, falling back to fp32", fp16Error);
-							delete modelOptions.dtype;
-							model = await AutoModel.from_pretrained(EMBEDDING_MODEL_ID, modelOptions);
-							onProgress?.("Loaded WebGPU fp32 fallback");
-						}
+						console.info("Embedder loaded WebGPU fp16 model");
+						onProgress?.("Loaded WebGPU fp16 model");
+					} catch (fp16Error) {
+						console.warn("WebGPU fp16 unavailable, falling back to fp32", fp16Error);
+						delete modelOptions.dtype;
+						model = await AutoModel.from_pretrained(EMBEDDING_MODEL_ID, modelOptions);
+						onProgress?.("Loaded WebGPU fp32 fallback");
 					}
 				} else {
 					modelOptions.dtype = "q8";
