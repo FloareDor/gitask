@@ -173,7 +173,7 @@ describe("Pipeline Speed Benchmark", () => {
 				allChunks.push(...chunkCode(file.path, content, lang ?? undefined));
 			}
 
-			console.log(`  Loading embedding model (Xenova/all-MiniLM-L6-v2)…`);
+			console.log(`  Loading embedding model (Xenova/all-MiniLM-L12-v2)…`);
 			const modelLoadStart = performance.now();
 			await initEmbedder((msg) => console.log(`  [model] ${msg}`));
 			const modelLoadMs = performance.now() - modelLoadStart;

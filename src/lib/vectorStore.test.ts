@@ -68,7 +68,7 @@ describe("VectorStore", () => {
 
 	it("treats only the active embedding model as cache-compatible", () => {
 		expect(isCompatibleEmbeddingModel(EMBEDDING_MODEL_ID)).toBe(true);
-		expect(isCompatibleEmbeddingModel("Xenova/all-MiniLM-L12-v2")).toBe(false);
+		expect(isCompatibleEmbeddingModel("Xenova/all-MiniLM-L6-v2")).toBe(false);
 		expect(isCompatibleEmbeddingModel(undefined)).toBe(false);
 	});
 });
