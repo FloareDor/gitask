@@ -35,6 +35,7 @@ let pipelinePromise: Promise<void> | null = null;
 let activeDevice: "webgpu" | "wasm" | null = null;
 
 const EMBEDDER_INIT_TIMEOUT_MS = 90_000;
+const EMBEDDER_WARMUP_TEXT = "warmup";
 
 /** Returns the device the embedder is actually running on, or null if not yet initialized. */
 export function getEmbedderDevice(): "webgpu" | "wasm" | null {
@@ -140,32 +141,58 @@ export async function initEmbedder(
 
 				const tokenizer = await AutoTokenizer.from_pretrained(EMBEDDING_MODEL_ID);
 
-				// On WASM, load INT8 quantized model (~2-4x faster, ~95% quality retained).
-				// On WebGPU, use fp32 — GPU handles it fast without quality tradeoff.
+				// On WebGPU, prefer q4f16 for throughput and memory, then fp16 if needed.
+				// On WASM, prefer q8 and fall back to the default unquantized model.
 				// eslint-disable-next-line @typescript-eslint/no-explicit-any
 				const modelOptions: Record<string, any> = {
 					device,
 					session_options: { log_severity_level: 3 },
 				};
-				if (device === "wasm") {
-					modelOptions.dtype = "q8";
-				}
 
 				let model;
-				try {
-					model = await AutoModel.from_pretrained(EMBEDDING_MODEL_ID, modelOptions);
-					if (device === "wasm") {
+				if (device === "webgpu") {
+					modelOptions.dtype = "q4f16";
+					try {
+						model = await AutoModel.from_pretrained(EMBEDDING_MODEL_ID, modelOptions);
+						console.info("Embedder loaded WebGPU quantized model (q4f16)");
+						onProgress?.("Loaded WebGPU q4f16 model");
+					} catch (q4f16Error) {
+						console.warn("WebGPU q4f16 unavailable, falling back to fp16", q4f16Error);
+						onProgress?.("q4f16 unavailable, falling back to fp16");
+						modelOptions.dtype = "fp16";
+						try {
+							model = await AutoModel.from_pretrained(EMBEDDING_MODEL_ID, modelOptions);
+							console.info("Embedder loaded WebGPU fp16 fallback model");
+							onProgress?.("Loaded WebGPU fp16 fallback");
+						} catch (fp16Error) {
+							console.warn("WebGPU fp16 unavailable, falling back to fp32", fp16Error);
+							delete modelOptions.dtype;
+							model = await AutoModel.from_pretrained(EMBEDDING_MODEL_ID, modelOptions);
+							onProgress?.("Loaded WebGPU fp32 fallback");
+						}
+					}
+				} else {
+					modelOptions.dtype = "q8";
+					try {
+						model = await AutoModel.from_pretrained(EMBEDDING_MODEL_ID, modelOptions);
 						console.info("Embedder loaded INT8 quantized model (q8)");
 						onProgress?.("Loaded INT8 model (faster)");
+					} catch {
+						console.warn("INT8 model unavailable, falling back to fp32");
+						delete modelOptions.dtype;
+						model = await AutoModel.from_pretrained(EMBEDDING_MODEL_ID, modelOptions);
 					}
-				} catch {
-					// INT8 not available for this model variant — fall back to fp32
-					console.warn("INT8 model unavailable, falling back to fp32");
-					delete modelOptions.dtype;
-					model = await AutoModel.from_pretrained(EMBEDDING_MODEL_ID, modelOptions);
 				}
 
 				embedRuntime = { tokenizer, model };
+				if (device === "webgpu") {
+					onProgress?.("Warming up WebGPU shaders...");
+					const warmupInputs = tokenizer([EMBEDDER_WARMUP_TEXT], {
+						truncation: true,
+						padding: true,
+					});
+					await model(warmupInputs);
+				}
 
 				clearTimeout(timeoutId);
 				onProgress?.(`Embedding model ready (${EMBEDDING_MODEL_ID})`);
