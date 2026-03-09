@@ -999,7 +999,7 @@ ${context}`;
 								<EmptyChat
 									owner={owner}
 									repo={repo}
-									onSelectSuggestion={setInput}
+									onSelectSuggestion={(suggestion) => { void handleSend(suggestion); }}
 								/>
 							)}
 
