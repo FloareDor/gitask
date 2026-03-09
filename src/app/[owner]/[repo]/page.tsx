@@ -484,9 +484,10 @@ export default function RepoPage({
 		setContextMeta(null);
 	}, [activeChatId, chatSessions]);
 
-	const handleDeleteActiveChat = useCallback(async () => {
-		if (isGeneratingRef.current || !activeChatId) return;
-		const current = chatSessions.find((session) => session.chat_id === activeChatId);
+	const handleDeleteChat = useCallback(async (chatId: string) => {
+		if (isGeneratingRef.current || !chatId) return;
+		const current = chatSessions.find((session) => session.chat_id === chatId);
+		if (!current) return;
 		const isLastChat = chatSessions.length <= 1;
 		const confirmMessage = isLastChat
 			? `Delete "${current?.title ?? "this chat"}"? This is the last chat for ${owner}/${repo}, so indexed files will also be removed.`
@@ -516,16 +517,23 @@ export default function RepoPage({
 			return;
 		}
 
-		const currentIndex = chatSessions.findIndex((session) => session.chat_id === activeChatId);
-		const nextSessions = chatSessions.filter((session) => session.chat_id !== activeChatId);
-		const fallback = nextSessions[Math.max(0, currentIndex - 1)] ?? nextSessions[0] ?? null;
+		const currentIndex = chatSessions.findIndex((session) => session.chat_id === chatId);
+		const nextSessions = chatSessions.filter((session) => session.chat_id !== chatId);
+		const deletingActiveChat = chatId === activeChatId;
+		const fallback = deletingActiveChat
+			? nextSessions[Math.max(0, currentIndex - 1)] ?? nextSessions[0] ?? null
+			: null;
+
 		setChatSessions(nextSessions);
-		setActiveChatId(fallback?.chat_id ?? null);
-		setMessages(fallback?.messages ?? []);
-		setInput("");
-		setContextChunks([]);
-		setContextMeta(null);
-		router.push("/");
+
+		if (deletingActiveChat) {
+			pendingChatSwitchRef.current = fallback?.chat_id ?? null;
+			setActiveChatId(fallback?.chat_id ?? null);
+			setMessages(fallback?.messages ?? []);
+			setInput("");
+			setContextChunks([]);
+			setContextMeta(null);
+		}
 	}, [activeChatId, chatSessions, chatStorageKey, owner, repo, router]);
 
 	const handleClearCacheAndReindex = useCallback(async () => {
@@ -967,6 +975,7 @@ ${context}`;
 					textChunkCounts={textChunkCounts}
 					sidebarCollapsed={sidebarCollapsed}
 					onSelectChat={handleSelectChat}
+					onDeleteChat={(chatId) => { void handleDeleteChat(chatId); }}
 					onCreateChat={handleCreateChat}
 					onCollapse={() => setSidebarCollapsed((v) => !v)}
 					onRequestNotification={handleRequestNotificationPermission}

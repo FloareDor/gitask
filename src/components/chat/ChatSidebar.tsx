@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import AstTreeView from "@/components/AstTreeView";
 import type { ChatSession } from "@/app/[owner]/[repo]/types";
 import type { IndexProgress, AstNode } from "@/lib/indexer";
@@ -19,6 +20,7 @@ interface ChatSidebarProps {
 	textChunkCounts: Record<string, number>;
 	sidebarCollapsed: boolean;
 	onSelectChat: (id: string) => void;
+	onDeleteChat: (id: string) => void;
 	onCreateChat: () => void;
 	onCollapse: () => void;
 	onRequestNotification: () => void;
@@ -39,10 +41,13 @@ export function ChatSidebar({
 	textChunkCounts,
 	sidebarCollapsed,
 	onSelectChat,
+	onDeleteChat,
 	onCreateChat,
 	onCollapse,
 	onRequestNotification,
 }: ChatSidebarProps) {
+	const [interactiveChatId, setInteractiveChatId] = useState<string | null>(null);
+
 	return (
 		<aside style={{
 			width: sidebarCollapsed ? 0 : 220,
@@ -108,21 +113,74 @@ export function ChatSidebar({
 					<div>
 						<p style={{ fontFamily: "var(--font-mono)", fontSize: "10px", textTransform: "uppercase", letterSpacing: "0.08em", color: "var(--text-on-dark-muted)", marginBottom: 8, margin: "0 0 8px 0" }}>Chats</p>
 						<div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-							{orderedChatSessions.map(session => (
-								<button
-									key={session.chat_id}
-									onClick={() => onSelectChat(session.chat_id)}
-									style={{
-										textAlign: "left", background: activeChatId === session.chat_id ? "var(--bg-glass)" : "transparent",
-										border: activeChatId === session.chat_id ? "1px solid var(--border-dark)" : "1px solid transparent",
-										padding: "6px 8px", cursor: "pointer", color: activeChatId === session.chat_id ? "var(--text-on-dark)" : "var(--text-on-dark-muted)",
-										fontSize: "11px", fontFamily: "var(--font-mono)",
-										overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
-									}}
-								>
-									{session.title}
-								</button>
-							))}
+							{orderedChatSessions.map((session) => {
+								const isActive = activeChatId === session.chat_id;
+								const showDelete = interactiveChatId === session.chat_id;
+								return (
+									<div
+										key={session.chat_id}
+										onMouseEnter={() => setInteractiveChatId(session.chat_id)}
+										onMouseLeave={() => setInteractiveChatId((current) => current === session.chat_id ? null : current)}
+										onFocusCapture={() => setInteractiveChatId(session.chat_id)}
+										onBlurCapture={() => setInteractiveChatId((current) => current === session.chat_id ? null : current)}
+										style={{
+											display: "flex",
+											alignItems: "center",
+											gap: 6,
+											background: isActive ? "var(--bg-glass)" : "transparent",
+											border: isActive ? "1px solid var(--border-dark)" : "1px solid transparent",
+											padding: 2,
+										}}
+									>
+										<button
+											onClick={() => onSelectChat(session.chat_id)}
+											style={{
+												flex: 1,
+												minWidth: 0,
+												textAlign: "left",
+												background: "transparent",
+												border: "none",
+												padding: "6px 6px",
+												cursor: "pointer",
+												color: isActive ? "var(--text-on-dark)" : "var(--text-on-dark-muted)",
+												fontSize: "11px",
+												fontFamily: "var(--font-mono)",
+												overflow: "hidden",
+												textOverflow: "ellipsis",
+												whiteSpace: "nowrap",
+											}}
+										>
+											{session.title}
+										</button>
+										<button
+											type="button"
+											onClick={(event) => {
+												event.stopPropagation();
+												onDeleteChat(session.chat_id);
+											}}
+											aria-label={`Delete ${session.title}`}
+											title={`Delete ${session.title}`}
+											style={{
+												flexShrink: 0,
+												padding: "4px 8px",
+												border: "1px solid rgba(220,38,38,0.45)",
+												background: showDelete ? "rgba(220,38,38,0.12)" : "transparent",
+												color: showDelete ? "#fca5a5" : "rgba(252,165,165,0.0)",
+												cursor: showDelete ? "pointer" : "default",
+												fontSize: "10px",
+												fontFamily: "var(--font-mono)",
+												textTransform: "uppercase",
+												letterSpacing: "0.06em",
+												opacity: showDelete ? 1 : 0,
+												pointerEvents: showDelete ? "auto" : "none",
+												transition: "opacity 0.16s ease, background 0.16s ease, color 0.16s ease",
+											}}
+										>
+											Del
+										</button>
+									</div>
+								);
+							})}
 							<button
 								onClick={onCreateChat}
 								style={{ textAlign: "left", background: "transparent", border: "1px solid var(--border-dark)", padding: "6px 8px", cursor: "pointer", color: "var(--text-on-dark-muted)", fontSize: "11px", fontFamily: "var(--font-mono)" }}
