@@ -15,7 +15,7 @@ import {
 import { recordIndex } from "./metrics";
 import { chunkCode, chunkFromTree, type CodeChunk } from "./chunker";
 import { CHUNKING_LIMITS, detectLanguage } from "./chunker";
-import { embedChunks, initEmbedder, type EmbeddedChunk } from "./embedder";
+import { embedChunks, initEmbedder, getEmbedderDevice, resolveEmbedConfig, type EmbeddedChunk } from "./embedder";
 import { VectorStore } from "./vectorStore";
 import { collectGraphMetadataFromNode } from "./graph";
 import {
@@ -335,6 +335,16 @@ export async function indexRepository(
 							total: filesToAdd.length,
 						})
 					);
+					const embedDevice = getEmbedderDevice() ?? "wasm";
+					const embedConfig = resolveEmbedConfig(embedDevice);
+					if (embedDevice === "wasm") {
+						onProgress?.({
+							phase: "embedding",
+							message: `Using CPU (WASM) for embeddings — WebGPU not available. Embedding will be slower.`,
+							current: 0,
+							total: filesToAdd.length,
+						});
+					}
 					const chunkWorkerCount = resolveChunkWorkerCount(filesToAdd.length, Boolean(token));
 					const allNewChunks: CodeChunk[] = [];
 					const newDeps: Record<string, { imports: string[]; definitions: string[] }> = {};
@@ -378,8 +388,10 @@ export async function indexRepository(
 									total,
 								});
 							},
-							1,
-							signal
+							embedConfig.batchSize,
+							signal,
+							undefined,
+							embedConfig.workerCount
 						);
 						store.insert(embeddedNew);
 					}
@@ -616,6 +628,26 @@ export async function indexRepository(
 		})
 	);
 
+	const embedDevice = getEmbedderDevice() ?? "wasm";
+	const embedConfig = resolveEmbedConfig(embedDevice);
+	if (embedDevice === "wasm") {
+		onProgress?.({
+			phase: "embedding",
+			message: `Using CPU (WASM) for embeddings — WebGPU not available. Embedding will be slower.${embedConfig.workerCount > 1 ? ` Using ${embedConfig.workerCount} parallel workers.` : ""}`,
+			current: embeddedSoFar.length,
+			total: allChunks.length,
+			estimatedSizeBytes: estimatedBytes,
+		});
+	} else if (embedConfig.batchSize > 1) {
+		onProgress?.({
+			phase: "embedding",
+			message: `WebGPU detected — using batch size ${embedConfig.batchSize} for fast embedding`,
+			current: embeddedSoFar.length,
+			total: allChunks.length,
+			estimatedSizeBytes: estimatedBytes,
+		});
+	}
+
 	let embedded: EmbeddedChunk[];
 	if (chunksToEmbed.length === 0) {
 		embedded = embeddedSoFar;
@@ -662,7 +694,7 @@ export async function indexRepository(
 					estimatedSizeBytes: estimatedBytes,
 				});
 			},
-			1, // was 8 — use 1 to avoid overloading laptop during embedding
+			embedConfig.batchSize,
 			signal,
 			(batchResults) => {
 				const soFar = [...embeddedSoFar, ...batchResults];
@@ -687,7 +719,8 @@ export async function indexRepository(
 						estimatedSizeBytes: estimatedBytes,
 					});
 				});
-			}
+			},
+			embedConfig.workerCount
 		);
 		embedded = [...embeddedSoFar, ...newlyEmbedded];
 	}
