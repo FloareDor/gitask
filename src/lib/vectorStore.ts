@@ -4,10 +4,20 @@
  * Handles insert, search, persistence to IndexedDB, and cache invalidation.
  */
 
-import type { EmbeddedChunk } from "./embedder";
+import { EMBEDDING_MODEL_ID, type EmbeddedChunk } from "./embedder";
 import type { CodeChunk } from "./chunker";
 import { binarize } from "./quantize";
 import type { GraphResolveFileData } from "./graphExpansion";
+
+type StoredRepoGraph = Record<string, { imports: string[]; definitions: string[] }>;
+
+interface CachedRepoBlob {
+	sha: string;
+	timestamp: number;
+	embeddingModel?: string;
+	chunks: EmbeddedChunk[];
+	graph?: StoredRepoGraph;
+}
 
 /** AST node for partial progress (matches indexer AstNode shape) */
 export interface PartialAstNode {
@@ -21,6 +31,7 @@ export interface PartialAstNode {
 export interface PartialProgress {
 	sha: string;
 	timestamp: number;
+	embeddingModel?: string;
 	phase: "chunking" | "embedding";
 	indexablePaths?: string[];
 	allChunks?: CodeChunk[];
@@ -46,6 +57,10 @@ export interface SearchResult {
 	chunk: CodeChunk;
 	score: number;
 	embedding?: number[];
+}
+
+export function isCompatibleEmbeddingModel(embeddingModel: unknown): boolean {
+	return typeof embeddingModel === "string" && embeddingModel === EMBEDDING_MODEL_ID;
 }
 
 /**
@@ -162,7 +177,7 @@ export class VectorStore {
 	async loadCachedBlob(
 		owner: string,
 		repo: string
-	): Promise<{ sha: string; chunks: EmbeddedChunk[]; graph: Record<string, { imports: string[]; definitions: string[] }> } | null> {
+	): Promise<{ sha: string; chunks: EmbeddedChunk[]; graph: StoredRepoGraph } | null> {
 		const key = `${owner}/${repo}`;
 		return new Promise((resolve) => {
 			const request = indexedDB.open("gitask-cache", 1);
@@ -177,8 +192,13 @@ export class VectorStore {
 				const tx = db.transaction("repos", "readonly");
 				const getReq = tx.objectStore("repos").get(key);
 				getReq.onsuccess = () => {
-					const data = getReq.result;
-					if (data && data.sha && Array.isArray(data.chunks)) {
+					const data = getReq.result as CachedRepoBlob | undefined;
+					if (
+						data &&
+						data.sha &&
+						isCompatibleEmbeddingModel(data.embeddingModel) &&
+						Array.isArray(data.chunks)
+					) {
 						resolve({
 							sha: data.sha,
 							chunks: data.chunks,
@@ -200,7 +220,7 @@ export class VectorStore {
 	 */
 	setFromBlob(data: {
 		chunks: EmbeddedChunk[];
-		graph: Record<string, { imports: string[]; definitions: string[] }>;
+		graph: StoredRepoGraph;
 	}): void {
 		this.chunks = [...data.chunks];
 		this.graph = { ...data.graph };
@@ -249,9 +269,10 @@ export class VectorStore {
 	 */
 	async persist(owner: string, repo: string, sha: string): Promise<void> {
 		this.repoKey = `${owner}/${repo}`;
-		const data = {
+		const data: CachedRepoBlob = {
 			sha,
 			timestamp: Date.now(),
+			embeddingModel: EMBEDDING_MODEL_ID,
 			chunks: this.chunks,
 			graph: this.graph,
 		};
@@ -305,7 +326,11 @@ export class VectorStore {
 		data: PartialProgress
 	): Promise<void> {
 		const key = `${owner}/${repo}-partial`;
-		const payload = { ...data, timestamp: Date.now() };
+		const payload: PartialProgress = {
+			...data,
+			timestamp: Date.now(),
+			embeddingModel: EMBEDDING_MODEL_ID,
+		};
 		return new Promise((resolve, reject) => {
 			const request = indexedDB.open("gitask-cache", 1);
 			request.onupgradeneeded = () => {
@@ -349,7 +374,11 @@ export class VectorStore {
 				const getReq = tx.objectStore("repos").get(key);
 				getReq.onsuccess = () => {
 					const data = getReq.result as PartialProgress | undefined;
-					if (data && data.sha === currentSha) {
+					if (
+						data &&
+						data.sha === currentSha &&
+						isCompatibleEmbeddingModel(data.embeddingModel)
+					) {
 						resolve(data);
 					} else {
 						resolve(null);
@@ -403,8 +432,12 @@ export class VectorStore {
 				const tx = db.transaction("repos", "readonly");
 				const getReq = tx.objectStore("repos").get(this.repoKey);
 				getReq.onsuccess = () => {
-					const data = getReq.result;
-					if (data && data.sha === currentSha) {
+					const data = getReq.result as CachedRepoBlob | undefined;
+					if (
+						data &&
+						data.sha === currentSha &&
+						isCompatibleEmbeddingModel(data.embeddingModel)
+					) {
 						this.chunks = data.chunks;
 						this.graph = data.graph || {};
 						// Rebuild derived indexes and binary cache.

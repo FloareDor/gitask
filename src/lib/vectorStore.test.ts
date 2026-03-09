@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import { VectorStore } from "./vectorStore";
+import { isCompatibleEmbeddingModel, VectorStore } from "./vectorStore";
 import type { EmbeddedChunk } from "./embedder";
+import { EMBEDDING_MODEL_ID } from "./embedder";
 
 describe("VectorStore", () => {
 	let store: VectorStore;
@@ -63,5 +64,11 @@ describe("VectorStore", () => {
 		expect(store.getChunksByFile("file1.ts")).toHaveLength(0);
 		expect(store.getGraph()).toEqual({});
 		expect(store.getAllBinaries()).toHaveLength(0);
+	});
+
+	it("treats only the active embedding model as cache-compatible", () => {
+		expect(isCompatibleEmbeddingModel(EMBEDDING_MODEL_ID)).toBe(true);
+		expect(isCompatibleEmbeddingModel("Xenova/all-MiniLM-L12-v2")).toBe(false);
+		expect(isCompatibleEmbeddingModel(undefined)).toBe(false);
 	});
 });
