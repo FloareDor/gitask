@@ -10,6 +10,7 @@ import { getGeminiVault } from "./gemini-vault";
 import { getGroqVault } from "./groq-vault";
 import { detectWebGPUAvailability } from "./webgpu";
 import { recordLLM } from "./metrics";
+import { prepareGeminiChat } from "./chatHistory";
 
 export type LLMStatus = "idle" | "loading" | "ready" | "generating" | "error";
 
@@ -371,71 +372,18 @@ class GeminiEngineWrapper implements LLMEngine {
 		}
 	}
 
-	private normalizeGeminiHistory(
-		history: Array<{ role: "user" | "model"; parts: Array<{ text: string }> }>
-	): Array<{ role: "user" | "model"; parts: Array<{ text: string }> }> {
-		const normalized: Array<{ role: "user" | "model"; parts: Array<{ text: string }> }> = [];
-		for (const turn of history) {
-			const text = turn.parts?.[0]?.text ?? "";
-			if (!text.trim()) continue;
-			const prev = normalized[normalized.length - 1];
-			if (prev && prev.role === turn.role) {
-				prev.parts[0].text = `${prev.parts[0].text}\n\n${text}`;
-				continue;
-			}
-			normalized.push({
-				role: turn.role,
-				parts: [{ text }],
-			});
-		}
-
-		// Gemini expects history to start with user. Drop any leading model turns.
-		while (normalized.length > 0 && normalized[0].role !== "user") {
-			normalized.shift();
-		}
-		// Prompt must be a user turn. Drop trailing model turns.
-		while (normalized.length > 0 && normalized[normalized.length - 1].role !== "user") {
-			normalized.pop();
-		}
-
-		return normalized;
-	}
-
-	private toGeminiContent(messages: ChatMessage[]) {
-		const systemMsg = messages.find((m) => m.role === "system");
-		const rawHistory = messages
-			.filter((m) => m.role !== "system")
-			.map((m) => ({
-				role: (m.role === "assistant" ? "model" : "user") as "user" | "model",
-				parts: [{ text: m.content }],
-			}));
-		const history = this.normalizeGeminiHistory(rawHistory);
-
-		// Fold system instruction into first user message (some models don't support systemInstruction).
-		// If history has a single user turn, we prepend to prompt later.
-		const systemPrefix = systemMsg?.content
-			? `${systemMsg.content}\n\n---\n\n`
-			: "";
-
-		return { history, systemPrefix };
-	}
-
 	private async collectGeminiStream(
 		messages: ChatMessage[],
 		apiKey: string
 	): Promise<{ chunks: string[]; tokensIn?: number; tokensOut?: number }> {
-		const { history, systemPrefix } = this.toGeminiContent(messages);
-		const lastMsg = history.pop();
-		if (!lastMsg || lastMsg.role !== "user") {
-			throw normalizeGeminiError(new Error("No valid user prompt found for Gemini request."));
-		}
-		if (systemPrefix) {
-			const firstUser = history.find((h) => h.role === "user");
-			if (firstUser) {
-				firstUser.parts[0].text = systemPrefix + firstUser.parts[0].text;
-			} else {
-				lastMsg.parts[0].text = systemPrefix + lastMsg.parts[0].text;
-			}
+		let history;
+		let prompt;
+		try {
+			const prepared = prepareGeminiChat(messages);
+			history = prepared.history;
+			prompt = prepared.prompt;
+		} catch (err) {
+			throw normalizeGeminiError(err);
 		}
 
 		const genAI = new GoogleGenerativeAI(apiKey);
@@ -445,7 +393,7 @@ class GeminiEngineWrapper implements LLMEngine {
 		const chat = model.startChat({ history });
 
 		try {
-			const result = await chat.sendMessageStream(lastMsg.parts[0].text);
+			const result = await chat.sendMessageStream(prompt);
 			const out: string[] = [];
 			for await (const chunk of result.stream) {
 				const text = chunk.text();
