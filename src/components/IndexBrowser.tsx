@@ -278,13 +278,15 @@ export default function IndexBrowser({ chunks, onClose }: IndexBrowserProps) {
 								</span>
 							</div>
 							<pre
-								className="code"
 								style={{
 									fontSize: "11px",
 									whiteSpace: "pre-wrap",
 									wordBreak: "break-all",
 									margin: 0,
 									lineHeight: 1.5,
+									fontFamily: "var(--font-mono)",
+									color: "var(--text-on-dark)",
+									background: "transparent",
 								}}
 							>
 								{selectedChunk.code}
