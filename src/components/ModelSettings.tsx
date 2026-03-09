@@ -241,275 +241,358 @@ export function ModelSettings() {
 		}
 	};
 
-	if (!isOpen) {
-		const dotColor =
-			config.provider === "gemini"
-				? "#a78bfa"
-				: config.provider === "groq"
-				? "#f97316"
-				: "var(--success)";
-		const badge =
-			config.provider === "mlc"
-				? "local"
-				: config.provider === "groq"
-				? "groq"
-				: "gemini";
-		return (
-			<button
-				onClick={() => setIsOpen(true)}
-				style={styles.settingsBtn}
-				aria-label="Model settings"
-			>
-				<span style={{
-					...styles.dot,
-					background: dotColor,
-				}} />
-				{badge}
-			</button>
-		);
-	}
+	const dotColor =
+		config.provider === "gemini"
+			? "#a78bfa"
+			: config.provider === "groq"
+			? "#f97316"
+			: "var(--success)";
+	const badge =
+		config.provider === "mlc"
+			? "local"
+			: config.provider === "groq"
+			? "groq"
+			: "gemini";
 
 	return (
-		<div style={styles.overlay} onClick={(e) => { if (e.target === e.currentTarget) setIsOpen(false); }}>
-			<div style={styles.modal}>
-				<div style={styles.modalTop}>
-					<span style={styles.modalTitle}>llm</span>
-					<button onClick={() => setIsOpen(false)} style={styles.closeBtn} aria-label="Close">✕</button>
-				</div>
+		<>
+			{!isOpen && (
+				<button
+					onClick={() => setIsOpen(true)}
+					style={styles.settingsBtn}
+					aria-label="Model settings"
+				>
+					<span style={{ ...styles.dot, background: dotColor }} />
+					{badge}
+				</button>
+			)}
 
-				{/* Provider toggle */}
-				<div style={styles.toggleRow}>
-					<button
-						style={{ ...styles.toggleBtn, ...(config.provider === "mlc" ? styles.toggleBtnActive : {}) }}
-						onClick={() => setConfig({ ...config, provider: "mlc" })}
-					>
-						local
-					</button>
-					<button
-						style={{ ...styles.toggleBtn, ...(config.provider === "gemini" ? styles.toggleBtnActive : {}) }}
-						onClick={() =>
-							setConfig({
-								...config,
-								provider: "gemini",
-								cloudStorage: storageMode === "local" ? "local" : "vault",
-							})
-						}
-					>
-						gemini
-					</button>
-					<button
-						style={{ ...styles.toggleBtn, ...(config.provider === "groq" ? styles.toggleBtnActive : {}) }}
-						onClick={() =>
-							setConfig({
-								...config,
-								provider: "groq",
-								cloudStorage: storageMode === "local" ? "local" : "vault",
-							})
-						}
-					>
-						groq
-					</button>
-				</div>
-				<p style={styles.hint}>
-					{config.provider === "mlc" ? (
-						<>runs in your browser via{" "}
-							<a href="https://github.com/mlc-ai/web-llm" target="_blank" rel="noopener noreferrer" style={{ color: "var(--accent)" }}>web-llm</a>
-							{" "}— needs WebGPU + ~4GB VRAM, downloads once</>
-					) : config.provider === "groq" ? (
-						"groq cloud, very fast, no download — needs your API key"
-					) : (
-						"google cloud, fast, no download — needs your API key"
-					)}
-				</p>
-
-				{/* Cloud key fields */}
-				{isCloudProvider && (
-					<div style={styles.geminiSection}>
-						{hasDefaultKey && (
-							<p style={styles.hint}>a shared {activeProviderLabel} key is set up. add your own key for better rate limits.</p>
-						)}
-
-						<div style={styles.field}>
-							<div style={styles.switchInlineRow}>
-								<span style={styles.label}>byok-vault bypass</span>
-								<button
-									type="button"
-									role="switch"
-									aria-checked={bypassEnabled}
-									aria-label="Toggle BYOK vault bypass"
-									style={{
-										...styles.switchBtn,
-										...(bypassEnabled ? styles.switchBtnOn : {}),
-										...(!vaultSupported ? styles.switchBtnDisabled : {}),
-									}}
-									onClick={() =>
-										setConfig((prev) => ({
-											...prev,
-											cloudStorage: bypassEnabled ? "vault" : "local",
-										}))
-									}
-									disabled={!vaultSupported}
-								>
-									<span
-										style={{
-											...styles.switchThumb,
-											...(bypassEnabled ? styles.switchThumbOn : {}),
-										}}
-									/>
-								</button>
-								<span
-									style={{
-										...styles.switchState,
-										...(bypassEnabled ? styles.switchStateOn : {}),
-										...(!vaultSupported ? styles.switchStateDisabled : {}),
-									}}
-								>
-									{bypassEnabled ? "ON" : "OFF"}
-								</span>
-							</div>
-							{!bypassEnabled ? (
-								<p style={styles.hint}>
-									stored encrypted with{" "}
-									<a
-										href="https://www.npmjs.com/package/byok-vault"
-										target="_blank"
-										rel="noopener noreferrer"
-										style={{ color: "var(--accent)" }}
-									>
-										byok-vault
-									</a>
-									.
-								</p>
-							) : (
-								<p style={styles.warningHint}>
-									local fallback stores your {activeProviderLabel} key in browser localStorage (less secure).
-								</p>
-							)}
-							{!vaultSupported && (
-								<p style={styles.warningHint}>
-									encrypted vault is not available in this browser. bypass is forced on.
-								</p>
-							)}
+			{isOpen && (
+				<div
+					style={styles.overlay}
+					onClick={(e) => { if (e.target === e.currentTarget) setIsOpen(false); }}
+				>
+					<div style={styles.sheet}>
+						{/* Sheet header */}
+						<div style={styles.sheetHeader}>
+							<span style={styles.sheetTitle}>llm</span>
+							<button
+								onClick={() => setIsOpen(false)}
+								style={styles.closeBtn}
+								aria-label="Close"
+							>
+								×
+							</button>
 						</div>
 
-						{storageMode === "vault" && needsMigration && (
-							<div style={styles.field}>
-								<label style={styles.label}>secure your existing key</label>
-								<input
-									type="password"
-									placeholder="passphrase (min 8 chars)"
-									value={migratePassphrase}
-									onChange={(e) => setMigratePassphrase(e.target.value)}
-									style={styles.input}
-								/>
-								<button onClick={handleMigrate} style={styles.saveBtn} disabled={reloading || migratePassphrase.length < 8}>
-									{reloading ? "saving..." : "migrate"}
-								</button>
-							</div>
-						)}
+						{/* Sheet body */}
+						<div style={styles.sheetBody}>
+							{/* Provider section */}
+							<div style={{ marginBottom: 24 }}>
+								<p style={styles.sectionLabel}>provider</p>
 
-						{storageMode === "vault" && !needsMigration && vaultState === "none" && (
-							<div style={styles.field}>
-								<a
-									href={config.provider === "groq" ? "https://console.groq.com/keys" : "https://aistudio.google.com/app/apikey"}
-									target="_blank"
-									rel="noopener noreferrer"
-									style={styles.accentLink}
+								<div
+									style={{
+										...styles.providerCard,
+										...(config.provider === "mlc"
+											? styles.providerCardSelected
+											: styles.providerCardUnselected),
+									}}
+									onClick={() => setConfig({ ...config, provider: "mlc" })}
 								>
-									{config.provider === "groq" ? "get a Groq API key →" : "get a free API key →"}
-								</a>
-								<input
-									type="password"
-									placeholder="paste API key"
-									value={apiKeyInput}
-									onChange={(e) => setApiKeyInput(e.target.value)}
-									style={styles.input}
-								/>
-								{!passkeySupported && (
-									<input
-										type="password"
-										placeholder="passphrase to encrypt it (min 8 chars)"
-										value={passphraseInput}
-										onChange={(e) => setPassphraseInput(e.target.value)}
-										style={styles.input}
-									/>
-								)}
-							</div>
-						)}
-
-						{storageMode === "local" && (
-							<div style={styles.field}>
-								<a
-									href={config.provider === "groq" ? "https://console.groq.com/keys" : "https://aistudio.google.com/app/apikey"}
-									target="_blank"
-									rel="noopener noreferrer"
-									style={styles.accentLink}
-								>
-									{config.provider === "groq" ? "get a Groq API key →" : "get a free API key →"}
-								</a>
-								<input
-									type="password"
-									placeholder={hasLocalKey ? "replace local API key (optional)" : "paste API key"}
-									value={apiKeyInput}
-									onChange={(e) => setApiKeyInput(e.target.value)}
-									style={styles.input}
-								/>
-								{hasLocalKey && (
-									<div style={{ display: "flex", gap: 8 }}>
-										<p style={{ ...styles.hint, color: "var(--success)", flex: 1 }}>local key saved</p>
-										<button onClick={() => handleResetKeys("local")} style={styles.cancelBtn}>
-											remove key
-										</button>
-									</div>
-								)}
-							</div>
-						)}
-
-						{storageMode === "vault" && vaultState === "locked" && !needsMigration && (
-							<div style={styles.field}>
-								{isPasskeyEnrolled ? (
-									<button onClick={handleUnlockWithPasskey} style={styles.saveBtn} disabled={reloading}>
-										{reloading ? "unlocking..." : "unlock with fingerprint"}
-									</button>
-								) : (
-									<>
-										<input
-											type="password"
-											placeholder="passphrase"
-											value={passphraseInput}
-											onChange={(e) => setPassphraseInput(e.target.value)}
-											style={styles.input}
-										/>
-										<button onClick={handleUnlock} style={styles.saveBtn} disabled={reloading || passphraseInput.length < 8}>
-											{reloading ? "unlocking..." : "unlock"}
-										</button>
-									</>
-								)}
-							</div>
-						)}
-
-						{storageMode === "vault" && vaultState === "unlocked" && (
-							<div style={styles.field}>
-								<p style={{ ...styles.hint, color: "var(--success)" }}>key saved</p>
-								<div style={{ display: "flex", gap: 8 }}>
-									<button onClick={handleLock} style={styles.cancelBtn}>lock</button>
-									<button onClick={() => handleResetKeys("vault")} style={styles.cancelBtn}>remove key</button>
+									<span style={{
+										...styles.dot,
+										background: config.provider === "mlc" ? "#f5f5f0" : "var(--success)",
+									}} />
+									local
 								</div>
+
+								<div
+									style={{
+										...styles.providerCard,
+										...(config.provider === "gemini"
+											? styles.providerCardSelected
+											: styles.providerCardUnselected),
+									}}
+									onClick={() =>
+										setConfig({
+											...config,
+											provider: "gemini",
+											cloudStorage: storageMode === "local" ? "local" : "vault",
+										})
+									}
+								>
+									<span style={{
+										...styles.dot,
+										background: config.provider === "gemini" ? "#f5f5f0" : "#a78bfa",
+									}} />
+									gemini
+								</div>
+
+								<div
+									style={{
+										...styles.providerCard,
+										...(config.provider === "groq"
+											? styles.providerCardSelected
+											: styles.providerCardUnselected),
+									}}
+									onClick={() =>
+										setConfig({
+											...config,
+											provider: "groq",
+											cloudStorage: storageMode === "local" ? "local" : "vault",
+										})
+									}
+								>
+									<span style={{
+										...styles.dot,
+										background: config.provider === "groq" ? "#f5f5f0" : "#f97316",
+									}} />
+									groq
+								</div>
+
+								<p style={styles.hint}>
+									{config.provider === "mlc" ? (
+										<>runs in your browser via{" "}
+											<a href="https://github.com/mlc-ai/web-llm" target="_blank" rel="noopener noreferrer" style={{ color: "var(--accent)" }}>web-llm</a>
+											{" "}— needs WebGPU + ~4GB VRAM, downloads once</>
+									) : config.provider === "groq" ? (
+										"groq cloud, very fast, no download — needs your API key"
+									) : (
+										"google cloud, fast, no download — needs your API key"
+									)}
+								</p>
 							</div>
-						)}
+
+							{/* Cloud key fields */}
+							{isCloudProvider && (
+								<div style={styles.cloudSection}>
+									<div style={styles.sectionDivider} />
+
+									{hasDefaultKey && (
+										<p style={styles.hint}>a shared {activeProviderLabel} key is set up. add your own key for better rate limits.</p>
+									)}
+
+									<div style={styles.field}>
+										<div style={styles.switchInlineRow}>
+											<span style={styles.label}>byok-vault bypass</span>
+											<button
+												type="button"
+												role="switch"
+												aria-checked={bypassEnabled}
+												aria-label="Toggle BYOK vault bypass"
+												style={{
+													...styles.switchBtn,
+													...(bypassEnabled ? styles.switchBtnOn : {}),
+													...(!vaultSupported ? styles.switchBtnDisabled : {}),
+												}}
+												onClick={() =>
+													setConfig((prev) => ({
+														...prev,
+														cloudStorage: bypassEnabled ? "vault" : "local",
+													}))
+												}
+												disabled={!vaultSupported}
+											>
+												<span
+													style={{
+														...styles.switchThumb,
+														...(bypassEnabled ? styles.switchThumbOn : {}),
+													}}
+												/>
+											</button>
+											<span
+												style={{
+													...styles.switchState,
+													...(bypassEnabled ? styles.switchStateOn : {}),
+													...(!vaultSupported ? styles.switchStateDisabled : {}),
+												}}
+											>
+												{bypassEnabled ? "ON" : "OFF"}
+											</span>
+										</div>
+										{!bypassEnabled ? (
+											<p style={styles.hint}>
+												stored encrypted with{" "}
+												<a
+													href="https://www.npmjs.com/package/byok-vault"
+													target="_blank"
+													rel="noopener noreferrer"
+													style={{ color: "var(--accent)" }}
+												>
+													byok-vault
+												</a>
+												.
+											</p>
+										) : (
+											<p style={styles.warningHint}>
+												local fallback stores your {activeProviderLabel} key in browser localStorage (less secure).
+											</p>
+										)}
+										{!vaultSupported && (
+											<p style={styles.warningHint}>
+												encrypted vault is not available in this browser. bypass is forced on.
+											</p>
+										)}
+									</div>
+
+									{storageMode === "vault" && needsMigration && (
+										<div style={styles.field}>
+											<label style={styles.label}>secure your existing key</label>
+											<input
+												type="password"
+												placeholder="passphrase (min 8 chars)"
+												value={migratePassphrase}
+												onChange={(e) => setMigratePassphrase(e.target.value)}
+												style={styles.input}
+											/>
+											<button
+												onClick={handleMigrate}
+												style={styles.saveBtn}
+												disabled={reloading || migratePassphrase.length < 8}
+											>
+												{reloading ? "saving..." : "migrate"}
+											</button>
+										</div>
+									)}
+
+									{storageMode === "vault" && !needsMigration && vaultState === "none" && (
+										<div style={styles.field}>
+											<a
+												href={config.provider === "groq" ? "https://console.groq.com/keys" : "https://aistudio.google.com/app/apikey"}
+												target="_blank"
+												rel="noopener noreferrer"
+												style={styles.accentLink}
+											>
+												{config.provider === "groq" ? "get a Groq API key →" : "get a free API key →"}
+											</a>
+											<input
+												type="password"
+												placeholder="paste API key"
+												value={apiKeyInput}
+												onChange={(e) => setApiKeyInput(e.target.value)}
+												style={styles.input}
+											/>
+											{!passkeySupported && (
+												<input
+													type="password"
+													placeholder="passphrase to encrypt it (min 8 chars)"
+													value={passphraseInput}
+													onChange={(e) => setPassphraseInput(e.target.value)}
+													style={styles.input}
+												/>
+											)}
+										</div>
+									)}
+
+									{storageMode === "local" && (
+										<div style={styles.field}>
+											<a
+												href={config.provider === "groq" ? "https://console.groq.com/keys" : "https://aistudio.google.com/app/apikey"}
+												target="_blank"
+												rel="noopener noreferrer"
+												style={styles.accentLink}
+											>
+												{config.provider === "groq" ? "get a Groq API key →" : "get a free API key →"}
+											</a>
+											<input
+												type="password"
+												placeholder={hasLocalKey ? "replace local API key (optional)" : "paste API key"}
+												value={apiKeyInput}
+												onChange={(e) => setApiKeyInput(e.target.value)}
+												style={styles.input}
+											/>
+											{hasLocalKey && (
+												<div style={{ display: "flex", gap: 8 }}>
+													<p style={{ ...styles.hint, color: "var(--success)", flex: 1 }}>local key saved</p>
+													<button onClick={() => handleResetKeys("local")} style={styles.ghostBtn}>
+														remove key
+													</button>
+												</div>
+											)}
+										</div>
+									)}
+
+									{storageMode === "vault" && vaultState === "locked" && !needsMigration && (
+										<div style={styles.field}>
+											{isPasskeyEnrolled ? (
+												<button onClick={handleUnlockWithPasskey} style={styles.saveBtn} disabled={reloading}>
+													{reloading ? "unlocking..." : "unlock with fingerprint"}
+												</button>
+											) : (
+												<>
+													<input
+														type="password"
+														placeholder="passphrase"
+														value={passphraseInput}
+														onChange={(e) => setPassphraseInput(e.target.value)}
+														style={styles.input}
+													/>
+													<button
+														onClick={handleUnlock}
+														style={styles.saveBtn}
+														disabled={reloading || passphraseInput.length < 8}
+													>
+														{reloading ? "unlocking..." : "unlock"}
+													</button>
+												</>
+											)}
+										</div>
+									)}
+
+									{storageMode === "vault" && vaultState === "unlocked" && (
+										<div style={styles.field}>
+											<p style={{ ...styles.hint, color: "var(--success)" }}>key saved</p>
+											<div style={{ display: "flex", gap: 8 }}>
+												<button onClick={handleLock} style={styles.ghostBtn}>lock</button>
+												<button onClick={() => handleResetKeys("vault")} style={styles.ghostBtn}>remove key</button>
+											</div>
+										</div>
+									)}
+								</div>
+							)}
+
+							{reloading && <p style={styles.status}>{statusMsg}</p>}
+
+							<div style={styles.sectionDivider} />
+
+							<button
+								onClick={handleSave}
+								style={{
+									...styles.saveBtn,
+									...(reloading || !canSave ? { opacity: 0.5, cursor: "not-allowed" } : {}),
+								}}
+								disabled={reloading || !canSave}
+							>
+								{reloading ? "saving..." : "save"}
+							</button>
+
+							<details style={{ marginTop: 24 }}>
+								<summary style={{
+									fontFamily: "var(--font-mono)",
+									fontSize: 12,
+									cursor: "pointer",
+									color: "#888",
+									userSelect: "none",
+									marginBottom: 12,
+								}}>
+									Advanced
+								</summary>
+								<div style={{ marginTop: 12 }}>
+									<button
+										onClick={() => setIsOpen(false)}
+										style={styles.ghostBtn}
+										disabled={reloading}
+									>
+										cancel
+									</button>
+								</div>
+							</details>
+						</div>
 					</div>
-				)}
-
-				{reloading && <p style={styles.status}>{statusMsg}</p>}
-
-				<div style={styles.actions}>
-					<button onClick={() => setIsOpen(false)} style={styles.cancelBtn} disabled={reloading}>cancel</button>
-					<button onClick={handleSave} style={styles.saveBtn} disabled={reloading || !canSave}>
-						{reloading ? "saving..." : "save"}
-					</button>
 				</div>
-			</div>
-		</div>
+			)}
+		</>
 	);
 }
 
@@ -518,16 +601,15 @@ const styles: Record<string, React.CSSProperties> = {
 		display: "inline-flex",
 		alignItems: "center",
 		gap: "7px",
-		background: "var(--bg-card)",
-		border: "2px solid var(--border)",
-		borderRadius: "3px",
+		background: "#ffffff",
+		border: "2px solid #0a0a0a",
+		borderRadius: 0,
 		cursor: "pointer",
 		padding: "6px 12px",
 		fontSize: "13px",
 		fontWeight: 600,
-		color: "var(--text-secondary)",
-		boxShadow: "2px 2px 0 var(--accent)",
-		transition: "transform 0.1s ease, box-shadow 0.1s ease",
+		color: "#0a0a0a",
+		boxShadow: "2px 2px 0 rgba(0,0,0,0.12)",
 		fontFamily: "var(--font-sans)",
 	},
 	dot: {
@@ -539,77 +621,102 @@ const styles: Record<string, React.CSSProperties> = {
 	},
 	overlay: {
 		position: "fixed",
-		top: 0, left: 0, right: 0, bottom: 0,
-		background: "rgba(0,0,0,0.7)",
-		display: "flex",
-		alignItems: "center",
-		justifyContent: "center",
-		zIndex: 100,
+		inset: 0,
+		background: "rgba(0,0,0,0.4)",
+		zIndex: 1000,
 	},
-	modal: {
-		width: "380px",
-		maxWidth: "92vw",
-		background: "var(--bg-card)",
-		border: "2px solid var(--border)",
-		borderRadius: "4px",
-		boxShadow: "5px 5px 0 var(--accent)",
+	sheet: {
+		position: "fixed",
+		top: 0,
+		right: 0,
+		height: "100%",
+		width: "min(560px, 100vw)",
+		background: "#fafaf8",
+		borderLeft: "2px solid #0a0a0a",
+		overflowY: "auto",
+		zIndex: 1001,
 		display: "flex",
 		flexDirection: "column",
-		gap: "16px",
-		padding: "20px",
 	},
-	modalTop: {
+	sheetHeader: {
+		padding: "20px 28px",
+		borderBottom: "2px solid #0a0a0a",
 		display: "flex",
-		alignItems: "center",
 		justifyContent: "space-between",
+		alignItems: "center",
 	},
-	modalTitle: {
-		fontSize: "18px",
-		fontWeight: 800,
+	sheetTitle: {
 		fontFamily: "var(--font-display)",
-		letterSpacing: "-0.01em",
-		color: "var(--text-primary)",
+		fontWeight: 800,
+		fontSize: "1.2rem",
+		color: "#0a0a0a",
 	},
 	closeBtn: {
-		background: "transparent",
-		border: "2px solid var(--border)",
-		borderRadius: "2px",
-		color: "var(--text-muted)",
+		border: "2px solid #0a0a0a",
+		background: "#fff",
+		padding: "4px 10px",
 		cursor: "pointer",
-		fontSize: "12px",
-		fontWeight: 700,
-		width: "28px",
-		height: "28px",
+		fontSize: "1rem",
+		fontWeight: "bold",
+		color: "#0a0a0a",
+		lineHeight: 1,
+	},
+	sheetBody: {
+		padding: "28px",
+		flex: 1,
+		overflowY: "auto",
+	},
+	sectionLabel: {
+		fontFamily: "var(--font-mono)",
+		fontSize: "11px",
+		textTransform: "uppercase",
+		letterSpacing: "0.08em",
+		color: "#888",
+		marginBottom: 12,
+	} as React.CSSProperties,
+	providerCard: {
+		border: "2px solid",
+		padding: "12px 16px",
+		cursor: "pointer",
 		display: "flex",
 		alignItems: "center",
-		justifyContent: "center",
-		flexShrink: 0,
-	},
-	toggleRow: {
-		display: "flex",
-		border: "2px solid var(--border)",
-		borderRadius: "2px",
-		overflow: "hidden",
-	},
-	toggleBtn: {
-		flex: 1,
-		padding: "9px",
-		border: "none",
-		background: "transparent",
-		color: "var(--text-muted)",
-		cursor: "pointer",
-		fontSize: "13px",
-		fontWeight: 600,
+		gap: "10px",
+		marginBottom: "8px",
 		fontFamily: "var(--font-sans)",
-		transition: "background 0.1s ease, color 0.1s ease",
+		fontSize: "14px",
+		fontWeight: 600,
 	},
-	toggleBtnActive: {
-		background: "var(--accent)",
-		color: "#fff",
+	providerCardSelected: {
+		borderColor: "#0a0a0a",
+		background: "#0a0a0a",
+		color: "#f5f5f0",
+		boxShadow: "2px 2px 0 #16a34a",
 	},
-	toggleBtnDisabled: {
-		opacity: 0.45,
-		cursor: "not-allowed",
+	providerCardUnselected: {
+		borderColor: "#ddd",
+		background: "#fff",
+		color: "#0a0a0a",
+	},
+	cloudSection: {
+		display: "flex",
+		flexDirection: "column",
+		gap: "10px",
+	},
+	sectionDivider: {
+		borderTop: "2px solid #e5e5e5",
+		margin: "20px 0",
+	},
+	field: {
+		display: "flex",
+		flexDirection: "column",
+		gap: "8px",
+	},
+	label: {
+		fontFamily: "var(--font-mono)",
+		fontSize: "11px",
+		textTransform: "uppercase" as const,
+		letterSpacing: "0.08em",
+		color: "#888",
 	},
 	switchInlineRow: {
 		display: "inline-flex",
@@ -620,8 +727,8 @@ const styles: Record<string, React.CSSProperties> = {
 		width: "46px",
 		height: "26px",
 		borderRadius: "999px",
-		border: "2px solid var(--border)",
-		background: "var(--bg-card)",
+		border: "2px solid #ddd",
+		background: "#fff",
 		cursor: "pointer",
 		padding: "2px",
 		display: "flex",
@@ -635,7 +742,7 @@ const styles: Record<string, React.CSSProperties> = {
 		width: "16px",
 		height: "16px",
 		borderRadius: "50%",
-		background: "var(--text-muted)",
+		background: "#aaa",
 		transform: "translateX(0)",
 		transition: "transform 0.12s ease, background 0.12s ease",
 	},
@@ -650,7 +757,7 @@ const styles: Record<string, React.CSSProperties> = {
 	switchState: {
 		fontSize: "11px",
 		fontWeight: 700,
-		color: "var(--text-muted)",
+		color: "#888",
 		fontFamily: "var(--font-mono)",
 		minWidth: "24px",
 	},
@@ -662,7 +769,7 @@ const styles: Record<string, React.CSSProperties> = {
 	},
 	hint: {
 		fontSize: "12px",
-		color: "var(--text-muted)",
+		color: "#4a4a4a",
 		margin: 0,
 		lineHeight: 1.5,
 	},
@@ -672,23 +779,6 @@ const styles: Record<string, React.CSSProperties> = {
 		margin: 0,
 		lineHeight: 1.5,
 	},
-	geminiSection: {
-		display: "flex",
-		flexDirection: "column",
-		gap: "10px",
-		paddingTop: "4px",
-		borderTop: "2px solid var(--border)",
-	},
-	field: {
-		display: "flex",
-		flexDirection: "column",
-		gap: "8px",
-	},
-	label: {
-		fontSize: "12px",
-		fontWeight: 600,
-		color: "var(--text-secondary)",
-	},
 	accentLink: {
 		fontSize: "12px",
 		color: "var(--accent)",
@@ -696,48 +786,45 @@ const styles: Record<string, React.CSSProperties> = {
 	},
 	input: {
 		width: "100%",
-		padding: "9px 12px",
-		borderRadius: "2px",
-		border: "2px solid var(--border)",
-		background: "var(--bg-secondary)",
-		color: "var(--text-primary)",
+		padding: "12px 16px",
+		border: "2px solid #0a0a0a",
+		background: "#fff",
+		fontFamily: "var(--font-mono)",
 		fontSize: "13px",
-		fontFamily: "var(--font-sans)",
 		outline: "none",
+		marginBottom: "12px",
+		color: "#0a0a0a",
+		boxSizing: "border-box",
 	},
 	status: {
+		fontFamily: "var(--font-mono)",
 		fontSize: "12px",
-		color: "var(--accent)",
-		margin: 0,
-	},
-	actions: {
-		display: "flex",
-		justifyContent: "flex-end",
-		gap: "8px",
-		paddingTop: "4px",
-		borderTop: "2px solid var(--border)",
-	},
-	cancelBtn: {
-		background: "transparent",
-		border: "2px solid var(--border)",
-		borderRadius: "2px",
-		color: "var(--text-secondary)",
-		cursor: "pointer",
-		fontSize: "13px",
-		fontWeight: 600,
-		padding: "7px 14px",
-		fontFamily: "var(--font-sans)",
+		color: "#4a4a4a",
+		padding: "8px 12px",
+		background: "#f0ede8",
+		border: "1px solid #ddd",
+		marginTop: "12px",
 	},
 	saveBtn: {
-		background: "var(--accent)",
-		color: "white",
-		border: "2px solid var(--accent)",
-		borderRadius: "2px",
-		padding: "7px 16px",
-		cursor: "pointer",
-		fontSize: "13px",
+		background: "#0a0a0a",
+		color: "#f5f5f0",
+		border: "2px solid #0a0a0a",
+		padding: "12px 24px",
 		fontWeight: 700,
+		fontSize: "14px",
+		cursor: "pointer",
+		width: "100%",
+		boxShadow: "3px 3px 0 #0a0a0a",
+		fontFamily: "var(--font-display)",
+	},
+	ghostBtn: {
+		background: "transparent",
+		border: "2px solid #0a0a0a",
+		padding: "8px 16px",
+		fontSize: "13px",
+		cursor: "pointer",
+		fontWeight: 600,
+		color: "#0a0a0a",
 		fontFamily: "var(--font-sans)",
-		boxShadow: "2px 2px 0 rgba(0,0,0,0.4)",
 	},
 };
