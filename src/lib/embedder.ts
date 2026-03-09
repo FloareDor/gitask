@@ -2,7 +2,7 @@
  * WebGPU Embedding Pipeline using Transformers.js
  *
  * Runs local embeddings on the user's device.
- * Uses Xenova/all-MiniLM-L12-v2 (mean pooled token embeddings),
+ * Uses Xenova/all-MiniLM-L6-v2 (mean pooled token embeddings),
  * with WebGPU preferred and WASM fallback.
  *
  * Performance optimizations:
@@ -19,7 +19,7 @@ export interface EmbeddedChunk extends CodeChunk {
 	embedding: number[];
 }
 
-const EMBEDDING_MODEL_ID = "Xenova/all-MiniLM-L12-v2";
+export const EMBEDDING_MODEL_ID = "Xenova/all-MiniLM-L6-v2";
 
 type EmbeddingRuntime = {
 	// eslint-disable-next-line @typescript-eslint/no-explicit-any
