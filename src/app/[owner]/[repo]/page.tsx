@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { indexRepository, IndexAbortError, type IndexProgress, type AstNode } from "@/lib/indexer";
 import { VectorStore } from "@/lib/vectorStore";
 import { multiPathHybridSearch } from "@/lib/search";
-import { generateQueryVariants, getRetrievalRefinement } from "@/lib/queryExpansion";
+import { generateQueryVariants, getRetrievalRefinement, buildContextualQuery, expandQuery } from "@/lib/queryExpansion";
 import { defaultLimitsForProvider } from "@/lib/contextAssembly";
 import { fetchRepoTree } from "@/lib/github";
 import { initLLM, generate, getLLMStatus, getLLMConfig, onStatusChange, type LLMStatus } from "@/lib/llm";
@@ -59,6 +59,7 @@ export default function RepoPage({
 	const [indexProgress, setIndexProgress] = useState<IndexProgress | null>(null);
 	const [isIndexed, setIsIndexed] = useState(false);
 	const [llmStatus, setLlmStatus] = useState<LLMStatus>("idle");
+	const [llmProvider, setLlmProvider] = useState(() => getLLMConfig().provider);
 	const [messages, setMessages] = useState<Message[]>([]);
 	const [chatSessions, setChatSessions] = useState<ChatSession[]>([]);
 	const [activeChatId, setActiveChatId] = useState<string | null>(null);
@@ -85,6 +86,7 @@ export default function RepoPage({
 	const [notificationPermission, setNotificationPermission] = useState<NotificationPermission | null>(null);
 	const [isMobile, setIsMobile] = useState(false);
 	const [coveEnabled, setCoveEnabled] = useState(false);
+	const [queryExpansionEnabled, setQueryExpansionEnabled] = useState(false);
 	const [indexedSha, setIndexedSha] = useState<string | null>(null);
 	const [repoStale, setRepoStale] = useState(false);
 	const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
@@ -125,21 +127,27 @@ export default function RepoPage({
 	}, [owner, repo]);
 
 	useEffect(() => {
-		return onStatusChange(setLlmStatus);
+		return onStatusChange((s) => {
+			setLlmStatus(s);
+			setLlmProvider(getLLMConfig().provider);
+		});
 	}, []);
 
 	useEffect(() => {
 		try {
 			const saved = localStorage.getItem("gitask-cove-enabled");
 			if (saved === "true") setCoveEnabled(true);
+			const savedQE = localStorage.getItem("gitask-query-expansion-enabled");
+			if (savedQE === "false") setQueryExpansionEnabled(false);
 		} catch { /* ignore */ }
 	}, []);
 
 	useEffect(() => {
 		try {
 			localStorage.setItem("gitask-cove-enabled", coveEnabled ? "true" : "false");
+			localStorage.setItem("gitask-query-expansion-enabled", queryExpansionEnabled ? "true" : "false");
 		} catch { /* ignore */ }
-	}, [coveEnabled]);
+	}, [coveEnabled, queryExpansionEnabled]);
 
 	useEffect(() => {
 		chatLoadedRef.current = false;
@@ -616,25 +624,33 @@ export default function RepoPage({
 			const readmeChunk = storeRef.current.getChunksByFile("README.md")[0]
 				?? storeRef.current.getChunksByFile("readme.md")[0];
 
-			if (config.provider !== "mlc") {
+			if (config.provider !== "mlc" && queryExpansionEnabled) {
 			setMessages((prev) => prev.map((m) => m.id !== placeholderMessageId ? m : {
 				...m,
-				retrieval: { variants: [], loadingPhase: "Expanding queries" },
+				retrieval: { variants: [], loadingPhase: "expanding queries" },
 			}));
 		}
-		const queryVariants = config.provider !== "mlc"
+		const queryVariants = config.provider !== "mlc" && queryExpansionEnabled
 				? await generateQueryVariants(userMessage, messagesRef.current, readmeChunk?.code ?? "")
-				: [userMessage];
+				: expandQuery(buildContextualQuery(userMessage, messagesRef.current));
 
 
 			setMessages((prev) => prev.map((m) => m.id !== placeholderMessageId ? m : {
 				...m,
-				retrieval: { variants: queryVariants, loadingPhase: "Searching" },
+				retrieval: { variants: queryVariants, loadingPhase: "searching" },
 			}));
 			const searchStart = performance.now();
-			let results = await multiPathHybridSearch(storeRef.current, queryVariants, { limit: 5 });
+			let results = await multiPathHybridSearch(storeRef.current, queryVariants, {
+				limit: 5,
+				onProgress: queryVariants.length > 1 ? (done, total) => {
+					setMessages((prev) => prev.map((m) => m.id !== placeholderMessageId ? m : {
+						...m,
+						retrieval: { variants: queryVariants, loadingPhase: "Searching", completedCount: done },
+					}));
+				} : undefined,
+			});
 			let retrievalRefinedQuery: string | undefined;
-			if (config.provider !== "mlc") {
+			if (config.provider !== "mlc" && queryExpansionEnabled) {
 				const rq = await getRetrievalRefinement(
 					userMessage,
 					results.map((r) => ({ filePath: r.chunk.filePath, code: r.chunk.code, score: r.score }))
@@ -713,7 +729,7 @@ export default function RepoPage({
 					"I can't find grounded evidence in the indexed repo context for this request, so I won't guess.",
 					missingLabel ? `Missing terms in retrieved code: ${missingLabel}.` : "",
 					"",
-					"Try re-indexing, or ask with exact file/symbol names to narrow retrieval.",
+					!queryExpansionEnabled && llmProvider !== "mlc" ? "Try enabling multi-query (in the ››› menu) — it searches more angles. Or re-index and ask with exact file/symbol names." : "Try re-indexing, or ask with exact file/symbol names to narrow retrieval.",
 				].filter(Boolean).join("\n");
 				setMessages((prev) => prev.map((m) => m.id !== placeholderMessageId ? m : {
 					...m,
@@ -900,7 +916,7 @@ ${context}`,
 			isGeneratingRef.current = false;
 			setIsGenerating(false);
 		}
-	}, [input, isIndexed, owner, repo, llmStatus, coveEnabled]);
+	}, [input, isIndexed, owner, repo, llmStatus, llmProvider, coveEnabled, queryExpansionEnabled]);
 
 	const handleEditMessage = useCallback((messageId: string, newText: string) => {
 		if (isGeneratingRef.current) return;
@@ -981,6 +997,8 @@ ${context}`,
 				sidebarCollapsed={sidebarCollapsed}
 				showContext={showContext}
 				coveEnabled={coveEnabled}
+				queryExpansionEnabled={queryExpansionEnabled}
+				isLocalProvider={llmProvider === "mlc"}
 				isGenerating={isGenerating}
 				messages={messages}
 				fileBrowserOpen={fileBrowserOpen}
@@ -989,6 +1007,7 @@ ${context}`,
 				onToggleTokenInput={() => setShowTokenInput((v) => !v)}
 				onToggleContext={() => setShowContext((v) => !v)}
 				onToggleCove={() => setCoveEnabled((v) => !v)}
+				onToggleQueryExpansion={() => setQueryExpansionEnabled((v) => !v)}
 				onClearChat={handleClearChat}
 				onDeleteEmbeddings={() => { void handleDeleteEmbeddings(); }}
 				onToggleFileBrowser={() => setFileBrowserOpen((v) => !v)}

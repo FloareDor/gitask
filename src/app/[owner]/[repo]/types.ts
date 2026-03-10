@@ -5,6 +5,8 @@ export interface MessageRetrievalState {
 	refinedQuery?: string;
 	/** Active loading phase — only present while retrieval is in progress. */
 	loadingPhase?: string;
+	/** How many variant searches have completed (for per-row progress animation). */
+	completedCount?: number;
 }
 
 export interface Message {

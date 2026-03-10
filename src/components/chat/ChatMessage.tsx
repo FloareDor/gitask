@@ -1,7 +1,6 @@
 "use client";
 
 import { memo, useMemo, useState, useRef, useEffect, useCallback } from "react";
-import { motion } from "framer-motion";
 import ReactMarkdown from "react-markdown";
 import type { Components } from "react-markdown";
 import type { Message } from "@/app/[owner]/[repo]/types";
@@ -107,7 +106,7 @@ export const ChatMessage = memo(function ChatMessage({
 
 	// Stable random word for the "no phase yet" gap (LLM queued but not streaming).
 	const idleWordRef = useRef(
-		["Cooking", "Brewing", "Thinking", "Generating", "Working on it"][
+		["cooking", "brewing", "thinking", "generating", "working on it", "writing", "penning down my thoughts", "hol' up", "let me cook", "let me cook"][
 			Math.floor(Math.random() * 5)
 		]
 	);
@@ -116,6 +115,7 @@ export const ChatMessage = memo(function ChatMessage({
 	const showThinking = isStreaming && !msg.content;
 	const thinkingPhase = msg.retrieval?.loadingPhase ?? idleWordRef.current;
 	const thinkingVariants = msg.retrieval?.variants ?? [];
+	const completedCount = msg.retrieval?.completedCount ?? 0;
 
 	// Accumulate variants as they arrive across phase changes — never replace.
 	useEffect(() => {
@@ -135,7 +135,7 @@ export const ChatMessage = memo(function ChatMessage({
 					<span>you</span>
 				) : (
 					<>
-						{isStreaming && <span className="chat-live-dot" aria-hidden="true" />}
+						{isStreaming && !showThinking && <span className="chat-live-dot" aria-hidden="true" />}
 						<span>✦ gitask</span>
 					</>
 				)}
@@ -190,7 +190,7 @@ export const ChatMessage = memo(function ChatMessage({
 				</div>
 			)}
 
-			{/* Retrieval thinking block — shown during loading before first token */}
+							{/* Retrieval thinking block — shown during loading before first token */}
 			{showThinking && (
 				<div className="chat-thinking">
 					<span
@@ -199,19 +199,15 @@ export const ChatMessage = memo(function ChatMessage({
 					>
 						{thinkingPhase}
 						<span className="chat-thinking-dots" aria-hidden="true">
-							{[0, 1, 2].map((i) => (
-								<motion.span
-									key={i}
-									animate={{ opacity: [0, 1, 0] }}
-									transition={{ duration: 1.4, repeat: Infinity, delay: i * 0.22, ease: "easeInOut" }}
-								>.</motion.span>
-							))}
+							<span className="chat-thinking-dot chat-thinking-dot--1" />
+							<span className="chat-thinking-dot chat-thinking-dot--2" />
+							<span className="chat-thinking-dot chat-thinking-dot--3" />
 						</span>
 					</span>
 					{thinkingExpanded && seenVariants.length > 0 && (
 						<div className="chat-thinking-rows">
 							{seenVariants.map((v, i) => (
-								<div key={i} className={`thinking-row ${i === 0 ? "thinking-row--original" : "thinking-row--variant"}`}>
+								<div key={i} className={`thinking-row ${i === 0 ? "thinking-row--original" : "thinking-row--variant"} ${i < completedCount ? "thinking-row--done" : "thinking-row--loading"}`}>
 									<span className="thinking-row-tag">{i === 0 ? "·" : "+"}</span>
 									<span className="thinking-row-text">{v}</span>
 								</div>

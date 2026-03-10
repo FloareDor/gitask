@@ -1287,15 +1287,30 @@ header a[href="/"]:hover {
 
 .chat-thinking-dots {
   display: inline-flex;
+  align-items: center;
   width: 18px;
-  gap: 1px;
+  gap: 2px;
+  margin-left: 2px;
 }
+
+.chat-thinking-dot {
+  display: inline-block;
+  width: 2.5px;
+  height: 2px;
+  border-radius: 50%;
+  background: var(--accent);
+  animation: live-dot-pulse 1.2s ease-in-out infinite;
+  flex-shrink: 0;
+}
+.chat-thinking-dot--1 { animation-delay: 0s; }
+.chat-thinking-dot--2 { animation-delay: 0.22s; }
+.chat-thinking-dot--3 { animation-delay: 0.44s; }
 
 .chat-thinking-rows {
   display: flex;
   flex-direction: column;
   gap: 2px;
-  margin-top: 4px;
+  margin-top: 2px;
   padding-left: 2px;
 }
 
@@ -1320,6 +1335,52 @@ header a[href="/"]:hover {
 .thinking-row-text {
   word-break: break-word;
   color: var(--text-on-dark-muted);
+}
+
+/* Loading: dim while search is pending */
+.thinking-row--loading .thinking-row-text {
+  opacity: 0.35;
+}
+
+/* Done: bright gradient sweeps left-to-right then settles */
+.thinking-row--done .thinking-row-text {
+  background: linear-gradient(
+    90deg,
+    var(--text-on-dark-secondary) 0%,
+    var(--text-on-dark) 30%,
+    #ffffff 48%,
+    var(--text-on-dark) 66%,
+    var(--text-on-dark-secondary) 100%
+  );
+  background-size: 300% auto;
+  background-position: 100% center;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: thinking-row-sweep 0.7s cubic-bezier(0.25, 0.46, 0.45, 0.94) forwards;
+}
+
+@keyframes thinking-row-sweep {
+  from { background-position: 100% center; }
+  to   { background-position: 0% center; }
+}
+
+/* Light mode: white flash on light bg is invisible, use accent instead */
+[data-theme="light"] .thinking-row--done .thinking-row-text {
+  background: linear-gradient(
+    90deg,
+    #666 0%,
+    #111 30%,
+    var(--accent) 48%,
+    #111 66%,
+    #666 100%
+  );
+  background-size: 300% auto;
+  background-position: 100% center;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: thinking-row-sweep 0.7s cubic-bezier(0.25, 0.46, 0.45, 0.94) forwards;
 }
 
 .thinking-row--variant .thinking-row-tag  { opacity: 0.7; color: var(--accent); }

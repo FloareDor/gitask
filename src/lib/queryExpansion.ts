@@ -1,15 +1,90 @@
 /**
- * LLM-powered query expansion for RAG-Fusion style multi-path retrieval.
+ * Query expansion for CodeRAG-style multi-path retrieval.
  *
- * Replaces all heuristic stopword/symbol approaches with two LLM calls:
- *   1. generateQueryVariants — world knowledge handles synonyms, abbreviations,
- *      follow-up resolution, and codebase vocabulary bridging in one shot.
- *   2. getRetrievalRefinement — sufficiency check after a weak first pass;
- *      asks the LLM what to search for instead and runs a second retrieval.
+ * Two modes:
+ *  - LLM-powered (when expansion enabled + non-local provider): generateQueryVariants
+ *    uses world knowledge for synonyms, follow-up resolution, and vocab bridging.
+ *  - Heuristic fallback (when expansion disabled or local provider):
+ *    buildContextualQuery enriches follow-up queries from prior turns,
+ *    expandQuery adds a code-symbol variant for free 2-path RRF without LLM.
  *
- * Both functions fall back gracefully and never block retrieval.
- * Callers must gate on `config.provider !== "mlc"` before calling.
+ * @see Zhang et al., "CodeRAG", EMNLP 2025. https://arxiv.org/abs/2509.16112
  */
+
+// ── Heuristic helpers ─────────────────────────────────────────────────────────
+
+const EXPANSION_STOP_WORDS = new Set([
+	"a", "an", "the", "is", "are", "was", "were", "be", "been", "being",
+	"have", "has", "had", "do", "does", "did", "will", "would", "could",
+	"should", "may", "might", "must", "shall", "can", "cannot",
+	"this", "that", "these", "those", "it", "its",
+	"what", "which", "who", "whom", "whose", "when", "where", "why", "how",
+	"and", "or", "but", "not", "so", "for", "in", "on", "at", "to", "from",
+	"of", "with", "by", "about", "i", "me", "my", "we", "our", "you", "your",
+	"he", "him", "his", "she", "her", "they", "them", "their", "there", "here",
+	"any", "all", "some", "no", "get", "make", "use", "like", "just", "tell",
+	"show", "give", "find", "know", "see", "say", "go", "put", "set", "let",
+	"try", "help", "need", "want", "code", "file", "line", "add", "run", "work",
+	"project", "repo", "repository", "app", "application",
+]);
+
+/** ≤2 non-stop-word tokens → follow-up query that needs context injection. */
+function isFollowUpQuery(query: string): boolean {
+	const tokens = query.toLowerCase().match(/[a-z]+/g) ?? [];
+	return tokens.filter((t) => t.length >= 3 && !EXPANSION_STOP_WORDS.has(t)).length <= 2;
+}
+
+function extractRetrievalTerms(text: string, limit: number): string[] {
+	const tokens = text.match(/[a-zA-Z_]\w+/g) ?? [];
+	return [...new Set(
+		tokens.filter((t) => t.length >= 3 && !EXPANSION_STOP_WORDS.has(t.toLowerCase()))
+	)].slice(0, limit);
+}
+
+/**
+ * Enrich a follow-up query with key terms from prior conversation turns.
+ * "is it the same?" → "is it the same? handleError tryCatch fetchUser …"
+ * No-ops when the query already has enough retrieval signal.
+ */
+export function buildContextualQuery(
+	userMessage: string,
+	priorMessages: Array<{ role: "user" | "assistant"; content: string }>
+): string {
+	const trimmed = userMessage.trim();
+	if (priorMessages.length === 0 || !isFollowUpQuery(trimmed)) return trimmed;
+
+	const contextTerms: string[] = [];
+	const lastUser = [...priorMessages].reverse().find((m) => m.role === "user");
+	if (lastUser) contextTerms.push(...extractRetrievalTerms(lastUser.content, 8));
+
+	const lastAssistant = [...priorMessages].reverse().find((m) => m.role === "assistant");
+	if (lastAssistant) contextTerms.push(...extractRetrievalTerms(lastAssistant.content.slice(0, 600), 8));
+
+	const unique = [...new Set(contextTerms)];
+	return unique.length === 0 ? trimmed : `${trimmed} ${unique.join(" ")}`;
+}
+
+/**
+ * Heuristic multi-path expansion: original query + a code-symbol variant.
+ * The code-symbol variant is only added when the query contains real identifiers
+ * (camelCase / snake_case / long tokens) — avoids noise on plain NL questions.
+ */
+export function expandQuery(userMessage: string): string[] {
+	const trimmed = userMessage.trim();
+	if (!trimmed) return [trimmed];
+
+	const codeSymbols = (trimmed.match(/[a-zA-Z_]\w+/g) ?? []).filter(
+		(s) =>
+			s.length >= 3 &&
+			!EXPANSION_STOP_WORDS.has(s.toLowerCase()) &&
+			(/[A-Z]/.test(s) || s.includes("_") || s.length >= 6)
+	);
+
+	if (codeSymbols.length === 0) return [trimmed];
+
+	const codeVariant = `${codeSymbols.join(" ")} implementation definition`;
+	return codeVariant === trimmed ? [trimmed] : [trimmed, codeVariant];
+}
 
 /**
  * Generate 3 alternative query phrasings via LLM for multi-path retrieval.

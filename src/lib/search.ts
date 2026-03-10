@@ -256,6 +256,8 @@ function computePreferenceScore(
 export interface MultiPathSearchOptions extends SearchOptions {
 	/** Weight for cosine vs preference in final rerank (default 0.7 = cosine dominates) */
 	preferenceAlpha?: number;
+	/** Called after each variant's search resolves — useful for progress UI. */
+	onProgress?: (completed: number, total: number) => void;
 }
 
 /**
@@ -274,6 +276,7 @@ export async function multiPathHybridSearch(
 		coarseCandidates = 50,
 		rrfK = 60,
 		preferenceAlpha = 0.7,
+		onProgress,
 	} = options;
 
 	const uniqueVariants = [...new Set(queryVariants.map((q) => q.trim()).filter(Boolean))];
@@ -293,6 +296,7 @@ export async function multiPathHybridSearch(
 			coarseCandidates,
 			rrfK,
 		});
+		onProgress?.(1, 1);
 		const graph = store.getGraph();
 		return applyPreferenceRerank(results, querySymbols, graph, limit, preferenceAlpha);
 	}
@@ -302,12 +306,16 @@ export async function multiPathHybridSearch(
 
 	// Run hybridSearch per variant with a higher per-path limit so RRF has a good pool
 	const perPathLimit = Math.max(limit * 2, 10);
+	let completedPaths = 0;
 	const pathResults = await Promise.all(
 		uniqueVariants.map((q, i) =>
 			hybridSearch(store, embeddings[i], q, {
 				limit: perPathLimit,
 				coarseCandidates,
 				rrfK,
+			}).then((r) => {
+				onProgress?.(++completedPaths, uniqueVariants.length);
+				return r;
 			})
 		)
 	);
