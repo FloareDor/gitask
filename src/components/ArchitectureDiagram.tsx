@@ -6,7 +6,8 @@ import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { oneDark } from "react-syntax-highlighter/dist/esm/styles/prism";
 import { createPortal } from "react-dom";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
-import { NodeDef, INGEST, QUERY_TOP, QUERY_BRANCH, QUERY_BOTTOM } from "./ArchitectureDiagramData";
+
+import { NodeDef, INGEST, QUERY_TOP, QUERY_BRANCH, QUERY_BOTTOM } from "./ArchitectureDiagramData";
 
 
 function VArrow() {
@@ -295,7 +296,7 @@ export function ArchitectureDiagram() {
 
         <div className={s.phaseBridge}>
           <VArrow />
-          <span className={s.bridgeLabel}>index ready â†’ query time</span>
+          <span className={s.bridgeLabel}>index ready at query time</span>
         </div>
 
         <div className={s.phaseBlock}>
