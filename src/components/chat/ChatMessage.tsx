@@ -46,13 +46,23 @@ export const ChatMessage = memo(function ChatMessage({
 	const [editText, setEditText] = useState(msg.content);
 	const editRef = useRef<HTMLTextAreaElement>(null);
 
-	// Focus and select text when entering edit mode.
+	// Focus, set caret, and size the textarea when entering edit mode.
 	useEffect(() => {
 		if (isEditing && editRef.current) {
-			editRef.current.focus();
-			editRef.current.setSelectionRange(editRef.current.value.length, editRef.current.value.length);
+			const el = editRef.current;
+			el.focus();
+			el.setSelectionRange(el.value.length, el.value.length);
+			el.style.height = "auto";
+			el.style.height = `${el.scrollHeight}px`;
 		}
 	}, [isEditing]);
+
+	const handleTextareaInput = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
+		const el = e.target;
+		el.style.height = "auto";
+		el.style.height = `${el.scrollHeight}px`;
+		setEditText(el.value);
+	}, []);
 
 	const handleEditStart = useCallback(() => {
 		setEditText(msg.content);
@@ -114,34 +124,38 @@ export const ChatMessage = memo(function ChatMessage({
 
 			{!msg.safety?.blocked && isUser && (
 				<div className="chat-user-row">
-					{onEditSubmit && !isGenerating && !isEditing && (
-						<button
-							type="button"
-							onClick={handleEditStart}
-							title="Edit & resend"
-							className="chat-edit-btn"
-						>
-							&#9998;
-						</button>
-					)}
-					<div className="chat-bubble chat-bubble--user">
+					<div className={`chat-bubble chat-bubble--user${isEditing ? " chat-bubble--editing" : ""}`}>
+						{onEditSubmit && !isGenerating && !isEditing && (
+							<button
+								type="button"
+								onClick={handleEditStart}
+								title="Edit & resend"
+								className="chat-edit-btn"
+							>
+								<svg width="12" height="12" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+									<path d="M11.013 1.427a1.75 1.75 0 0 1 2.474 0l1.086 1.086a1.75 1.75 0 0 1 0 2.474l-8.61 8.61c-.21.21-.47.364-.756.445l-3.251.93a.75.75 0 0 1-.927-.928l.929-3.25c.081-.286.235-.547.445-.758l8.61-8.61Z" fill="currentColor"/>
+								</svg>
+							</button>
+						)}
 						{isEditing ? (
 							<div className="chat-edit-inline">
 								<textarea
 									ref={editRef}
 									className="chat-edit-textarea"
 									value={editText}
-									onChange={(e) => setEditText(e.target.value)}
+									onChange={handleTextareaInput}
 									onKeyDown={handleEditKeyDown}
-									rows={Math.min(10, editText.split("\n").length + 1)}
 								/>
 								<div className="chat-edit-actions">
-									<button type="button" className="chat-edit-save" onClick={handleEditSave}>
-										Send
-									</button>
-									<button type="button" className="chat-edit-cancel" onClick={handleEditCancel}>
-										Cancel
-									</button>
+									<span className="chat-edit-hint">↵ send &nbsp;·&nbsp; esc cancel</span>
+									<div className="chat-edit-actions-btns">
+										<button type="button" className="chat-edit-cancel" onClick={handleEditCancel}>
+											Cancel
+										</button>
+										<button type="button" className="chat-edit-save" onClick={handleEditSave}>
+											Send
+										</button>
+									</div>
 								</div>
 							</div>
 						) : (
