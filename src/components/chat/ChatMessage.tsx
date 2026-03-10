@@ -1,5 +1,6 @@
 "use client";
 
+import { memo, useMemo, useState, useRef, useEffect, useCallback } from "react";
 import ReactMarkdown from "react-markdown";
 import type { Components } from "react-markdown";
 import type { Message } from "@/app/[owner]/[repo]/types";
@@ -22,9 +23,10 @@ interface ChatMessageProps {
 	commitRef: string;
 	contextPaths?: string[];
 	onToggleSources: (id: string) => void;
+	onEditSubmit?: (messageId: string, newText: string) => void;
 }
 
-export function ChatMessage({
+export const ChatMessage = memo(function ChatMessage({
 	msg,
 	isGenerating,
 	isLast,
@@ -33,23 +35,62 @@ export function ChatMessage({
 	commitRef,
 	contextPaths,
 	onToggleSources,
+	onEditSubmit,
 }: ChatMessageProps) {
 	const sourcesExpanded = Boolean(msg.ui?.sourcesExpanded);
 	const sourcesPanelId = `sources-${msg.id}`;
 	const isUser = msg.role === "user";
 	const isStreaming = isGenerating && isLast && !isUser;
 
-	// Build the set of known file paths from citations + context chunks.
-	const knownPaths = [
-		...(msg.citations?.map((c) => c.filePath) ?? []),
-		...(contextPaths ?? []),
-	];
+	const [isEditing, setIsEditing] = useState(false);
+	const [editText, setEditText] = useState(msg.content);
+	const editRef = useRef<HTMLTextAreaElement>(null);
 
-	// For completed assistant messages, inject inline GitHub links for file paths.
-	const renderedContent =
-		!isUser && !isStreaming && knownPaths.length > 0
-			? injectInlineFileLinks(msg.content, knownPaths, owner, repo, commitRef)
-			: msg.content;
+	// Focus and select text when entering edit mode.
+	useEffect(() => {
+		if (isEditing && editRef.current) {
+			editRef.current.focus();
+			editRef.current.setSelectionRange(editRef.current.value.length, editRef.current.value.length);
+		}
+	}, [isEditing]);
+
+	const handleEditStart = useCallback(() => {
+		setEditText(msg.content);
+		setIsEditing(true);
+	}, [msg.content]);
+
+	const handleEditCancel = useCallback(() => {
+		setIsEditing(false);
+		setEditText(msg.content);
+	}, [msg.content]);
+
+	const handleEditSave = useCallback(() => {
+		const trimmed = editText.trim();
+		if (!trimmed || !onEditSubmit) return;
+		setIsEditing(false);
+		onEditSubmit(msg.id, trimmed);
+	}, [editText, msg.id, onEditSubmit]);
+
+	const handleEditKeyDown = useCallback((e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+		if (e.key === "Enter" && !e.shiftKey) {
+			e.preventDefault();
+			handleEditSave();
+		}
+		if (e.key === "Escape") {
+			handleEditCancel();
+		}
+	}, [handleEditSave, handleEditCancel]);
+
+	// Memoize inline file link injection — avoids rebuilding regex on every render.
+	const renderedContent = useMemo(() => {
+		if (isUser || isStreaming) return msg.content;
+		const knownPaths = [
+			...(msg.citations?.map((c) => c.filePath) ?? []),
+			...(contextPaths ?? []),
+		];
+		if (knownPaths.length === 0) return msg.content;
+		return injectInlineFileLinks(msg.content, knownPaths, owner, repo, commitRef);
+	}, [msg.content, msg.citations, contextPaths, owner, repo, commitRef, isUser, isStreaming]);
 
 	return (
 		<div className={`chat-message chat-message--${isUser ? "user" : "assistant"}`}>
@@ -71,11 +112,48 @@ export function ChatMessage({
 				</div>
 			)}
 
-			{!msg.safety?.blocked && (
-				<div className={`chat-bubble ${isUser ? "chat-bubble--user" : "chat-bubble--assistant"}`}>
-					{isUser ? (
-						<p className="chat-user-text">{msg.content}</p>
-					) : isStreaming ? (
+			{!msg.safety?.blocked && isUser && (
+				<div className="chat-user-row">
+					{onEditSubmit && !isGenerating && !isEditing && (
+						<button
+							type="button"
+							onClick={handleEditStart}
+							title="Edit & resend"
+							className="chat-edit-btn"
+						>
+							&#9998;
+						</button>
+					)}
+					<div className="chat-bubble chat-bubble--user">
+						{isEditing ? (
+							<div className="chat-edit-inline">
+								<textarea
+									ref={editRef}
+									className="chat-edit-textarea"
+									value={editText}
+									onChange={(e) => setEditText(e.target.value)}
+									onKeyDown={handleEditKeyDown}
+									rows={Math.min(10, editText.split("\n").length + 1)}
+								/>
+								<div className="chat-edit-actions">
+									<button type="button" className="chat-edit-save" onClick={handleEditSave}>
+										Send
+									</button>
+									<button type="button" className="chat-edit-cancel" onClick={handleEditCancel}>
+										Cancel
+									</button>
+								</div>
+							</div>
+						) : (
+							<p className="chat-user-text">{msg.content}</p>
+						)}
+					</div>
+				</div>
+			)}
+
+			{!msg.safety?.blocked && !isUser && (
+				<div className={`chat-bubble chat-bubble--assistant`}>
+					{isStreaming ? (
 						<div className="chat-markdown chat-streaming">
 							{msg.content || ""}
 							<span className="chat-cursor" aria-hidden="true">▋</span>
@@ -133,4 +211,4 @@ export function ChatMessage({
 			)}
 		</div>
 	);
-}
+});
