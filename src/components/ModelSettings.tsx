@@ -10,6 +10,10 @@ import {
 	setGeminiLocalApiKey,
 	hasGroqLocalApiKey,
 	setGroqLocalApiKey,
+	cancelMLCInit,
+	getDownloadedMLCModels,
+	deleteMLCModel,
+	MLC_MODELS,
 	type LLMConfig,
 	type CloudStorageMode,
 } from "@/lib/llm";
@@ -32,6 +36,9 @@ export function ModelSettings() {
 	const [passphraseInput, setPassphraseInput] = useState("");
 	const [migratePassphrase, setMigratePassphrase] = useState("");
 	const [hasLocalKey, setHasLocalKey] = useState(false);
+	const [downloadedModels, setDownloadedModels] = useState<string[]>([]);
+	const [deletingModel, setDeletingModel] = useState<string | null>(null);
+	const [isCancelling, setIsCancelling] = useState(false);
 
 	const vault = config.provider === "groq" ? getGroqVault() : getGeminiVault();
 	const vaultState = vault?.getState() ?? "none";
@@ -65,6 +72,7 @@ export function ModelSettings() {
 		setApiKeyInput("");
 		setPassphraseInput("");
 		setMigratePassphrase("");
+		getDownloadedMLCModels().then(setDownloadedModels);
 	}, [isOpen]);
 
 	useEffect(() => {
@@ -161,6 +169,22 @@ export function ModelSettings() {
 		setConfig(getLLMConfig());
 	};
 
+	const handleCancelMLCInit = async () => {
+		setIsCancelling(true);
+		await cancelMLCInit();
+		setReloading(false);
+		setStatusMsg("");
+		setIsCancelling(false);
+	};
+
+	const handleDeleteModel = async (modelId: string) => {
+		if (!confirm(`Delete cached data for this model? You'll need to re-download it to use it.`)) return;
+		setDeletingModel(modelId);
+		await deleteMLCModel(modelId);
+		setDownloadedModels((prev) => prev.filter((id) => id !== modelId));
+		setDeletingModel(null);
+	};
+
 	const handleResetKeys = (mode: "all" | "vault" | "local" = "all") => {
 		if (!confirm("Remove stored API key? You will need to re-enter it."))
 			return;
@@ -218,6 +242,7 @@ export function ModelSettings() {
 			setLLMConfig({
 				provider: config.provider,
 				cloudStorage: storageMode,
+				mlcModelId: config.mlcModelId,
 			});
 			await reloadLLM((msg) => setStatusMsg(msg));
 			if (clearLocalKeyAfterSuccess) {
@@ -355,7 +380,7 @@ export function ModelSettings() {
 									{config.provider === "mlc" ? (
 										<>runs in your browser via{" "}
 											<a href="https://github.com/mlc-ai/web-llm" target="_blank" rel="noopener noreferrer" style={{ color: "var(--accent)" }}>web-llm</a>
-											{" "}— needs WebGPU + ~4GB VRAM, downloads once</>
+											{" "}— private, offline, no API key needed</>
 									) : config.provider === "groq" ? (
 										"groq cloud, very fast, no download — needs your API key"
 									) : (
@@ -363,6 +388,89 @@ export function ModelSettings() {
 									)}
 								</p>
 							</div>
+
+							{/* Local model picker */}
+							{config.provider === "mlc" && (
+								<div style={{ marginBottom: 24 }}>
+									<div style={styles.sectionDivider} />
+									<p style={styles.sectionLabel}>local model</p>
+									{MLC_MODELS.map((model) => {
+										const isSelected = (config.mlcModelId ?? MLC_MODELS[0].id) === model.id;
+										const isDownloaded = downloadedModels.includes(model.id);
+										return (
+											<div
+												key={model.id}
+												style={{
+													...styles.mlcModelCard,
+													...(isSelected ? styles.mlcModelCardSelected : styles.mlcModelCardUnselected),
+												}}
+												onClick={() => setConfig({ ...config, mlcModelId: model.id })}
+											>
+												<div style={styles.mlcModelRow}>
+													<span style={{
+														...styles.dot,
+														background: isSelected ? "var(--page-bg)" : "var(--success)",
+														flexShrink: 0,
+													}} />
+													<span style={styles.mlcModelName}>{model.label}</span>
+													<span style={{
+														...styles.mlcModelBadge,
+														background: isSelected ? "rgba(255,255,255,0.15)" : "var(--page-surface)",
+														color: isSelected ? "rgba(255,255,255,0.85)" : "var(--page-text-muted)",
+														border: isSelected ? "1px solid rgba(255,255,255,0.2)" : "1px solid var(--page-border)",
+													}}>
+														{model.size}
+													</span>
+												</div>
+												<div style={styles.mlcModelMeta}>
+													<span style={{
+														...styles.mlcModelMetaText,
+														color: isSelected ? "rgba(255,255,255,0.5)" : "var(--page-text-dim)",
+													}}>
+														{model.vram} download
+													</span>
+													{isDownloaded && (
+														<span style={{
+															...styles.mlcModelMetaText,
+															color: isSelected ? "rgba(134,239,172,0.9)" : "var(--success)",
+															display: "flex",
+															alignItems: "center",
+															gap: 4,
+														}}>
+															<span style={{ fontSize: 7, lineHeight: 1 }}>●</span> cached
+														</span>
+													)}
+												</div>
+											</div>
+										);
+									})}
+
+									{/* Manage downloaded models */}
+									{downloadedModels.length > 0 && (
+										<details style={{ marginTop: 16 }}>
+											<summary style={styles.manageLabel}>manage downloads</summary>
+											<div style={{ marginTop: 10, display: "flex", flexDirection: "column", gap: 6 }}>
+												{downloadedModels.map((id) => {
+													const info = MLC_MODELS.find((m) => m.id === id);
+													return (
+														<div key={id} style={styles.downloadedRow}>
+															<span style={styles.downloadedName}>{info?.label ?? id}</span>
+															<span style={styles.downloadedSize}>{info?.vram}</span>
+															<button
+																style={styles.deleteBtn}
+																disabled={deletingModel === id}
+																onClick={() => handleDeleteModel(id)}
+															>
+																{deletingModel === id ? "deleting..." : "delete"}
+															</button>
+														</div>
+													);
+												})}
+											</div>
+										</details>
+									)}
+								</div>
+							)}
 
 							{/* Cloud key fields */}
 							{isCloudProvider && (
@@ -552,7 +660,20 @@ export function ModelSettings() {
 								</div>
 							)}
 
-							{reloading && <p style={styles.status}>{statusMsg}</p>}
+							{reloading && (
+								<div style={styles.progressBlock}>
+									<p style={styles.status}>{statusMsg || "Initializing..."}</p>
+									{config.provider === "mlc" && (
+										<button
+											style={styles.cancelBtn}
+											onClick={handleCancelMLCInit}
+											disabled={isCancelling}
+										>
+											{isCancelling ? "cancelling..." : "cancel & clear download"}
+										</button>
+									)}
+								</div>
+							)}
 
 							<div style={styles.sectionDivider} />
 
@@ -826,5 +947,114 @@ const styles: Record<string, React.CSSProperties> = {
 		fontWeight: 600,
 		color: "var(--page-text)",
 		fontFamily: "var(--font-sans)",
+	},
+	mlcModelCard: {
+		border: "2px solid",
+		padding: "12px 14px",
+		cursor: "pointer",
+		marginBottom: "6px",
+		display: "flex",
+		flexDirection: "column" as const,
+		gap: 5,
+		transition: "background 0.1s ease, border-color 0.1s ease",
+	},
+	mlcModelCardSelected: {
+		borderColor: "var(--page-text)",
+		background: "var(--page-text)",
+		color: "var(--page-bg)",
+		boxShadow: "2px 2px 0 #16a34a",
+	},
+	mlcModelCardUnselected: {
+		borderColor: "var(--page-border)",
+		background: "var(--page-surface)",
+		color: "var(--page-text)",
+	},
+	mlcModelRow: {
+		display: "flex",
+		alignItems: "center",
+		gap: 10,
+	},
+	mlcModelName: {
+		flex: 1,
+		fontFamily: "var(--font-sans)",
+		fontSize: "14px",
+		fontWeight: 600,
+	},
+	mlcModelBadge: {
+		fontFamily: "var(--font-mono)",
+		fontSize: "11px",
+		padding: "2px 7px",
+		flexShrink: 0,
+	},
+	mlcModelMeta: {
+		display: "flex",
+		alignItems: "center",
+		gap: 12,
+		paddingLeft: 17,
+	},
+	mlcModelMetaText: {
+		fontFamily: "var(--font-mono)",
+		fontSize: "11px",
+		lineHeight: 1.4,
+	},
+	progressBlock: {
+		display: "flex",
+		flexDirection: "column" as const,
+		gap: 8,
+		marginTop: 12,
+	},
+	cancelBtn: {
+		background: "transparent",
+		border: "2px solid var(--page-border)",
+		padding: "8px 16px",
+		fontSize: "12px",
+		cursor: "pointer",
+		fontWeight: 600,
+		color: "var(--page-text-muted)",
+		fontFamily: "var(--font-mono)",
+		width: "100%",
+		textAlign: "center" as const,
+		letterSpacing: "0.03em",
+	},
+	manageLabel: {
+		fontFamily: "var(--font-mono)",
+		fontSize: "11px",
+		cursor: "pointer",
+		color: "var(--page-text-muted)",
+		userSelect: "none" as const,
+		letterSpacing: "0.06em",
+		textTransform: "uppercase" as const,
+	},
+	downloadedRow: {
+		display: "flex",
+		alignItems: "center",
+		gap: 8,
+		padding: "8px 10px",
+		background: "var(--page-surface)",
+		border: "1px solid var(--page-border)",
+	},
+	downloadedName: {
+		flex: 1,
+		fontFamily: "var(--font-sans)",
+		fontSize: "13px",
+		fontWeight: 600,
+		color: "var(--page-text)",
+	},
+	downloadedSize: {
+		fontFamily: "var(--font-mono)",
+		fontSize: "11px",
+		color: "var(--page-text-muted)",
+		flexShrink: 0,
+	},
+	deleteBtn: {
+		background: "transparent",
+		border: "1px solid var(--page-border)",
+		padding: "4px 10px",
+		fontSize: "11px",
+		cursor: "pointer",
+		fontWeight: 600,
+		color: "var(--page-text-muted)",
+		fontFamily: "var(--font-mono)",
+		flexShrink: 0,
 	},
 };

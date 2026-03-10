@@ -25,7 +25,24 @@ export interface LLMConfig {
 	geminiStorage?: CloudStorageMode;
 	/** @deprecated For legacy migration only; BYOK keys now in vault */
 	apiKey?: string;
+	/** Selected local model ID (mlc provider only) */
+	mlcModelId?: string;
 }
+
+export interface MLCModelInfo {
+	id: string;
+	label: string;
+	size: string;
+	vram: string;
+}
+
+export const MLC_MODELS: MLCModelInfo[] = [
+	{ id: "Qwen2-0.5B-Instruct-q4f16_1-MLC",    label: "Qwen2 0.5B",    size: "0.5B", vram: "~380MB" },
+	{ id: "Llama-3.2-1B-Instruct-q4f16_1-MLC",  label: "Llama 3.2 1B",  size: "1B",   vram: "~700MB" },
+	{ id: "Llama-3.2-3B-Instruct-q4f32_1-MLC",  label: "Llama 3.2 3B",  size: "3B",   vram: "~1.8GB" },
+	{ id: "Phi-3.5-mini-instruct-q4f16_1-MLC",  label: "Phi 3.5 mini",  size: "3.8B", vram: "~2.2GB" },
+	{ id: "Llama-3.1-8B-Instruct-q4f16_1-MLC",  label: "Llama 3.1 8B",  size: "8B",   vram: "~4.9GB" },
+];
 
 export interface ChatMessage {
 	role: "system" | "user" | "assistant";
@@ -144,6 +161,7 @@ interface LLMEngine {
 
 let activeEngine: LLMEngine | null = null;
 let initPromise: Promise<void> | null = null;
+let mlcWorker: Worker | null = null;
 
 let currentStatus: LLMStatus = "idle";
 const statusListeners: Set<(status: LLMStatus) => void> = new Set();
@@ -301,7 +319,7 @@ export function setLLMConfig(config: LLMConfig) {
 
 // ─── MLC Implementation ─────────────────────────────────────────────────────
 
-const MLC_MODEL_ID = "Qwen2-0.5B-Instruct-q4f16_1-MLC";
+const DEFAULT_MLC_MODEL_ID = MLC_MODELS[0].id;
 
 class MLCEngineWrapper implements LLMEngine {
 	// eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -860,34 +878,21 @@ export async function initLLM(
 					}
 
 					onProgress?.("Loading WebLLM Engine...");
-					const { CreateWebWorkerMLCEngine } = await import("@mlc-ai/web-llm");
+					const { CreateWebWorkerMLCEngine, prebuiltAppConfig } = await import("@mlc-ai/web-llm");
 					const worker = new Worker(
 						new URL("../workers/llm-worker.ts", import.meta.url),
 						{ type: "module" }
 					);
+					mlcWorker = worker;
 
-					const rawEngine = await CreateWebWorkerMLCEngine(worker, MLC_MODEL_ID, {
+					const selectedModelId = config.mlcModelId ?? DEFAULT_MLC_MODEL_ID;
+					const rawEngine = await CreateWebWorkerMLCEngine(worker, selectedModelId, {
 						initProgressCallback: (progress) => {
 							onProgress?.(`LLM: ${progress.text}`);
 						},
-						appConfig: {
-							model_list: [
-								{
-									model:
-										"https://huggingface.co/mlc-ai/Qwen2-0.5B-Instruct-q4f16_1-MLC",
-									model_id: MLC_MODEL_ID,
-									model_lib:
-										"https://raw.githubusercontent.com/mlc-ai/binary-mlc-llm-libs/main/web-llm-models/" +
-										"v0_2_80" +
-										"/Qwen2-0.5B-Instruct-q4f16_1-ctx4k_cs1k-webgpu.wasm",
-									low_resource_required: true,
-									overrides: {
-										context_window_size: 8192,
-									},
-								},
-							],
-						},
+						appConfig: prebuiltAppConfig,
 					});
+					mlcWorker = null;
 					activeEngine = new MLCEngineWrapper(rawEngine);
 					onProgress?.("Local LLM Ready");
 				} catch (err) {
@@ -986,10 +991,80 @@ export async function generateFull(messages: ChatMessage[]): Promise<string> {
 }
 
 export async function disposeLLM(): Promise<void> {
+	if (mlcWorker) {
+		mlcWorker.terminate();
+		mlcWorker = null;
+	}
 	if (activeEngine) {
 		await activeEngine.dispose();
 		activeEngine = null;
 	}
 	initPromise = null;
 	setStatus("idle");
+}
+
+/**
+ * Cancel an in-progress MLC model download and clear any partial cache.
+ */
+export async function cancelMLCInit(): Promise<void> {
+	await disposeLLM();
+	try {
+		const cacheNames = await caches.keys();
+		for (const name of cacheNames) {
+			if (name.includes("webllm") || name.includes("mlc")) {
+				await caches.delete(name);
+			}
+		}
+	} catch {
+		// Cache API unavailable, no-op
+	}
+}
+
+/**
+ * List MLC model cache entries (model IDs that have been downloaded).
+ */
+export async function getDownloadedMLCModels(): Promise<string[]> {
+	try {
+		const downloaded: string[] = [];
+		const cacheNames = await caches.keys();
+		for (const name of cacheNames) {
+			if (name.includes("webllm") || name.includes("mlc")) {
+				const cache = await caches.open(name);
+				const keys = await cache.keys();
+				for (const req of keys) {
+					const url = req.url;
+					for (const m of MLC_MODELS) {
+						if (url.includes(m.id) && !downloaded.includes(m.id)) {
+							downloaded.push(m.id);
+						}
+					}
+				}
+			}
+		}
+		return downloaded;
+	} catch {
+		return [];
+	}
+}
+
+/**
+ * Delete all cached data for a specific MLC model.
+ */
+export async function deleteMLCModel(modelId: string): Promise<void> {
+	try {
+		const cacheNames = await caches.keys();
+		for (const name of cacheNames) {
+			if (name.includes("webllm") || name.includes("mlc")) {
+				const cache = await caches.open(name);
+				const keys = await cache.keys();
+				for (const req of keys) {
+					if (req.url.includes(modelId)) {
+						await cache.delete(req);
+					}
+				}
+			}
+		}
+	} catch {
+		// Cache API unavailable, no-op
+	}
 }
