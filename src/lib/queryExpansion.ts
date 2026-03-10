@@ -129,3 +129,60 @@ export function expandQuery(userMessage: string): string[] {
 
 	return variants;
 }
+
+/**
+ * Count tokens in a query that carry real retrieval signal (non-stop, ≥3 chars).
+ */
+function countSearchableTokens(query: string): number {
+	const tokens = query.toLowerCase().match(/[a-z]+/g) ?? [];
+	return tokens.filter((t) => t.length >= 3 && !EXPANSION_STOP_WORDS.has(t)).length;
+}
+
+/**
+ * Use a lightweight LLM call to rewrite a vague query into repo-specific terms,
+ * using the repository README as a vocabulary bridge.
+ *
+ * Example: "what are all the llms used?" + README mentioning Gemini/Groq/WebGPU
+ *   → original query + "gemini groq mlc webgpu initLLM generate"
+ *
+ * This bridges natural-language concepts to actual identifiers in the codebase,
+ * after which graph expansion follows import edges for the network effect:
+ * llm.ts → gemini-vault.ts, groq-vault.ts, etc.
+ *
+ * Only runs when:
+ *   1. The query has ≤3 searchable tokens (vague/short)
+ *   2. The LLM is in "ready" state
+ *   3. README content is available
+ *
+ * Falls back to the original query on any failure — never blocks retrieval.
+ */
+export async function rewriteQueryWithRepoContext(
+	query: string,
+	readmeContent: string,
+): Promise<string> {
+	if (countSearchableTokens(query) > 3) return query;
+	if (!readmeContent.trim()) return query;
+
+	try {
+		const { getLLMStatus, generateFull } = await import("./llm");
+		if (getLLMStatus() !== "ready") return query;
+
+		const messages = [
+			{
+				role: "system" as const,
+				content:
+					"Given a user query and repository README, output 4-6 specific technical identifiers from the codebase that best represent what the user is asking about. Output terms only, space-separated, no explanation, no punctuation.",
+			},
+			{
+				role: "user" as const,
+				content: `Query: "${query}"\n\nREADME:\n${readmeContent.slice(0, 800)}`,
+			},
+		];
+
+		const expanded = (await generateFull(messages)).trim();
+		if (!expanded || expanded.length > 120) return query;
+		return `${query} ${expanded}`;
+	} catch {
+		return query;
+	}
+}

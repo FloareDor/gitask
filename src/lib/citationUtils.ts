@@ -5,6 +5,9 @@ export const EVIDENCE_STOP_WORDS = new Set([
 	"by", "with", "from", "is", "are", "was", "were", "be", "what", "which",
 	"how", "does", "do", "did", "this", "that", "these", "those", "value",
 	"values", "config", "configuration", "model", "models", "repo", "repository", "project",
+	// conversational query words that are never meaningful code identifiers
+	"all", "any", "some", "used", "use", "using", "again", "back", "tell",
+	"show", "list", "get", "give", "also", "just", "still", "ever", "here",
 ]);
 
 export function extractEvidenceTerms(query: string): string[] {

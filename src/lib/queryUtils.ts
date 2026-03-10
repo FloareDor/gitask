@@ -13,6 +13,6 @@ export function isFactSeekingQuery(query: string): boolean {
 	return (
 		/\b(hyperparameter|dropout|temperature|top[_\s-]?p|top[_\s-]?k|learning[_\s-]?rate|batch[_\s-]?size)\b/.test(normalized) ||
 		/\b(default|exact|specific|numeric|number|value|values|setting|settings|config|configuration)\b/.test(normalized) ||
-		/^\s*(what|which|how many|where)\b/.test(normalized)
+		/^\s*(how many|where)\b/.test(normalized)
 	);
 }
