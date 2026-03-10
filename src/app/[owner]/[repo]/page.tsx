@@ -201,9 +201,14 @@ export default function RepoPage({
 						});
 
 					if (sessions.length > 0) {
-						const selectedId = sessions.some((session) => session.chat_id === parsed.activeChatId)
-							? (parsed.activeChatId as string)
-							: sessions[0].chat_id;
+						const urlChatId = typeof window !== "undefined"
+							? new URLSearchParams(window.location.search).get("chat")
+							: null;
+						const selectedId = (urlChatId && sessions.some((s) => s.chat_id === urlChatId))
+							? urlChatId
+							: sessions.some((session) => session.chat_id === parsed.activeChatId)
+								? (parsed.activeChatId as string)
+								: sessions[0].chat_id;
 						const selected = sessions.find((session) => session.chat_id === selectedId);
 						setChatSessions(sessions);
 						pendingChatSwitchRef.current = selectedId;
@@ -267,6 +272,15 @@ export default function RepoPage({
 			setToastMessage("Warning: chat history could not be saved — your browser storage may be full.");
 		}
 	}, [chatStorageKey, chatSessions, activeChatId]);
+
+	// Sync active chat ID to URL so chats are directly linkable/bookmarkable
+	useEffect(() => {
+		if (!activeChatId || !owner || !repo) return;
+		const current = new URLSearchParams(window.location.search);
+		if (current.get("chat") === activeChatId) return;
+		current.set("chat", activeChatId);
+		router.replace(`/${owner}/${repo}?${current.toString()}`, { scroll: false });
+	}, [activeChatId, owner, repo, router]);
 
 	useEffect(() => {
 		const countChanged = messages.length !== prevMessageCountRef.current;
@@ -916,6 +930,12 @@ ${context}`;
 		void handleSend(newText, messageId);
 	}, [handleSend]);
 
+	const handleVizComplete = useCallback((messageId: string, diagram: import("@/app/[owner]/[repo]/types").MessageDiagram) => {
+		setMessages((prev) => prev.map((m) =>
+			m.id === messageId ? { ...m, diagram, diagramStatus: "ready" as const } : m
+		));
+	}, []);
+
 	const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLTextAreaElement>) => {
 		if (e.key === "Enter" && !e.shiftKey) {
 			e.preventDefault();
@@ -1081,6 +1101,7 @@ ${context}`;
 							store={storeRef.current}
 									onToggleSources={handleToggleSources}
 									onEditSubmit={handleEditMessage}
+									onVizComplete={handleVizComplete}
 								/>
 							))}
 

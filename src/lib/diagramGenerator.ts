@@ -112,6 +112,40 @@ export function parseDiagramData(raw: unknown): DiagramData {
 	return { title: d.title.trim(), nodes, edges };
 }
 
+const MESSAGE_VIZ_PROMPT = `You extract visual flow diagrams from explanations about code or architecture.
+Given an AI-generated explanation, identify the key entities and relationships and return them as a diagram.
+Return ONLY valid JSON — no markdown fences, no extra text.
+
+Schema:
+{
+  "title": "short title max 8 words",
+  "nodes": [{ "id": "snake_case", "label": "Name", "sublabel": "optional short description", "category": "service|database|queue|external|component|function" }],
+  "edges": [{ "source": "id1", "target": "id2", "label": "optional short action label" }]
+}
+
+Rules:
+- 4 to 10 nodes focused on the specific flow described
+- All IDs: lowercase underscores, unique
+- All edge sources/targets must be valid node IDs
+- If no clear flow or process is described, return {"skip": true}`;
+
+export async function generateMessageDiagram(messageContent: string): Promise<DiagramData | null> {
+	const response = await generateFull([
+		{ role: "system", content: MESSAGE_VIZ_PROMPT },
+		{
+			role: "user",
+			content: `Extract a flow diagram from this explanation:\n\n${messageContent.slice(0, 4000)}`,
+		},
+	]);
+
+	const json = extractJSON(response);
+	const parsed = JSON.parse(json) as unknown;
+	if (parsed && typeof parsed === "object" && (parsed as Record<string, unknown>).skip === true) {
+		return null;
+	}
+	return parseDiagramData(parsed);
+}
+
 const QUERY_DIAGRAM_PROMPT = `You generate query-specific diagrams to accompany code explanations.
 
 Given a user's question and code context, decide:
