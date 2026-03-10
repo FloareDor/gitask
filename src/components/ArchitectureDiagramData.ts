@@ -493,7 +493,7 @@ export const QUERY_BOTTOM: NodeDef[] = [
     title: "WebLLM Worker",
     detail: "Qwen2-0.5B in a dedicated web worker",
     file: "src/workers/llm-worker.ts",
-    snippet: `// llm-worker.ts â€” dedicated Web Worker
+    snippet: `// llm-worker.ts —” dedicated Web Worker
 import { WebWorkerMLCEngineHandler } from "@mlc-ai/web-llm";
 const handler = new WebWorkerMLCEngineHandler();
 self.onmessage = (msg: MessageEvent) => { handler.onmessage(msg); };

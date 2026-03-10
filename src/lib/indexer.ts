@@ -1,5 +1,5 @@
 /**
- * Indexing Orchestrator â€” ties the full RAG pipeline together.
+ * Indexing Orchestrator —” ties the full RAG pipeline together.
  *
  * indexRepository() → fetch tree → chunk (AST) → embed (WebGPU)
  * → store in VectorStore → persist to IndexedDB.
@@ -129,7 +129,7 @@ export async function indexRepository(
 	// 1. Fetch tree
 	onProgress?.({
 		phase: "fetching",
-		message: "Fetching repository structureâ€¦",
+		message: "Fetching repository structure—¦",
 		current: 0,
 		total: 1,
 	});
@@ -161,7 +161,7 @@ export async function indexRepository(
 		console.warn("Failed to init tree-sitter:", e);
 		onProgress?.({
 			phase: "fetching",
-			message: "AST parsing unavailable â€” falling back to text chunking. Search quality may be reduced.",
+			message: "AST parsing unavailable —” falling back to text chunking. Search quality may be reduced.",
 			current: 0,
 			total: 1,
 		});
@@ -334,7 +334,7 @@ export async function indexRepository(
 				if (filesToAdd.length > 0) {
 					onProgress?.({
 						phase: "chunking",
-						message: `Chunking ${filesToAdd.length} changed filesâ€¦`,
+						message: `Chunking ${filesToAdd.length} changed files—¦`,
 						current: 0,
 						total: filesToAdd.length,
 					});
@@ -385,7 +385,7 @@ export async function indexRepository(
 					if (allNewChunks.length > 0) {
 						onProgress?.({
 							phase: "embedding",
-							message: `Embedding ${allNewChunks.length} chunksâ€¦`,
+							message: `Embedding ${allNewChunks.length} chunks—¦`,
 							current: 0,
 							total: allNewChunks.length,
 						});
@@ -415,7 +415,7 @@ export async function indexRepository(
 
 				onProgress?.({
 					phase: "persisting",
-					message: "Saving to cacheâ€¦",
+					message: "Saving to cache—¦",
 					current: 0,
 					total: 1,
 				});
@@ -504,7 +504,7 @@ export async function indexRepository(
 	if (startFileIndex < totalFiles) {
 		onProgress?.({
 			phase: "fetching",
-			message: `Fetching ${totalFiles} filesâ€¦ (chunk workers: ${chunkWorkerCount})`,
+			message: `Fetching ${totalFiles} files—¦ (chunk workers: ${chunkWorkerCount})`,
 			current: startFileIndex,
 			total: totalFiles,
 		});
@@ -619,7 +619,7 @@ export async function indexRepository(
 
 	onProgress?.({
 		phase: "embedding",
-		message: chunksToEmbed.length > 0 ? `Embedding ${allChunks.length} chunksâ€¦` : `Resuming embeddingâ€¦`,
+		message: chunksToEmbed.length > 0 ? `Embedding ${allChunks.length} chunks—¦` : `Resuming embedding—¦`,
 		current: embeddedSoFar.length,
 		total: allChunks.length,
 		astNodes: [...astNodes],
@@ -652,7 +652,7 @@ export async function indexRepository(
 	} else if (embedConfig.batchSize > 1) {
 		onProgress?.({
 			phase: "embedding",
-			message: `WebGPU detected â€” using batch size ${embedConfig.batchSize} for fast embedding`,
+			message: `WebGPU detected —” using batch size ${embedConfig.batchSize} for fast embedding`,
 			current: embeddedSoFar.length,
 			total: allChunks.length,
 			estimatedSizeBytes: estimatedBytes,
@@ -687,7 +687,7 @@ export async function indexRepository(
 				for (const [fp, range] of fileChunkRanges) {
 					if (overallDone >= range.end) fileStatusMap.set(fp, "done");
 					else if (overallDone > range.start) fileStatusMap.set(fp, "embedding");
-					// else stays "parsed" â€” no update needed
+					// else stays "parsed" —” no update needed
 				}
 
 				const updatedNodes = astNodes.map((node) => {
@@ -724,7 +724,7 @@ export async function indexRepository(
 					console.warn("Failed to save partial embedding progress:", e);
 					onProgress?.({
 						phase: "embedding",
-						message: "Warning: could not save progress checkpoint â€” if you close this tab, indexing will restart from scratch.",
+						message: "Warning: could not save progress checkpoint —” if you close this tab, indexing will restart from scratch.",
 						current: soFar.length,
 						total: allChunks.length,
 						estimatedSizeBytes: estimatedBytes,
@@ -745,7 +745,7 @@ export async function indexRepository(
 	// 7. Persist to IndexedDB
 	onProgress?.({
 		phase: "persisting",
-		message: "Saving to cacheâ€¦",
+		message: "Saving to cache—¦",
 		current: 0,
 		total: 1,
 		estimatedSizeBytes: estimatedBytes,
@@ -756,7 +756,7 @@ export async function indexRepository(
 
 	const skippedNote =
 		skippedFiles.length > 0
-			? ` â€” ${skippedFiles.length} file${skippedFiles.length > 1 ? "s" : ""} could not be fetched`
+			? ` —” ${skippedFiles.length} file${skippedFiles.length > 1 ? "s" : ""} could not be fetched`
 			: "";
 	onProgress?.({
 		phase: "done",
