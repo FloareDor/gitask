@@ -464,10 +464,20 @@ html, body {
   transform: translate(-1px, -1px);
 }
 
-.star-link:hover {
-  border-color: var(--accent);
-  box-shadow: var(--shadow-card-sm);
+.star-link {
+  box-shadow: 4px 4px 0 var(--accent);
+  border-color: var(--accent) !important;
   transform: translate(-1px, -1px);
+  transition: transform 0.08s ease, box-shadow 0.08s ease;
+}
+.star-link:hover {
+  box-shadow: 6px 6px 0 var(--accent);
+  transform: translate(-3px, -3px);
+}
+.star-link:active {
+  box-shadow: 0px 0px 0 var(--accent);
+  transform: translate(3px, 3px);
+  transition: transform 0.05s ease, box-shadow 0.05s ease;
 }
 
 .feature-card:hover {
