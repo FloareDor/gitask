@@ -576,16 +576,33 @@ export default function RepoPage({
 		}
 	}, [owner, repo, router, chatStorageKey]);
 
-	const handleSend = useCallback(async (overrideText?: string) => {
+	const handleSend = useCallback(async (overrideText?: string, truncateAtMessageId?: string) => {
 		const userMessage = (overrideText ?? input).trim();
 		if (!userMessage || isGeneratingRef.current || !isIndexed) return;
 
 		isGeneratingRef.current = true;
 		setInput("");
-		setMessages((prev) => [
-			...prev,
-			{ id: makeMessageId(), role: "user", content: userMessage },
-		]);
+		const newUserMsg: Message = { id: makeMessageId(), role: "user", content: userMessage };
+		setMessages((prev) => {
+			let base = prev;
+			if (truncateAtMessageId) {
+				const idx = prev.findIndex((m) => m.id === truncateAtMessageId);
+				if (idx !== -1) base = prev.slice(0, idx);
+			}
+			return [...base, newUserMsg];
+		});
+		// When editing, also sync the truncated messages into chatSessions immediately
+		// so the chatSessions→messages sync effect doesn't overwrite with stale data.
+		if (truncateAtMessageId && activeChatId) {
+			setChatSessions((prev) =>
+				prev.map((session) => {
+					if (session.chat_id !== activeChatId) return session;
+					const idx = session.messages.findIndex((m) => m.id === truncateAtMessageId);
+					const base = idx !== -1 ? session.messages.slice(0, idx) : session.messages;
+					return { ...session, messages: [...base, newUserMsg], updatedAt: Date.now() };
+				})
+			);
+		}
 		setIsGenerating(true);
 		let appendedAssistantPlaceholder = false;
 		let assistantMessageId: string | null = null;
@@ -867,6 +884,11 @@ ${context}`;
 		}
 	}, [input, isIndexed, owner, repo, llmStatus, coveEnabled]);
 
+	const handleEditMessage = useCallback((messageId: string, newText: string) => {
+		if (isGeneratingRef.current) return;
+		void handleSend(newText, messageId);
+	}, [handleSend]);
+
 	const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLTextAreaElement>) => {
 		if (e.key === "Enter" && !e.shiftKey) {
 			e.preventDefault();
@@ -895,6 +917,11 @@ ${context}`;
 		const remainingMs = (indexProgress.total - indexProgress.current) / rate;
 		return formatTimeRemaining(remainingMs);
 	}, [indexProgress]);
+
+	const contextPaths = useMemo(
+		() => contextChunks.map((c) => c.filePath),
+		[contextChunks]
+	);
 
 	const orderedChatSessions = useMemo(
 		() => [...chatSessions].sort((a, b) => b.updatedAt - a.updatedAt),
@@ -1021,7 +1048,9 @@ ${context}`;
 									owner={owner}
 									repo={repo}
 									commitRef={indexedSha ?? "HEAD"}
+									contextPaths={contextPaths}
 									onToggleSources={handleToggleSources}
+									onEditSubmit={handleEditMessage}
 								/>
 							))}
 
