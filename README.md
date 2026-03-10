@@ -23,6 +23,23 @@ it started as a toy to see if I can make a basic offline RAG system for code. it
 
 ---
 
+## demo
+
+<div align="center">
+  <iframe
+    src="https://drive.google.com/file/d/1I91z52aV2g4xpZOWVt_rIryyLjfDWzWm/preview"
+    width="800"
+    height="450"
+    allow="autoplay"
+    style="max-width: 100%; border: 0; border-radius: 12px;"
+  ></iframe>
+</div>
+
+watch the walkthrough here if the embed does not load:
+[gitask autoresearch music demo](https://drive.google.com/file/d/1I91z52aV2g4xpZOWVt_rIryyLjfDWzWm/view?usp=sharing)
+
+---
+
 ## how it works
 
 <div align="center">
