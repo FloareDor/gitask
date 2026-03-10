@@ -139,6 +139,20 @@ function countSearchableTokens(query: string): number {
 }
 
 /**
+ * Returns true if the query already contains at least one code-like identifier
+ * (camelCase, snake_case, or a long token ≥8 chars) — meaning it has enough
+ * specific signal to retrieve well without LLM rewriting.
+ */
+function hasCodeIdentifier(query: string): boolean {
+	const tokens = query.match(/[a-zA-Z_]\w+/g) ?? [];
+	return tokens.some(
+		(t) =>
+			!EXPANSION_STOP_WORDS.has(t.toLowerCase()) &&
+			(/[A-Z]/.test(t) || t.includes("_") || t.length >= 6 || /\d/.test(t))
+	);
+}
+
+/**
  * Use a lightweight LLM call to rewrite a vague query into repo-specific terms,
  * using the repository README as a vocabulary bridge.
  *
@@ -161,6 +175,7 @@ export async function rewriteQueryWithRepoContext(
 	readmeContent: string,
 ): Promise<string> {
 	if (countSearchableTokens(query) > 3) return query;
+	if (hasCodeIdentifier(query)) return query;
 	if (!readmeContent.trim()) return query;
 
 	try {
