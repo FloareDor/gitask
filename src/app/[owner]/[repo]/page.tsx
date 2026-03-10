@@ -614,7 +614,9 @@ export default function RepoPage({
 			const limits = defaultLimitsForProvider(config.provider);
 			const readmeChunk = storeRef.current.getChunksByFile("README.md")[0]
 				?? storeRef.current.getChunksByFile("readme.md")[0];
-			const rewrittenQuery = await rewriteQueryWithRepoContext(userMessage, readmeChunk?.code ?? "");
+			const rewrittenQuery = config.provider !== "mlc"
+				? await rewriteQueryWithRepoContext(userMessage, readmeChunk?.code ?? "")
+				: userMessage;
 			const contextualQuery = buildContextualQuery(rewrittenQuery, messagesRef.current);
 			const queryVariants = expandQuery(contextualQuery);
 			const searchStart = performance.now();
