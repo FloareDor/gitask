@@ -3,7 +3,7 @@
 import { useRef, useState, useEffect } from "react";
 import { ModelSettings } from "@/components/ModelSettings";
 import { ThemeToggle } from "@/components/ThemeToggle";
-import type { LLMStatus } from "@/lib/llm";
+import { getLLMConfig, type LLMStatus } from "@/lib/llm";
 import type { Message } from "@/app/[owner]/[repo]/types";
 
 const PROJECT_REPO_URL = "https://github.com/FloareDor/gitask";
@@ -41,6 +41,7 @@ interface RepoHeaderProps {
 	onClearChat: () => void;
 	onDeleteEmbeddings: () => void;
 	onToggleFileBrowser: () => void;
+	onShowDiagram: () => void;
 }
 
 export function RepoHeader({
@@ -63,6 +64,7 @@ export function RepoHeader({
 	onClearChat,
 	onDeleteEmbeddings,
 	onToggleFileBrowser,
+	onShowDiagram,
 }: RepoHeaderProps) {
 	const overflowRef = useRef<HTMLDivElement>(null);
 	const [showOverflow, setShowOverflow] = useState(false);
@@ -177,6 +179,15 @@ export function RepoHeader({
 						</div>
 					)}
 				</div>
+				{isIndexed && getLLMConfig().provider !== "mlc" && (
+					<button
+						onClick={onShowDiagram}
+						style={{ padding: "6px 12px", border: "2px solid var(--border-dark)", background: "transparent", color: "var(--text-on-dark-secondary)", cursor: "pointer", fontSize: "12px", fontFamily: "var(--font-mono)" }}
+						title="Generate data flow diagram for this repo"
+					>
+						Diagram
+					</button>
+				)}
 				{isIndexed && (
 					<button
 						onClick={onToggleFileBrowser}

@@ -5,6 +5,8 @@ import ReactMarkdown from "react-markdown";
 import type { Components } from "react-markdown";
 import type { Message } from "@/app/[owner]/[repo]/types";
 import { encodeGitHubPath, injectInlineFileLinks } from "@/lib/chatUtils";
+import { InlineDiagram } from "@/components/diagram/InlineDiagram";
+import type { VectorStore } from "@/lib/vectorStore";
 
 const markdownComponents: Components = {
 	a: ({ href, children, ...props }) => (
@@ -22,6 +24,7 @@ interface ChatMessageProps {
 	repo: string;
 	commitRef: string;
 	contextPaths?: string[];
+	store: VectorStore;
 	onToggleSources: (id: string) => void;
 	onEditSubmit?: (messageId: string, newText: string) => void;
 }
@@ -34,6 +37,7 @@ export const ChatMessage = memo(function ChatMessage({
 	repo,
 	commitRef,
 	contextPaths,
+	store,
 	onToggleSources,
 	onEditSubmit,
 }: ChatMessageProps) {
@@ -180,7 +184,24 @@ export const ChatMessage = memo(function ChatMessage({
 				</div>
 			)}
 
-			{msg.citations && msg.citations.length > 0 && (
+			{/* Diagram section */}
+		{!isUser && msg.diagramStatus === "loading" && (
+			<div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 10, padding: "8px 12px", border: "1px solid #1e2a3a", background: "#080808" }}>
+				<div style={{ width: 14, height: 14, border: "2px solid #1e2a3a", borderTop: "2px solid #2563eb", borderRadius: "50%", flexShrink: 0, animation: "diag-spin 0.7s linear infinite" }} />
+				<span style={{ fontSize: 12, color: "#475569", fontFamily: "var(--font-mono, monospace)" }}>generating diagram...</span>
+				<style>{`@keyframes diag-spin { to { transform: rotate(360deg); } }`}</style>
+			</div>
+		)}
+		{!isUser && msg.diagramStatus === "ready" && msg.diagram && (
+			<InlineDiagram data={msg.diagram} owner={owner} repo={repo} store={store} />
+		)}
+		{!isUser && msg.diagramStatus === "error" && (
+			<div style={{ marginTop: 10, padding: "6px 12px", border: "1px solid #3a1e1e", background: "#0d0808", fontSize: 11, color: "#64748b", fontFamily: "var(--font-mono, monospace)" }}>
+				diagram generation failed
+			</div>
+		)}
+
+		{msg.citations && msg.citations.length > 0 && (
 				<div className="chat-sources">
 					<button
 						type="button"

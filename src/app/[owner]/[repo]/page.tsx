@@ -30,6 +30,8 @@ import {
 import { shouldInjectBaselineContext, isFactSeekingQuery } from "@/lib/queryUtils";
 
 import { RepoHeader } from "@/components/chat/RepoHeader";
+import { DiagramModal } from "@/components/diagram/DiagramModal";
+import { generateQueryDiagram } from "@/lib/diagramGenerator";
 import { ChatSidebar } from "@/components/chat/ChatSidebar";
 import { ChatMessage } from "@/components/chat/ChatMessage";
 import { EmptyChat } from "@/components/chat/EmptyChat";
@@ -92,6 +94,7 @@ export default function RepoPage({
 	const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 	const [fileBrowserOpen, setFileBrowserOpen] = useState(false);
 	const [fileBrowserTab, setFileBrowserTab] = useState<"tree" | "chunks">("tree");
+	const [showDiagram, setShowDiagram] = useState(false);
 
 	const completedWhileHiddenRef = useRef(false);
 	const indexStartTimeRef = useRef<number | null>(null);
@@ -577,8 +580,14 @@ export default function RepoPage({
 	}, [owner, repo, router, chatStorageKey]);
 
 	const handleSend = useCallback(async (overrideText?: string, truncateAtMessageId?: string) => {
-		const userMessage = (overrideText ?? input).trim();
-		if (!userMessage || isGeneratingRef.current || !isIndexed) return;
+		const rawInput = (overrideText ?? input).trim();
+		if (!rawInput || isGeneratingRef.current || !isIndexed) return;
+
+		const DIAGRAM_FLAG = /\/(diagram|visualization|viz)\b/gi;
+		const hasDiagramFlag = DIAGRAM_FLAG.test(rawInput);
+		// Clean query for LLM — user bubble still shows rawInput
+		const userMessage = rawInput;
+		const queryText = rawInput.replace(/\/(diagram|visualization|viz)\b/gi, "").trim() || rawInput;
 
 		isGeneratingRef.current = true;
 		setInput("");
@@ -612,16 +621,16 @@ export default function RepoPage({
 		try {
 			const config = getLLMConfig();
 			const limits = defaultLimitsForProvider(config.provider);
-			const queryVariants = expandQuery(userMessage);
+			const queryVariants = expandQuery(queryText);
 			const searchStart = performance.now();
 			const results = await multiPathHybridSearch(storeRef.current, queryVariants, { limit: 5 });
 			recordSearch(performance.now() - searchStart);
-			const evidenceTerms = extractEvidenceTerms(userMessage);
+			const evidenceTerms = extractEvidenceTerms(queryText);
 
 			const BASELINE_FILES = ["readme.md", "README.md", "README", "package.json"];
 			const resultIds = new Set(results.map((r) => r.chunk.id));
 			const baselineChunks: typeof results = [];
-			if (shouldInjectBaselineContext(userMessage)) {
+			if (shouldInjectBaselineContext(queryText)) {
 				for (const filename of BASELINE_FILES) {
 					const chunks = storeRef.current.getChunksByFile(filename);
 					if (chunks.length === 0) continue;
@@ -672,7 +681,7 @@ export default function RepoPage({
 			const sparseCoverage = evidenceTerms.length >= 2 && evidenceCoverage.matched.length === 0;
 			const weakCoverage = evidenceTerms.length >= 3 && evidenceCoverage.matched.length < Math.ceil(evidenceTerms.length / 3);
 			const weakSignal = evidenceCoverage.maxScore < 0.35;
-			const shouldBlockUngroundedAnswer = isFactSeekingQuery(userMessage) && (sparseCoverage || (weakSignal && weakCoverage));
+			const shouldBlockUngroundedAnswer = isFactSeekingQuery(queryText) && (sparseCoverage || (weakSignal && weakCoverage));
 
 			if (shouldBlockUngroundedAnswer) {
 				const missingLabel = evidenceCoverage.missing.slice(0, 5).map((term) => `"${term}"`).join(", ");
@@ -755,7 +764,7 @@ ${context}`;
 					role: message.role as "user" | "assistant",
 					content: message.content,
 				})),
-				userMessage,
+				userMessage: queryText,
 			});
 
 			let fullResponse = "";
@@ -789,7 +798,7 @@ ${context}`;
 			}
 
 			const correlatedCitationResults = buildCorrelatedCitationResults(
-				results, userMessage, fullResponse, safeContext.excludedCitationIds
+				results, queryText, fullResponse, safeContext.excludedCitationIds
 			);
 			responseCitations = correlatedCitationResults.length > 0
 				? buildMessageCitations(correlatedCitationResults)
@@ -807,10 +816,10 @@ ${context}`;
 
 			if (coveEnabled) {
 				try {
-					const refined = await verifyAndRefine(fullResponse, userMessage, storeRef.current);
+					const refined = await verifyAndRefine(fullResponse, queryText, storeRef.current);
 					if (refined && refined !== fullResponse && refined.length > 20) {
 						const refinedCitationResults = buildCorrelatedCitationResults(
-							results, userMessage, refined, safeContext.excludedCitationIds
+							results, queryText, refined, safeContext.excludedCitationIds
 						);
 						responseCitations = refinedCitationResults.length > 0
 							? buildMessageCitations(refinedCitationResults)
@@ -828,6 +837,24 @@ ${context}`;
 					}
 				} catch { /* CoVE is optional */ }
 			}
+		// ── Diagram generation (sequential, after text + CoVe) ────────────────
+		if (hasDiagramFlag && assistantMessageId) {
+			setMessages((prev) => prev.map((m) =>
+				m.id === assistantMessageId ? { ...m, diagramStatus: "loading" as const } : m
+			));
+			try {
+				const diagram = await generateQueryDiagram(queryText, context, owner, repo);
+				setMessages((prev) => prev.map((m) =>
+					m.id === assistantMessageId
+						? { ...m, diagramStatus: diagram ? "ready" as const : "skipped" as const, diagram: diagram ?? undefined }
+						: m
+				));
+			} catch {
+				setMessages((prev) => prev.map((m) =>
+					m.id === assistantMessageId ? { ...m, diagramStatus: "error" as const } : m
+				));
+			}
+		}
 		} catch (err) {
 			const errorMessage = err instanceof Error ? err.message : String(err);
 			if (shouldPromptForLLMSettings(errorMessage)) {
@@ -936,6 +963,7 @@ ${context}`;
 	// ─── Render ───────────────────────────────────────────────────────────
 
 	return (
+		<>
 		<div style={{ display: "flex", flexDirection: "column", height: "100vh", background: "var(--bg-app)", color: "var(--text-on-dark)", fontFamily: "var(--font-sans)", overflow: "hidden" }}>
 
 			{/* Toast */}
@@ -974,6 +1002,7 @@ ${context}`;
 				onClearChat={handleClearChat}
 				onDeleteEmbeddings={() => { void handleDeleteEmbeddings(); }}
 				onToggleFileBrowser={() => setFileBrowserOpen((v) => !v)}
+				onShowDiagram={() => setShowDiagram(true)}
 			/>
 
 			{showTokenInput && (
@@ -1049,6 +1078,7 @@ ${context}`;
 									repo={repo}
 									commitRef={indexedSha ?? "HEAD"}
 									contextPaths={contextPaths}
+							store={storeRef.current}
 									onToggleSources={handleToggleSources}
 									onEditSubmit={handleEditMessage}
 								/>
@@ -1100,5 +1130,14 @@ ${context}`;
 				)}
 			</div>
 		</div>
+
+		<DiagramModal
+			isOpen={showDiagram}
+			owner={owner}
+			repo={repo}
+			store={storeRef.current}
+			onClose={() => setShowDiagram(false)}
+		/>
+		</>
 	);
 }
