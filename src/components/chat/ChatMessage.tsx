@@ -6,6 +6,8 @@ import type { Components } from "react-markdown";
 import type { Message } from "@/app/[owner]/[repo]/types";
 import { encodeGitHubPath, injectInlineFileLinks } from "@/lib/chatUtils";
 import { InlineDiagram } from "@/components/diagram/InlineDiagram";
+import { generateMessageDiagram } from "@/lib/diagramGenerator";
+import type { MessageDiagram } from "@/app/[owner]/[repo]/types";
 import type { VectorStore } from "@/lib/vectorStore";
 
 const markdownComponents: Components = {
@@ -27,6 +29,7 @@ interface ChatMessageProps {
 	store: VectorStore;
 	onToggleSources: (id: string) => void;
 	onEditSubmit?: (messageId: string, newText: string) => void;
+	onVizComplete?: (messageId: string, diagram: MessageDiagram) => void;
 }
 
 export const ChatMessage = memo(function ChatMessage({
@@ -40,6 +43,7 @@ export const ChatMessage = memo(function ChatMessage({
 	store,
 	onToggleSources,
 	onEditSubmit,
+	onVizComplete,
 }: ChatMessageProps) {
 	const sourcesExpanded = Boolean(msg.ui?.sourcesExpanded);
 	const sourcesPanelId = `sources-${msg.id}`;
@@ -48,6 +52,9 @@ export const ChatMessage = memo(function ChatMessage({
 
 	const [isEditing, setIsEditing] = useState(false);
 	const [editText, setEditText] = useState(msg.content);
+
+	const [vizStatus, setVizStatus] = useState<"idle" | "loading" | "error">("idle");
+	const [copied, setCopied] = useState(false);
 	const editRef = useRef<HTMLTextAreaElement>(null);
 
 	// Focus, set caret, and size the textarea when entering edit mode.
@@ -95,6 +102,29 @@ export const ChatMessage = memo(function ChatMessage({
 		}
 	}, [handleEditSave, handleEditCancel]);
 
+	const handleCopy = useCallback(() => {
+		void navigator.clipboard.writeText(msg.content).then(() => {
+			setCopied(true);
+			setTimeout(() => setCopied(false), 1500);
+		});
+	}, [msg.content]);
+
+	const handleViz = useCallback(async () => {
+		if (vizStatus === "loading") return;
+		setVizStatus("loading");
+		try {
+			const result = await generateMessageDiagram(msg.content);
+			if (result) {
+				setVizStatus("idle");
+				onVizComplete?.(msg.id, result);
+			} else {
+				setVizStatus("error");
+			}
+		} catch {
+			setVizStatus("error");
+		}
+	}, [msg.content, msg.id, vizStatus, onVizComplete]);
+
 	// Memoize inline file link injection — avoids rebuilding regex on every render.
 	const renderedContent = useMemo(() => {
 		if (isUser || isStreaming) return msg.content;
@@ -107,6 +137,7 @@ export const ChatMessage = memo(function ChatMessage({
 	}, [msg.content, msg.citations, contextPaths, owner, repo, commitRef, isUser, isStreaming]);
 
 	return (
+		<>
 		<div className={`chat-message chat-message--${isUser ? "user" : "assistant"}`}>
 			{/* Role label */}
 			<div className={`chat-role-label ${isUser ? "chat-role-label--user" : "chat-role-label--assistant"}`}>
@@ -184,21 +215,32 @@ export const ChatMessage = memo(function ChatMessage({
 				</div>
 			)}
 
-			{/* Diagram section */}
+			{!msg.safety?.blocked && !isUser && !isStreaming && (
+				<div className="chat-msg-actions">
+					<button className="chat-msg-action-btn" onClick={handleCopy} title="Copy message">
+						{copied ? "copied" : "copy"}
+					</button>
+					<span className="chat-msg-action-sep">·</span>
+					<button
+						className="chat-msg-action-btn"
+						onClick={() => { void handleViz(); }}
+						title="Visualize as diagram"
+						disabled={vizStatus === "loading"}
+					>
+						{vizStatus === "loading" ? "viz..." : "viz"}
+					</button>
+				</div>
+			)}
+
+			{/* Diagram status */}
 		{!isUser && msg.diagramStatus === "loading" && (
-			<div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 10, padding: "8px 12px", border: "1px solid #1e2a3a", background: "#080808" }}>
-				<div style={{ width: 14, height: 14, border: "2px solid #1e2a3a", borderTop: "2px solid #2563eb", borderRadius: "50%", flexShrink: 0, animation: "diag-spin 0.7s linear infinite" }} />
-				<span style={{ fontSize: 12, color: "#475569", fontFamily: "var(--font-mono, monospace)" }}>generating diagram...</span>
-				<style>{`@keyframes diag-spin { to { transform: rotate(360deg); } }`}</style>
+			<div className="diagram-status">
+				<div className="diagram-status-spinner" />
+				<span className="diagram-status-text">generating diagram...</span>
 			</div>
-		)}
-		{!isUser && msg.diagramStatus === "ready" && msg.diagram && (
-			<InlineDiagram data={msg.diagram} owner={owner} repo={repo} store={store} />
 		)}
 		{!isUser && msg.diagramStatus === "error" && (
-			<div style={{ marginTop: 10, padding: "6px 12px", border: "1px solid #3a1e1e", background: "#0d0808", fontSize: 11, color: "#64748b", fontFamily: "var(--font-mono, monospace)" }}>
-				diagram generation failed
-			</div>
+			<div className="diagram-error-status">diagram generation failed</div>
 		)}
 
 		{msg.citations && msg.citations.length > 0 && (
@@ -245,5 +287,12 @@ export const ChatMessage = memo(function ChatMessage({
 				</div>
 			)}
 		</div>
+		{!isUser && msg.diagramStatus === "ready" && msg.diagram && (
+			<InlineDiagram data={msg.diagram} />
+		)}
+		{!isUser && vizStatus === "error" && (
+			<div className="diagram-error-status">could not extract a diagram from this message</div>
+		)}
+		</>
 	);
 });

@@ -179,15 +179,6 @@ export function RepoHeader({
 						</div>
 					)}
 				</div>
-				{isIndexed && getLLMConfig().provider !== "mlc" && (
-					<button
-						onClick={onShowDiagram}
-						style={{ padding: "6px 12px", border: "2px solid var(--border-dark)", background: "transparent", color: "var(--text-on-dark-secondary)", cursor: "pointer", fontSize: "12px", fontFamily: "var(--font-mono)" }}
-						title="Generate data flow diagram for this repo"
-					>
-						Diagram
-					</button>
-				)}
 				{isIndexed && (
 					<button
 						onClick={onToggleFileBrowser}
