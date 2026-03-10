@@ -25,35 +25,9 @@ it started as a toy to see if I can make a basic offline RAG system for code. it
 
 ## how it works
 
-```mermaid
-flowchart TB
-  subgraph Build["Ingestion + Indexing"]
-    A["URL Trigger<br/>(proxy.ts)"] --> B["GitHub Ingestion<br/>Service"]
-    B --> C["AST Chunker<br/>(tree-sitter WASM)"]
-    C --> D["Embedding Pipeline<br/>(transformers.js WebGPU)"]
-    D --> E["Binary Quantisation"]
-    E --> F["Entity-DB<br/>(IndexedDB)"]
-  end
-
-  subgraph Query["Query-time Retrieval (CodeRAG-style)"]
-    SP[" "]
-    SP --> Q["User question"]
-    Q --> QE["Query expansion"]
-    QE --> Q1["Query 1: original"]
-    QE --> Q2["Query 2: code-style"]
-    Q1 --> H1["Hybrid Search<br/>(Hamming + BM25)"]
-    Q2 --> H2["Hybrid Search<br/>(Hamming + BM25)"]
-    F --> H1
-    F --> H2
-    H1 --> RRF["RRF over paths"]
-    H2 --> RRF
-    RRF --> Pref["Preference rerank"]
-    Pref --> Top["Top-k chunks"]
-    Top --> I["WebLLM Worker<br/>(Qwen2-0.5B)"]
-    I --> J["Chat UI +<br/>CoVe Loop"]
-    style SP fill:transparent,stroke:transparent,color:transparent
-  end
-```
+<div align="center">
+  <img src="assets/diagram.gif" alt="gitask architecture - ingestion pipeline and query-time retrieval" width="800" />
+</div>
 
 ### ingestion
 
