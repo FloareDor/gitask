@@ -12,7 +12,7 @@
  */
 
 import type { CodeChunk } from "./chunker";
-import { detectWebGPUAvailability } from "./webgpu";
+import { detectWebGPUAvailability, type WebGPUAvailability } from "./webgpu";
 import { recordEmbedding } from "./metrics";
 
 export interface EmbeddedChunk extends CodeChunk {
@@ -33,6 +33,7 @@ type EmbeddingRuntime = {
 let embedRuntime: EmbeddingRuntime | null = null;
 let pipelinePromise: Promise<void> | null = null;
 let activeDevice: "webgpu" | "wasm" | null = null;
+let detectedWebGPUAvailability: WebGPUAvailability | null = null;
 
 const EMBEDDER_INIT_TIMEOUT_MS = 90_000;
 const EMBEDDER_WARMUP_TEXT = "warmup";
@@ -40,6 +41,10 @@ const EMBEDDER_WARMUP_TEXT = "warmup";
 /** Returns the device the embedder is actually running on, or null if not yet initialized. */
 export function getEmbedderDevice(): "webgpu" | "wasm" | null {
 	return activeDevice;
+}
+
+export function getDetectedWebGPUAvailability(): WebGPUAvailability | null {
+	return detectedWebGPUAvailability;
 }
 
 /**
@@ -128,8 +133,13 @@ export async function initEmbedder(
 				let device: "webgpu" | "wasm";
 				if (deviceOverride) {
 					device = deviceOverride;
+					detectedWebGPUAvailability = {
+						supported: deviceOverride === "webgpu",
+						reason: deviceOverride === "webgpu" ? "ok" : "missing-api",
+					};
 				} else {
 					const availability = await detectWebGPUAvailability();
+					detectedWebGPUAvailability = availability;
 					device = availability.supported ? "webgpu" : "wasm";
 					if (!availability.supported) {
 						console.info(`WebGPU fallback reason: ${availability.reason}`);

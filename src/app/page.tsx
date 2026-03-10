@@ -3,7 +3,11 @@
 import { ArchitectureDiagram } from "@/components/ArchitectureDiagram";
 import { ModelSettings } from "@/components/ModelSettings";
 import { ThemeToggle } from "@/components/ThemeToggle";
-import { detectWebGPUAvailability } from "@/lib/webgpu";
+import {
+  detectWebGPUAvailability,
+  formatWebGPUReason,
+  type WebGPUAvailabilityReason,
+} from "@/lib/webgpu";
 import { useEffect, useState, useRef, useCallback } from "react";
 import { useRouter } from "next/navigation";
 
@@ -106,7 +110,8 @@ export default function LandingPage() {
   const [starCount, setStarCount] = useState<number | null>(null);
   const [isHowVisible, setIsHowVisible] = useState(false);
   const [gpuSupported, setGpuSupported] = useState(true);
-  const [gpuSupportReason, setGpuSupportReason] = useState<string>("ok");
+  const [gpuSupportReason, setGpuSupportReason] =
+    useState<WebGPUAvailabilityReason>("ok");
   const [isMobile, setIsMobile] = useState(false);
   const howSectionRef = useRef<HTMLElement>(null);
   const router = useRouter();
@@ -431,8 +436,10 @@ export default function LandingPage() {
             </strong>
             <p style={{ margin: 0, fontSize: "12px", color: "#a16207", lineHeight: 1.5 }}>
               Use Gemini or Groq instead — open settings and enter your API key.
-              Local indexing still works via CPU fallback.
-              {gpuSupportReason !== "ok" ? ` Reason: ${gpuSupportReason}.` : ""}
+              Local indexing still works on CPU, just slower.
+              {gpuSupportReason !== "ok"
+                ? ` ${formatWebGPUReason(gpuSupportReason)}`
+                : ""}
             </p>
             <button
               type="button"

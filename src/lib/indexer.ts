@@ -1,5 +1,5 @@
 /**
- * Indexing Orchestrator — ties the full RAG pipeline together.
+ * Indexing Orchestrator â€” ties the full RAG pipeline together.
  *
  * indexRepository() → fetch tree → chunk (AST) → embed (WebGPU)
  * → store in VectorStore → persist to IndexedDB.
@@ -15,9 +15,10 @@ import {
 import { recordIndex } from "./metrics";
 import { chunkCode, chunkFromTree, type CodeChunk } from "./chunker";
 import { CHUNKING_LIMITS, detectLanguage } from "./chunker";
-import { embedChunks, initEmbedder, getEmbedderDevice, resolveEmbedConfig, type EmbeddedChunk } from "./embedder";
+import { embedChunks, initEmbedder, getDetectedWebGPUAvailability, getEmbedderDevice, resolveEmbedConfig, type EmbeddedChunk } from "./embedder";
 import { VectorStore } from "./vectorStore";
 import { collectGraphMetadataFromNode } from "./graph";
+import { formatWebGPUReason } from "./webgpu";
 import {
 	createDirectorySummaryChunks,
 	updateDirectoryStats,
@@ -87,6 +88,16 @@ const AST_CHUNK_LANGUAGES = new Set([
 	"cpp",
 ]);
 
+function buildEmbeddingFallbackMessage(workerCount: number): string {
+	const availability = getDetectedWebGPUAvailability();
+	const reason = availability
+		? ` ${formatWebGPUReason(availability.reason, availability.error)}`
+		: "";
+	const workerNote =
+		workerCount > 1 ? ` Using ${workerCount} parallel workers.` : "";
+	return `Using CPU (WASM) for embeddings.${reason} Embedding will be slower.${workerNote}`;
+}
+
 function resolveChunkWorkerCount(totalPendingFiles: number, hasToken: boolean): number {
 	if (totalPendingFiles <= 1) return 1;
 	const cores =
@@ -118,7 +129,7 @@ export async function indexRepository(
 	// 1. Fetch tree
 	onProgress?.({
 		phase: "fetching",
-		message: "Fetching repository structure…",
+		message: "Fetching repository structureâ€¦",
 		current: 0,
 		total: 1,
 	});
@@ -150,7 +161,7 @@ export async function indexRepository(
 		console.warn("Failed to init tree-sitter:", e);
 		onProgress?.({
 			phase: "fetching",
-			message: "AST parsing unavailable — falling back to text chunking. Search quality may be reduced.",
+			message: "AST parsing unavailable â€” falling back to text chunking. Search quality may be reduced.",
 			current: 0,
 			total: 1,
 		});
@@ -323,7 +334,7 @@ export async function indexRepository(
 				if (filesToAdd.length > 0) {
 					onProgress?.({
 						phase: "chunking",
-						message: `Chunking ${filesToAdd.length} changed files…`,
+						message: `Chunking ${filesToAdd.length} changed filesâ€¦`,
 						current: 0,
 						total: filesToAdd.length,
 					});
@@ -340,7 +351,7 @@ export async function indexRepository(
 					if (embedDevice === "wasm") {
 						onProgress?.({
 							phase: "embedding",
-							message: `Using CPU (WASM) for embeddings — WebGPU not available. Embedding will be slower.`,
+							message: buildEmbeddingFallbackMessage(embedConfig.workerCount),
 							current: 0,
 							total: filesToAdd.length,
 						});
@@ -374,7 +385,7 @@ export async function indexRepository(
 					if (allNewChunks.length > 0) {
 						onProgress?.({
 							phase: "embedding",
-							message: `Embedding ${allNewChunks.length} chunks…`,
+							message: `Embedding ${allNewChunks.length} chunksâ€¦`,
 							current: 0,
 							total: allNewChunks.length,
 						});
@@ -404,7 +415,7 @@ export async function indexRepository(
 
 				onProgress?.({
 					phase: "persisting",
-					message: "Saving to cache…",
+					message: "Saving to cacheâ€¦",
 					current: 0,
 					total: 1,
 				});
@@ -493,7 +504,7 @@ export async function indexRepository(
 	if (startFileIndex < totalFiles) {
 		onProgress?.({
 			phase: "fetching",
-			message: `Fetching ${totalFiles} files… (chunk workers: ${chunkWorkerCount})`,
+			message: `Fetching ${totalFiles} filesâ€¦ (chunk workers: ${chunkWorkerCount})`,
 			current: startFileIndex,
 			total: totalFiles,
 		});
@@ -608,7 +619,7 @@ export async function indexRepository(
 
 	onProgress?.({
 		phase: "embedding",
-		message: chunksToEmbed.length > 0 ? `Embedding ${allChunks.length} chunks…` : `Resuming embedding…`,
+		message: chunksToEmbed.length > 0 ? `Embedding ${allChunks.length} chunksâ€¦` : `Resuming embeddingâ€¦`,
 		current: embeddedSoFar.length,
 		total: allChunks.length,
 		astNodes: [...astNodes],
@@ -633,7 +644,7 @@ export async function indexRepository(
 	if (embedDevice === "wasm") {
 		onProgress?.({
 			phase: "embedding",
-			message: `Using CPU (WASM) for embeddings — WebGPU not available. Embedding will be slower.${embedConfig.workerCount > 1 ? ` Using ${embedConfig.workerCount} parallel workers.` : ""}`,
+			message: buildEmbeddingFallbackMessage(embedConfig.workerCount),
 			current: embeddedSoFar.length,
 			total: allChunks.length,
 			estimatedSizeBytes: estimatedBytes,
@@ -641,7 +652,7 @@ export async function indexRepository(
 	} else if (embedConfig.batchSize > 1) {
 		onProgress?.({
 			phase: "embedding",
-			message: `WebGPU detected — using batch size ${embedConfig.batchSize} for fast embedding`,
+			message: `WebGPU detected â€” using batch size ${embedConfig.batchSize} for fast embedding`,
 			current: embeddedSoFar.length,
 			total: allChunks.length,
 			estimatedSizeBytes: estimatedBytes,
@@ -676,7 +687,7 @@ export async function indexRepository(
 				for (const [fp, range] of fileChunkRanges) {
 					if (overallDone >= range.end) fileStatusMap.set(fp, "done");
 					else if (overallDone > range.start) fileStatusMap.set(fp, "embedding");
-					// else stays "parsed" — no update needed
+					// else stays "parsed" â€” no update needed
 				}
 
 				const updatedNodes = astNodes.map((node) => {
@@ -713,7 +724,7 @@ export async function indexRepository(
 					console.warn("Failed to save partial embedding progress:", e);
 					onProgress?.({
 						phase: "embedding",
-						message: "Warning: could not save progress checkpoint — if you close this tab, indexing will restart from scratch.",
+						message: "Warning: could not save progress checkpoint â€” if you close this tab, indexing will restart from scratch.",
 						current: soFar.length,
 						total: allChunks.length,
 						estimatedSizeBytes: estimatedBytes,
@@ -734,7 +745,7 @@ export async function indexRepository(
 	// 7. Persist to IndexedDB
 	onProgress?.({
 		phase: "persisting",
-		message: "Saving to cache…",
+		message: "Saving to cacheâ€¦",
 		current: 0,
 		total: 1,
 		estimatedSizeBytes: estimatedBytes,
@@ -745,7 +756,7 @@ export async function indexRepository(
 
 	const skippedNote =
 		skippedFiles.length > 0
-			? ` — ${skippedFiles.length} file${skippedFiles.length > 1 ? "s" : ""} could not be fetched`
+			? ` â€” ${skippedFiles.length} file${skippedFiles.length > 1 ? "s" : ""} could not be fetched`
 			: "";
 	onProgress?.({
 		phase: "done",

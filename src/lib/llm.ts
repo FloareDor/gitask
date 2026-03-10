@@ -8,7 +8,7 @@
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import { getGeminiVault } from "./gemini-vault";
 import { getGroqVault } from "./groq-vault";
-import { detectWebGPUAvailability } from "./webgpu";
+import { detectWebGPUAvailability, formatWebGPUReason } from "./webgpu";
 import { recordLLM } from "./metrics";
 import { prepareGeminiChat } from "./chatHistory";
 
@@ -873,7 +873,7 @@ export async function initLLM(
 					const availability = await detectWebGPUAvailability();
 					if (!availability.supported) {
 						throw new Error(
-							`WebGPU unavailable (${availability.reason}).`
+							formatWebGPUReason(availability.reason, availability.error)
 						);
 					}
 
