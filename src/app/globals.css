@@ -1025,10 +1025,18 @@ header a[href="/"]:hover {
   padding: 14px 18px;
 }
 .chat-bubble--user {
+  position: relative;
   background: var(--text-on-dark);
   color: var(--bg-app);
   border: 2px solid var(--text-on-dark);
   box-shadow: 3px 3px 0 var(--text-on-dark);
+}
+.chat-bubble--user.chat-bubble--editing {
+  background: var(--bg-card-dark);
+  color: var(--text-on-dark);
+  border: 2px solid var(--border-dark);
+  border-left: 3px solid var(--accent);
+  box-shadow: 3px 3px 0 var(--border-dark);
 }
 .chat-bubble--assistant {
   background: var(--bg-card-dark);
@@ -1049,84 +1057,110 @@ header a[href="/"]:hover {
 .chat-user-row {
   display: flex;
   flex-direction: row;
-  align-items: center;
-  gap: 8px;
+  align-items: flex-start;
 }
 
 .chat-edit-btn {
-  background: transparent;
-  border: 1.5px solid var(--accent, #16a34a);
-  color: var(--accent, #16a34a);
-  border-radius: 4px;
+  position: absolute;
+  top: -11px;
+  right: -11px;
+  width: 26px;
+  height: 26px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-app);
+  color: var(--text-on-dark-muted);
+  border: 2px solid var(--border-dark);
+  box-shadow: 2px 2px 0 var(--border-dark);
   cursor: pointer;
-  font-size: 0.8rem;
-  padding: 3px 7px;
-  line-height: 1;
-  flex-shrink: 0;
-  visibility: hidden;
+  border-radius: 0;
+  padding: 0;
   opacity: 0;
-  transition: opacity 0.15s, background 0.15s, visibility 0.15s;
+  visibility: hidden;
+  transform: scale(0.85);
+  transition: opacity 0.15s ease, visibility 0.15s ease, transform 0.15s ease,
+    color 0.15s ease, border-color 0.12s ease, box-shadow 0.12s ease;
 }
-.chat-user-row:hover > .chat-edit-btn {
-  visibility: visible;
-  opacity: 0.6;
-}
-.chat-user-row:hover > .chat-edit-btn:hover {
+.chat-bubble--user:hover .chat-edit-btn {
   opacity: 1;
-  background: rgba(22, 163, 106, 0.1);
+  visibility: visible;
+  transform: scale(1);
+}
+.chat-edit-btn:hover {
+  color: var(--accent);
+  border-color: var(--accent);
+  box-shadow: 2px 2px 0 var(--accent);
 }
 
 .chat-edit-inline {
   display: flex;
   flex-direction: column;
-  gap: 8px;
   width: 100%;
 }
 .chat-edit-textarea {
   width: 100%;
-  padding: 10px 14px;
-  background: var(--bg-app);
+  padding: 0;
+  background: transparent;
   color: var(--text-on-dark);
-  border: 1.5px solid var(--accent, #16a34a);
+  border: none;
   font-family: var(--font-sans);
   font-size: 0.95rem;
   line-height: 1.55;
-  resize: vertical;
-  min-height: 46px;
+  resize: none;
   outline: none;
-}
-.chat-edit-textarea:focus {
-  border-color: var(--accent, #16a34a);
-  box-shadow: 0 0 0 2px rgba(22, 163, 106, 0.2);
+  overflow: hidden;
 }
 .chat-edit-actions {
   display: flex;
+  align-items: center;
+  justify-content: space-between;
   gap: 8px;
-  justify-content: flex-end;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border-dark);
 }
-.chat-edit-save,
-.chat-edit-cancel {
-  padding: 5px 14px;
-  font-size: 0.8rem;
-  font-weight: 600;
-  cursor: pointer;
-  border-radius: 3px;
+.chat-edit-hint {
+  font-size: 0.72rem;
+  color: var(--text-on-dark-muted);
+  letter-spacing: 0.02em;
+  user-select: none;
 }
-.chat-edit-save {
-  background: var(--accent, #16a34a);
-  color: #fff;
-  border: 1.5px solid var(--accent, #16a34a);
-}
-.chat-edit-save:hover {
-  opacity: 0.85;
+.chat-edit-actions-btns {
+  display: flex;
+  gap: 6px;
+  align-items: center;
 }
 .chat-edit-cancel {
   background: transparent;
-  color: var(--text-muted, #888);
-  border: 1.5px solid var(--border-dark, #333);
+  border: none;
+  color: var(--text-on-dark-muted);
+  font-size: 0.82rem;
+  font-weight: 500;
+  font-family: var(--font-sans);
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 3px;
+  transition: color 0.15s;
 }
 .chat-edit-cancel:hover {
   color: var(--text-on-dark);
+}
+.chat-edit-save {
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  font-size: 0.82rem;
+  font-weight: 600;
+  font-family: var(--font-sans);
+  cursor: pointer;
+  padding: 5px 14px;
+  border-radius: 3px;
+  letter-spacing: 0.01em;
+  transition: opacity 0.15s;
+}
+.chat-edit-save:hover {
+  opacity: 0.85;
 }
 
 /* ── Safety block ── */
