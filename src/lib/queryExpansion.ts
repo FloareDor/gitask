@@ -1,203 +1,121 @@
 /**
- * Query expansion for CodeRAG-style multi-path retrieval.
- * Produces 2 (or more) query variants from the user message so we can run
- * retrieval per variant and fuse with RRF.
+ * LLM-powered query expansion for RAG-Fusion style multi-path retrieval.
  *
- * @see Zhang et al., "CodeRAG: Finding Relevant and Necessary Knowledge for Retrieval-Augmented Repository-Level Code Completion", EMNLP 2025. https://arxiv.org/abs/2509.16112
- */
-
-/** Extract identifiers (symbols) from text — same pattern as search keywordSearch. */
-const SYMBOL_REGEX = /[a-zA-Z_]\w+/g;
-
-/**
- * Common English words that are not meaningful code identifiers.
- * The code-style query variant is only generated when there are symbols
- * outside this set — otherwise it degrades to generic noise.
- */
-const EXPANSION_STOP_WORDS = new Set([
-	"a", "an", "the", "is", "are", "was", "were", "be", "been", "being",
-	"have", "has", "had", "do", "does", "did", "will", "would", "could",
-	"should", "may", "might", "must", "shall", "can", "cannot",
-	"this", "that", "these", "those", "it", "its",
-	"what", "which", "who", "whom", "whose", "when", "where", "why", "how",
-	"and", "or", "but", "not", "so", "for", "in", "on", "at", "to", "from",
-	"of", "with", "by", "about", "i", "me", "my", "we", "our", "you", "your",
-	"he", "him", "his", "she", "her", "they", "them", "their", "there", "here",
-	"any", "all", "some", "no", "get", "make", "use", "like", "just", "tell",
-	"show", "give", "find", "know", "see", "say", "go", "put", "set", "let",
-	"try", "help", "need", "want", "code", "file", "line", "add", "run", "work",
-	"project", "repo", "repository", "app", "application",
-]);
-
-/**
- * Expand a user message into one or more query variants for multi-path retrieval.
- * - Primary: user message as-is.
- * - Code-style: only generated if the query contains real code identifiers
- *   (non-stop-word tokens), to avoid creating a noisy duplicate for plain
- *   natural-language questions like "what does this project do?".
- * Deduplicates so we never return two identical strings.
- */
-/**
- * Detect if a query lacks sufficient retrieval signal on its own — i.e. it's a
- * follow-up that relies on pronouns or refers to a prior turn implicitly.
- * Threshold: ≤2 non-stop-word tokens means we need prior context to retrieve well.
- */
-function isFollowUpQuery(query: string): boolean {
-	const tokens = query.toLowerCase().match(/[a-z]+/g) ?? [];
-	const searchable = tokens.filter((t) => t.length >= 3 && !EXPANSION_STOP_WORDS.has(t));
-	return searchable.length <= 2;
-}
-
-/**
- * Extract the most retrieval-useful terms from a piece of text.
- * Prioritises code identifiers (mixed-case, underscores, long tokens).
- */
-function extractRetrievalTerms(text: string, limit: number): string[] {
-	const tokens = text.match(/[a-zA-Z_]\w+/g) ?? [];
-	const filtered = tokens.filter(
-		(t) => t.length >= 3 && !EXPANSION_STOP_WORDS.has(t.toLowerCase())
-	);
-	return [...new Set(filtered)].slice(0, limit);
-}
-
-/**
- * Build a retrieval query that incorporates recent chat context when the
- * current message is a follow-up (pronoun-heavy or lacks search signal).
+ * Replaces all heuristic stopword/symbol approaches with two LLM calls:
+ *   1. generateQueryVariants — world knowledge handles synonyms, abbreviations,
+ *      follow-up resolution, and codebase vocabulary bridging in one shot.
+ *   2. getRetrievalRefinement — sufficiency check after a weak first pass;
+ *      asks the LLM what to search for instead and runs a second retrieval.
  *
- * Example: "is it the same structure they followed for error handling throughout
- * the codebase?" has ≤2 searchable tokens, so we append key terms from the last
- * user turn ("error handling structured") and the last assistant turn
- * ("try catch console error Internal Server Error getCommonHeaders …") so that
- * downstream embedding + BM25 can find the right chunks.
+ * Both functions fall back gracefully and never block retrieval.
+ * Callers must gate on `config.provider !== "mlc"` before calling.
  */
-export function buildContextualQuery(
-	userMessage: string,
-	priorMessages: Array<{ role: "user" | "assistant"; content: string }>
-): string {
-	const trimmed = userMessage.trim();
-	if (priorMessages.length === 0 || !isFollowUpQuery(trimmed)) return trimmed;
-
-	const contextTerms: string[] = [];
-
-	const lastUser = [...priorMessages].reverse().find((m) => m.role === "user");
-	if (lastUser) {
-		contextTerms.push(...extractRetrievalTerms(lastUser.content, 8));
-	}
-
-	// Sample the first 600 chars of the assistant reply to avoid noise from long responses.
-	const lastAssistant = [...priorMessages].reverse().find((m) => m.role === "assistant");
-	if (lastAssistant) {
-		contextTerms.push(...extractRetrievalTerms(lastAssistant.content.slice(0, 600), 8));
-	}
-
-	const unique = [...new Set(contextTerms)];
-	if (unique.length === 0) return trimmed;
-	return `${trimmed} ${unique.join(" ")}`;
-}
-
-export function expandQuery(userMessage: string): string[] {
-	const trimmed = userMessage.trim();
-	if (!trimmed) return [trimmed];
-
-	const rawSymbols = trimmed.match(SYMBOL_REGEX) ?? [];
-	// Only keep identifiers that look like real code tokens (camelCase, snake_case,
-	// PascalCase, or long enough to be meaningful) and are not stop words.
-	const codeSymbols = rawSymbols.filter(
-		(s) =>
-			s.length >= 3 &&
-			!EXPANSION_STOP_WORDS.has(s.toLowerCase()) &&
-			// Treat it as a code identifier if it has mixed case, underscores, or
-			// is long enough to plausibly be an identifier rather than a plain word.
-			(/[A-Z]/.test(s) || s.includes("_") || s.length >= 6)
-	);
-
-	const seen = new Set<string>();
-	const variants: string[] = [];
-
-	// Always include original
-	variants.push(trimmed);
-	seen.add(trimmed);
-
-	// Code-style variant: only when there are real code identifiers in the query
-	if (codeSymbols.length > 0) {
-		const codeStyle = codeSymbols.join(" ") + " implementation definition";
-		if (!seen.has(codeStyle)) {
-			variants.push(codeStyle);
-			seen.add(codeStyle);
-		}
-	}
-
-	return variants;
-}
 
 /**
- * Count tokens in a query that carry real retrieval signal (non-stop, ≥3 chars).
+ * Generate 3 alternative query phrasings via LLM for multi-path retrieval.
+ * Returns [original, ...variants] deduplicated (up to 4 total).
+ *
+ * Handles:
+ *  - Synonym/abbreviation expansion: "llm" → "language model", "gemini groq"
+ *  - Follow-up resolution: "is it the same?" + chat context → self-contained query
+ *  - Codebase vocab bridging: README used as a hint, not the answer
  */
-function countSearchableTokens(query: string): number {
-	const tokens = query.toLowerCase().match(/[a-z]+/g) ?? [];
-	return tokens.filter((t) => t.length >= 3 && !EXPANSION_STOP_WORDS.has(t)).length;
-}
-
-/**
- * Returns true if the query already contains at least one code-like identifier
- * (camelCase, snake_case, or a long token ≥8 chars) — meaning it has enough
- * specific signal to retrieve well without LLM rewriting.
- */
-function hasCodeIdentifier(query: string): boolean {
-	const tokens = query.match(/[a-zA-Z_]\w+/g) ?? [];
-	return tokens.some(
-		(t) =>
-			!EXPANSION_STOP_WORDS.has(t.toLowerCase()) &&
-			(/[A-Z]/.test(t) || t.includes("_") || t.length >= 6 || /\d/.test(t))
-	);
-}
-
-/**
- * Use a lightweight LLM call to rewrite a vague query into repo-specific terms,
- * using the repository README as a vocabulary bridge.
- *
- * Example: "what are all the llms used?" + README mentioning Gemini/Groq/WebGPU
- *   → original query + "gemini groq mlc webgpu initLLM generate"
- *
- * This bridges natural-language concepts to actual identifiers in the codebase,
- * after which graph expansion follows import edges for the network effect:
- * llm.ts → gemini-vault.ts, groq-vault.ts, etc.
- *
- * Only runs when:
- *   1. The query has ≤3 searchable tokens (vague/short)
- *   2. The LLM is in "ready" state
- *   3. README content is available
- *
- * Falls back to the original query on any failure — never blocks retrieval.
- */
-export async function rewriteQueryWithRepoContext(
+export async function generateQueryVariants(
 	query: string,
+	priorMessages: Array<{ role: "user" | "assistant"; content: string }>,
 	readmeContent: string,
-): Promise<string> {
-	if (countSearchableTokens(query) > 3) return query;
-	if (hasCodeIdentifier(query)) return query;
-	if (!readmeContent.trim()) return query;
+): Promise<string[]> {
+	const trimmed = query.trim();
+	const fallback = [trimmed];
+	if (!trimmed) return fallback;
 
 	try {
 		const { getLLMStatus, generateFull } = await import("./llm");
-		if (getLLMStatus() !== "ready") return query;
+		if (getLLMStatus() !== "ready") return fallback;
+
+		const recentTurns = priorMessages
+			.slice(-4)
+			.map((m) => `${m.role}: ${m.content.slice(0, 200)}`)
+			.join("\n");
+		const contextBlock = recentTurns ? `\n\nRecent conversation:\n${recentTurns}` : "";
+		const readmeBlock = readmeContent.trim()
+			? `\n\nRepo README (vocabulary hint only):\n${readmeContent.slice(0, 600)}`
+			: "";
 
 		const messages = [
 			{
 				role: "system" as const,
 				content:
-					"Given a user query and repository README, output 4-6 specific technical identifiers from the codebase that best represent what the user is asking about. Output terms only, space-separated, no explanation, no punctuation.",
+					"You expand search queries for a code repository. Given a user query, output 3 alternative phrasings that would find the same code through different wording. Expand abbreviations, add synonyms, use technical identifiers. If the query is a follow-up using pronouns like \"it\"/\"they\"/\"this\", rewrite it as a standalone query using the conversation context. Output 3 queries only, one per line, no numbering, no explanation.",
 			},
 			{
 				role: "user" as const,
-				content: `Query: "${query}"\n\nREADME:\n${readmeContent.slice(0, 800)}`,
+				content: `Query: "${trimmed}"${contextBlock}${readmeBlock}`,
 			},
 		];
 
-		const expanded = (await generateFull(messages)).trim();
-		if (!expanded || expanded.length > 120) return query;
-		return `${query} ${expanded}`;
+		const response = (await generateFull(messages)).trim();
+		if (!response) return fallback;
+
+		const variants = response
+			.split("\n")
+			.map((l) => l.replace(/^\d+[\.\)]\s*/, "").trim())
+			.filter((l) => l.length > 2 && l.length < 250);
+
+		const seen = new Set<string>();
+		const all: string[] = [];
+		for (const v of [trimmed, ...variants]) {
+			const key = v.toLowerCase();
+			if (!seen.has(key)) {
+				seen.add(key);
+				all.push(v);
+			}
+		}
+		return all.slice(0, 4); // original + max 3 variants
 	} catch {
-		return query;
+		return [trimmed];
+	}
+}
+
+/**
+ * Retrieval sufficiency check — runs after a weak first retrieval pass.
+ * Asks the LLM what to search for instead; returns a refined query string,
+ * or null if results are already sufficient or the call fails.
+ *
+ * Triggers when: fewer than 2 results OR top score < 0.4.
+ */
+export async function getRetrievalRefinement(
+	query: string,
+	results: Array<{ filePath: string; code: string; score: number }>,
+): Promise<string | null> {
+	const isWeak = results.length < 2 || results[0]?.score < 0.4;
+	if (!isWeak) return null;
+
+	try {
+		const { getLLMStatus, generateFull } = await import("./llm");
+		if (getLLMStatus() !== "ready") return null;
+
+		const summary = results
+			.slice(0, 3)
+			.map((r) => `${r.filePath}: ${r.code.slice(0, 100)}`)
+			.join("\n") || "(no results found)";
+
+		const messages = [
+			{
+				role: "system" as const,
+				content:
+					"You improve code search queries. Given a query and weak search results, output ONE better search query using specific function names, file names, or identifiers. If the results are actually sufficient to answer the question, output only: SUFFICIENT",
+			},
+			{
+				role: "user" as const,
+				content: `Query: "${query}"\n\nCurrent results:\n${summary}`,
+			},
+		];
+
+		const response = (await generateFull(messages)).trim();
+		if (!response || response === "SUFFICIENT" || response.length > 200) return null;
+		return response;
+	} catch {
+		return null;
 	}
 }

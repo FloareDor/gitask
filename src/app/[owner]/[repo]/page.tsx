@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { indexRepository, IndexAbortError, type IndexProgress, type AstNode } from "@/lib/indexer";
 import { VectorStore } from "@/lib/vectorStore";
 import { multiPathHybridSearch } from "@/lib/search";
-import { expandQuery, buildContextualQuery, rewriteQueryWithRepoContext } from "@/lib/queryExpansion";
+import { generateQueryVariants, getRetrievalRefinement } from "@/lib/queryExpansion";
 import { defaultLimitsForProvider } from "@/lib/contextAssembly";
 import { fetchRepoTree } from "@/lib/github";
 import { initLLM, generate, getLLMStatus, getLLMConfig, onStatusChange, type LLMStatus } from "@/lib/llm";
@@ -614,13 +614,26 @@ export default function RepoPage({
 			const limits = defaultLimitsForProvider(config.provider);
 			const readmeChunk = storeRef.current.getChunksByFile("README.md")[0]
 				?? storeRef.current.getChunksByFile("readme.md")[0];
-			const rewrittenQuery = config.provider !== "mlc"
-				? await rewriteQueryWithRepoContext(userMessage, readmeChunk?.code ?? "")
-				: userMessage;
-			const contextualQuery = buildContextualQuery(rewrittenQuery, messagesRef.current);
-			const queryVariants = expandQuery(contextualQuery);
+			const queryVariants = config.provider !== "mlc"
+				? await generateQueryVariants(userMessage, messagesRef.current, readmeChunk?.code ?? "")
+				: [userMessage];
 			const searchStart = performance.now();
-			const results = await multiPathHybridSearch(storeRef.current, queryVariants, { limit: 5 });
+			let results = await multiPathHybridSearch(storeRef.current, queryVariants, { limit: 5 });
+			if (config.provider !== "mlc") {
+				const refinedQuery = await getRetrievalRefinement(
+					userMessage,
+					results.map((r) => ({ filePath: r.chunk.filePath, code: r.chunk.code, score: r.score }))
+				);
+				if (refinedQuery) {
+					const refinedResults = await multiPathHybridSearch(storeRef.current, [refinedQuery], { limit: 5 });
+					const merged = new Map<string, (typeof results)[0]>();
+					for (const r of [...results, ...refinedResults]) {
+						const existing = merged.get(r.chunk.id);
+						if (!existing || r.score > existing.score) merged.set(r.chunk.id, r);
+					}
+					results = [...merged.values()].sort((a, b) => b.score - a.score).slice(0, 8);
+				}
+			}
 			recordSearch(performance.now() - searchStart);
 			const evidenceTerms = extractEvidenceTerms(userMessage);
 
