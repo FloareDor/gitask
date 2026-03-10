@@ -1021,6 +1021,7 @@ ${context}`;
 									owner={owner}
 									repo={repo}
 									commitRef={indexedSha ?? "HEAD"}
+									contextPaths={contextChunks.map((c) => c.filePath)}
 									onToggleSources={handleToggleSources}
 								/>
 							))}
