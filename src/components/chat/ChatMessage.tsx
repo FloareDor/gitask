@@ -1,6 +1,7 @@
 "use client";
 
 import { memo, useMemo, useState, useRef, useEffect, useCallback } from "react";
+import { motion } from "framer-motion";
 import ReactMarkdown from "react-markdown";
 import type { Components } from "react-markdown";
 import type { Message } from "@/app/[owner]/[repo]/types";
@@ -42,7 +43,8 @@ export const ChatMessage = memo(function ChatMessage({
 	const isUser = msg.role === "user";
 	const isStreaming = isGenerating && isLast && !isUser;
 
-	const [retrievalExpanded, setRetrievalExpanded] = useState(false);
+	const [thinkingExpanded, setThinkingExpanded] = useState(false);
+	const [seenVariants, setSeenVariants] = useState<string[]>([]);
 	const [isEditing, setIsEditing] = useState(false);
 	const [editText, setEditText] = useState(msg.content);
 	const editRef = useRef<HTMLTextAreaElement>(null);
@@ -102,6 +104,28 @@ export const ChatMessage = memo(function ChatMessage({
 		if (knownPaths.length === 0) return msg.content;
 		return injectInlineFileLinks(msg.content, knownPaths, owner, repo, commitRef);
 	}, [msg.content, msg.citations, contextPaths, owner, repo, commitRef, isUser, isStreaming]);
+
+	// Stable random word for the "no phase yet" gap (LLM queued but not streaming).
+	const idleWordRef = useRef(
+		["Cooking", "Brewing", "Thinking", "Generating", "Working on it"][
+			Math.floor(Math.random() * 5)
+		]
+	);
+
+	// Thinking block: visible whenever streaming with no content yet.
+	const showThinking = isStreaming && !msg.content;
+	const thinkingPhase = msg.retrieval?.loadingPhase ?? idleWordRef.current;
+	const thinkingVariants = msg.retrieval?.variants ?? [];
+
+	// Accumulate variants as they arrive across phase changes — never replace.
+	useEffect(() => {
+		if (thinkingVariants.length === 0) return;
+		setSeenVariants((prev) => {
+			const existing = new Set(prev);
+			const fresh = thinkingVariants.filter((v) => !existing.has(v));
+			return fresh.length > 0 ? [...prev, ...fresh] : prev;
+		});
+	}, [thinkingVariants]);
 
 	return (
 		<div className={`chat-message chat-message--${isUser ? "user" : "assistant"}`}>
@@ -166,11 +190,42 @@ export const ChatMessage = memo(function ChatMessage({
 				</div>
 			)}
 
-			{!msg.safety?.blocked && !isUser && (
+			{/* Retrieval thinking block — shown during loading before first token */}
+			{showThinking && (
+				<div className="chat-thinking">
+					<span
+						className={`chat-thinking-phase${seenVariants.length > 0 ? " chat-thinking-phase--clickable" : ""}`}
+						onClick={() => seenVariants.length > 0 && setThinkingExpanded((v) => !v)}
+					>
+						{thinkingPhase}
+						<span className="chat-thinking-dots" aria-hidden="true">
+							{[0, 1, 2].map((i) => (
+								<motion.span
+									key={i}
+									animate={{ opacity: [0, 1, 0] }}
+									transition={{ duration: 1.4, repeat: Infinity, delay: i * 0.22, ease: "easeInOut" }}
+								>.</motion.span>
+							))}
+						</span>
+					</span>
+					{thinkingExpanded && seenVariants.length > 0 && (
+						<div className="chat-thinking-rows">
+							{seenVariants.map((v, i) => (
+								<div key={i} className={`thinking-row ${i === 0 ? "thinking-row--original" : "thinking-row--variant"}`}>
+									<span className="thinking-row-tag">{i === 0 ? "·" : "+"}</span>
+									<span className="thinking-row-text">{v}</span>
+								</div>
+							))}
+						</div>
+					)}
+				</div>
+			)}
+
+			{!msg.safety?.blocked && !isUser && (!isStreaming || msg.content) && (
 				<div className={`chat-bubble chat-bubble--assistant`}>
 					{isStreaming ? (
 						<div className="chat-markdown chat-streaming">
-							{msg.content || ""}
+							{msg.content}
 							<span className="chat-cursor" aria-hidden="true">▋</span>
 						</div>
 					) : (
@@ -181,46 +236,7 @@ export const ChatMessage = memo(function ChatMessage({
 				</div>
 			)}
 
-			{msg.retrieval && msg.retrieval.variants.length > 1 && (
-			<div className="chat-retrieval">
-				<button
-					type="button"
-					onClick={() => setRetrievalExpanded((v) => !v)}
-					className="chat-retrieval-toggle"
-				>
-					<span
-						className="chat-retrieval-chevron"
-						style={{ transform: retrievalExpanded ? "rotate(90deg)" : "rotate(0deg)" }}
-						aria-hidden="true"
-					>▸</span>
-					{retrievalExpanded
-						? "hide queries"
-						: `${msg.retrieval.variants.length} quer${msg.retrieval.variants.length !== 1 ? "ies" : "y"} searched${msg.retrieval.refinedQuery ? " · refined" : ""}`
-					}
-				</button>
-				{retrievalExpanded && (
-					<div className="chat-retrieval-rows">
-						{msg.retrieval.variants.map((v, i) => (
-							<div
-								key={i}
-								className={`retrieval-row ${i === 0 ? "retrieval-row--original" : "retrieval-row--variant"}`}
-							>
-								<span className="retrieval-row-tag">{i === 0 ? "orig" : "expand"}</span>
-								<span className="retrieval-row-text">{v}</span>
-							</div>
-						))}
-						{msg.retrieval.refinedQuery && (
-							<div className="retrieval-row retrieval-row--refined">
-								<span className="retrieval-row-tag">↩ retry</span>
-								<span className="retrieval-row-text">{msg.retrieval.refinedQuery}</span>
-							</div>
-						)}
-					</div>
-				)}
-			</div>
-		)}
-
-		{msg.citations && msg.citations.length > 0 && (
+			{msg.citations && msg.citations.length > 0 && (
 				<div className="chat-sources">
 					<button
 						type="button"
