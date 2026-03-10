@@ -35,7 +35,7 @@ useEffect(() => {
     id: "github",
     phase: "Ingest",
     title: "GitHub Fetch",
-    detail: "Repo tree + blobs â†’ browser",
+    detail: "Repo tree + blobs at browser",
     file: "src/lib/github.ts",
     snippet: `export async function fetchRepoTree(
   owner: string, repo: string, token?: string
