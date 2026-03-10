@@ -37,6 +37,64 @@ const EXPANSION_STOP_WORDS = new Set([
  *   natural-language questions like "what does this project do?".
  * Deduplicates so we never return two identical strings.
  */
+/**
+ * Detect if a query lacks sufficient retrieval signal on its own — i.e. it's a
+ * follow-up that relies on pronouns or refers to a prior turn implicitly.
+ * Threshold: ≤2 non-stop-word tokens means we need prior context to retrieve well.
+ */
+function isFollowUpQuery(query: string): boolean {
+	const tokens = query.toLowerCase().match(/[a-z]+/g) ?? [];
+	const searchable = tokens.filter((t) => t.length >= 3 && !EXPANSION_STOP_WORDS.has(t));
+	return searchable.length <= 2;
+}
+
+/**
+ * Extract the most retrieval-useful terms from a piece of text.
+ * Prioritises code identifiers (mixed-case, underscores, long tokens).
+ */
+function extractRetrievalTerms(text: string, limit: number): string[] {
+	const tokens = text.match(/[a-zA-Z_]\w+/g) ?? [];
+	const filtered = tokens.filter(
+		(t) => t.length >= 3 && !EXPANSION_STOP_WORDS.has(t.toLowerCase())
+	);
+	return [...new Set(filtered)].slice(0, limit);
+}
+
+/**
+ * Build a retrieval query that incorporates recent chat context when the
+ * current message is a follow-up (pronoun-heavy or lacks search signal).
+ *
+ * Example: "is it the same structure they followed for error handling throughout
+ * the codebase?" has ≤2 searchable tokens, so we append key terms from the last
+ * user turn ("error handling structured") and the last assistant turn
+ * ("try catch console error Internal Server Error getCommonHeaders …") so that
+ * downstream embedding + BM25 can find the right chunks.
+ */
+export function buildContextualQuery(
+	userMessage: string,
+	priorMessages: Array<{ role: "user" | "assistant"; content: string }>
+): string {
+	const trimmed = userMessage.trim();
+	if (priorMessages.length === 0 || !isFollowUpQuery(trimmed)) return trimmed;
+
+	const contextTerms: string[] = [];
+
+	const lastUser = [...priorMessages].reverse().find((m) => m.role === "user");
+	if (lastUser) {
+		contextTerms.push(...extractRetrievalTerms(lastUser.content, 8));
+	}
+
+	// Sample the first 600 chars of the assistant reply to avoid noise from long responses.
+	const lastAssistant = [...priorMessages].reverse().find((m) => m.role === "assistant");
+	if (lastAssistant) {
+		contextTerms.push(...extractRetrievalTerms(lastAssistant.content.slice(0, 600), 8));
+	}
+
+	const unique = [...new Set(contextTerms)];
+	if (unique.length === 0) return trimmed;
+	return `${trimmed} ${unique.join(" ")}`;
+}
+
 export function expandQuery(userMessage: string): string[] {
 	const trimmed = userMessage.trim();
 	if (!trimmed) return [trimmed];

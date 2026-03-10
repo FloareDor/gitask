@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { indexRepository, IndexAbortError, type IndexProgress, type AstNode } from "@/lib/indexer";
 import { VectorStore } from "@/lib/vectorStore";
 import { multiPathHybridSearch } from "@/lib/search";
-import { expandQuery } from "@/lib/queryExpansion";
+import { expandQuery, buildContextualQuery } from "@/lib/queryExpansion";
 import { defaultLimitsForProvider } from "@/lib/contextAssembly";
 import { fetchRepoTree } from "@/lib/github";
 import { initLLM, generate, getLLMStatus, getLLMConfig, onStatusChange, type LLMStatus } from "@/lib/llm";
@@ -612,7 +612,8 @@ export default function RepoPage({
 		try {
 			const config = getLLMConfig();
 			const limits = defaultLimitsForProvider(config.provider);
-			const queryVariants = expandQuery(userMessage);
+			const contextualQuery = buildContextualQuery(userMessage, messagesRef.current);
+			const queryVariants = expandQuery(contextualQuery);
 			const searchStart = performance.now();
 			const results = await multiPathHybridSearch(storeRef.current, queryVariants, { limit: 5 });
 			recordSearch(performance.now() - searchStart);
