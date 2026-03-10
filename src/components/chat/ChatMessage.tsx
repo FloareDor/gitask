@@ -42,6 +42,8 @@ export const ChatMessage = memo(function ChatMessage({
 	const isUser = msg.role === "user";
 	const isStreaming = isGenerating && isLast && !isUser;
 
+	const [thinkingExpanded, setThinkingExpanded] = useState(false);
+	const [seenVariants, setSeenVariants] = useState<string[]>([]);
 	const [isEditing, setIsEditing] = useState(false);
 	const [editText, setEditText] = useState(msg.content);
 	const editRef = useRef<HTMLTextAreaElement>(null);
@@ -102,6 +104,29 @@ export const ChatMessage = memo(function ChatMessage({
 		return injectInlineFileLinks(msg.content, knownPaths, owner, repo, commitRef);
 	}, [msg.content, msg.citations, contextPaths, owner, repo, commitRef, isUser, isStreaming]);
 
+	// Stable random word for the "no phase yet" gap (LLM queued but not streaming).
+	const idleWordRef = useRef(
+		["cooking", "brewing", "thinking", "generating", "working on it", "writing", "penning down my thoughts", "hol' up", "let me cook", "let me cook"][
+			Math.floor(Math.random() * 5)
+		]
+	);
+
+	// Thinking block: visible whenever streaming with no content yet.
+	const showThinking = isStreaming && !msg.content;
+	const thinkingPhase = msg.retrieval?.loadingPhase ?? idleWordRef.current;
+	const thinkingVariants = msg.retrieval?.variants ?? [];
+	const completedCount = msg.retrieval?.completedCount ?? 0;
+
+	// Accumulate variants as they arrive across phase changes — never replace.
+	useEffect(() => {
+		if (thinkingVariants.length === 0) return;
+		setSeenVariants((prev) => {
+			const existing = new Set(prev);
+			const fresh = thinkingVariants.filter((v) => !existing.has(v));
+			return fresh.length > 0 ? [...prev, ...fresh] : prev;
+		});
+	}, [thinkingVariants]);
+
 	return (
 		<div className={`chat-message chat-message--${isUser ? "user" : "assistant"}`}>
 			{/* Role label */}
@@ -110,7 +135,7 @@ export const ChatMessage = memo(function ChatMessage({
 					<span>you</span>
 				) : (
 					<>
-						{isStreaming && <span className="chat-live-dot" aria-hidden="true" />}
+						{isStreaming && !showThinking && <span className="chat-live-dot" aria-hidden="true" />}
 						<span>✦ gitask</span>
 					</>
 				)}
@@ -165,11 +190,38 @@ export const ChatMessage = memo(function ChatMessage({
 				</div>
 			)}
 
-			{!msg.safety?.blocked && !isUser && (
+							{/* Retrieval thinking block — shown during loading before first token */}
+			{showThinking && (
+				<div className="chat-thinking">
+					<span
+						className={`chat-thinking-phase${seenVariants.length > 0 ? " chat-thinking-phase--clickable" : ""}`}
+						onClick={() => seenVariants.length > 0 && setThinkingExpanded((v) => !v)}
+					>
+						{thinkingPhase}
+						<span className="chat-thinking-dots" aria-hidden="true">
+							<span className="chat-thinking-dot chat-thinking-dot--1" />
+							<span className="chat-thinking-dot chat-thinking-dot--2" />
+							<span className="chat-thinking-dot chat-thinking-dot--3" />
+						</span>
+					</span>
+					{thinkingExpanded && seenVariants.length > 0 && (
+						<div className="chat-thinking-rows">
+							{seenVariants.map((v, i) => (
+								<div key={i} className={`thinking-row ${i === 0 ? "thinking-row--original" : "thinking-row--variant"} ${i < completedCount ? "thinking-row--done" : "thinking-row--loading"}`}>
+									<span className="thinking-row-tag">{i === 0 ? "·" : "+"}</span>
+									<span className="thinking-row-text">{v}</span>
+								</div>
+							))}
+						</div>
+					)}
+				</div>
+			)}
+
+			{!msg.safety?.blocked && !isUser && (!isStreaming || msg.content) && (
 				<div className={`chat-bubble chat-bubble--assistant`}>
 					{isStreaming ? (
 						<div className="chat-markdown chat-streaming">
-							{msg.content || ""}
+							{msg.content}
 							<span className="chat-cursor" aria-hidden="true">▋</span>
 						</div>
 					) : (

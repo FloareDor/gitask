@@ -20,7 +20,6 @@ import {
 } from "./search";
 import { bm25Search } from "./bm25";
 import { expandCandidatesWithGraph } from "./graphExpansion";
-import { expandQuery } from "./queryExpansion";
 import type { EmbeddedChunk } from "./embedder";
 import type { SearchResult } from "./vectorStore";
 import { VectorStore } from "./vectorStore";
@@ -171,7 +170,7 @@ async function searchCodeRagMultiPath(
   const store = new VectorStore();
   store.insert(chunks);
   store.setGraph({});
-  const variants = expandQuery(queryText);
+  const variants = [queryText];
   return multiPathHybridSearch(store, variants, {
     limit,
     coarseCandidates: 50,

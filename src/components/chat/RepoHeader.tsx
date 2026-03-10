@@ -30,6 +30,8 @@ interface RepoHeaderProps {
 	sidebarCollapsed: boolean;
 	showContext: boolean;
 	coveEnabled: boolean;
+	queryExpansionEnabled: boolean;
+	isLocalProvider: boolean;
 	isGenerating: boolean;
 	messages: Message[];
 	fileBrowserOpen: boolean;
@@ -38,6 +40,7 @@ interface RepoHeaderProps {
 	onToggleTokenInput: () => void;
 	onToggleContext: () => void;
 	onToggleCove: () => void;
+	onToggleQueryExpansion: () => void;
 	onClearChat: () => void;
 	onDeleteEmbeddings: () => void;
 	onToggleFileBrowser: () => void;
@@ -52,6 +55,8 @@ export function RepoHeader({
 	sidebarCollapsed,
 	showContext,
 	coveEnabled,
+	queryExpansionEnabled,
+	isLocalProvider,
 	isGenerating,
 	messages,
 	fileBrowserOpen,
@@ -60,6 +65,7 @@ export function RepoHeader({
 	onToggleTokenInput,
 	onToggleContext,
 	onToggleCove,
+	onToggleQueryExpansion,
 	onClearChat,
 	onDeleteEmbeddings,
 	onToggleFileBrowser,
@@ -150,6 +156,18 @@ export function RepoHeader({
 								title="Chain-of-Verification (adds ~2-4s latency)"
 							>
 								CoVE {coveEnabled ? "on" : "off"}
+							</button>
+							<button
+								style={{
+									...overflowItemStyle,
+									color: isLocalProvider ? "var(--text-on-dark-muted)" : queryExpansionEnabled ? "#16a34a" : "var(--text-on-dark)",
+									opacity: isLocalProvider ? 0.45 : 1,
+									cursor: isLocalProvider ? "default" : "pointer",
+								}}
+								onClick={isLocalProvider ? undefined : onToggleQueryExpansion}
+								title={isLocalProvider ? "not available with local model" : "expand each query into multiple variants for broader retrieval"}
+							>
+								multi-query {isLocalProvider ? "—" : queryExpansionEnabled ? "on" : "off"}
 							</button>
 							{isIndexed && (
 								<button style={overflowItemStyle} onClick={() => { onReindex(); setShowOverflow(false); }}>
