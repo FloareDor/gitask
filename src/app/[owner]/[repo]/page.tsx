@@ -12,8 +12,6 @@ import { initLLM, generate, getLLMStatus, getLLMConfig, onStatusChange, type LLM
 import { recordSearch, recordSafetyScan } from "@/lib/metrics";
 import { buildSafeContext, scanChunksForInjection } from "@/lib/promptSafety";
 import { verifyAndRefine } from "@/lib/cove";
-import { ModelSettings } from "@/components/ModelSettings";
-import { ThemeToggle } from "@/components/ThemeToggle";
 
 import type { Message, ContextChunk, ChatSession } from "./types";
 import {
@@ -619,13 +617,15 @@ export default function RepoPage({
 				: [userMessage];
 			const searchStart = performance.now();
 			let results = await multiPathHybridSearch(storeRef.current, queryVariants, { limit: 5 });
+			let retrievalRefinedQuery: string | undefined;
 			if (config.provider !== "mlc") {
-				const refinedQuery = await getRetrievalRefinement(
+				const rq = await getRetrievalRefinement(
 					userMessage,
 					results.map((r) => ({ filePath: r.chunk.filePath, code: r.chunk.code, score: r.score }))
 				);
-				if (refinedQuery) {
-					const refinedResults = await multiPathHybridSearch(storeRef.current, [refinedQuery], { limit: 5 });
+				if (rq) {
+					retrievalRefinedQuery = rq;
+					const refinedResults = await multiPathHybridSearch(storeRef.current, [rq], { limit: 5 });
 					const merged = new Map<string, (typeof results)[0]>();
 					for (const r of [...results, ...refinedResults]) {
 						const existing = merged.get(r.chunk.id);
@@ -788,6 +788,9 @@ ${context}`;
 					role: "assistant",
 					content: "",
 					citations: responseCitations.length > 0 ? responseCitations : undefined,
+					retrieval: queryVariants.length > 1
+						? { variants: queryVariants, refinedQuery: retrievalRefinedQuery }
+						: undefined,
 					ui: { sourcesExpanded: false },
 				},
 			]);

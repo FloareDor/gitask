@@ -1,8 +1,16 @@
+export interface MessageRetrievalState {
+	/** All query variants searched — first is original, rest are LLM-generated. */
+	variants: string[];
+	/** Refined query from the sufficiency check second pass, if triggered. */
+	refinedQuery?: string;
+}
+
 export interface Message {
 	id: string;
 	role: "user" | "assistant";
 	content: string;
 	citations?: MessageCitation[];
+	retrieval?: MessageRetrievalState;
 	ui?: MessageUIState;
 	safety?: MessageSafetyState;
 }

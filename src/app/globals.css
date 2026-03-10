@@ -1261,3 +1261,81 @@ header a[href="/"]:hover {
   background: #dcfce7;
   border-color: #86efac;
 }
+
+/* ── Retrieval process panel ─────────────────────────── */
+.chat-retrieval {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  margin-top: 6px;
+}
+
+.chat-retrieval-toggle {
+  all: unset;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-on-dark-muted);
+  padding: 2px 0;
+  transition: color 0.1s ease;
+  user-select: none;
+}
+.chat-retrieval-toggle:hover {
+  color: var(--text-on-dark-secondary);
+}
+
+.chat-retrieval-chevron {
+  display: inline-block;
+  transition: transform 120ms ease;
+  font-size: 9px;
+  opacity: 0.6;
+}
+
+.chat-retrieval-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin-top: 2px;
+}
+
+.retrieval-row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.retrieval-row-tag {
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  flex-shrink: 0;
+  width: 44px;
+  text-align: right;
+  opacity: 0.7;
+}
+
+.retrieval-row-text {
+  word-break: break-word;
+}
+
+.retrieval-row--original .retrieval-row-tag  { color: var(--text-on-dark-muted); }
+.retrieval-row--original .retrieval-row-text { color: var(--text-on-dark-muted); }
+
+.retrieval-row--variant .retrieval-row-tag  { color: var(--accent); }
+.retrieval-row--variant .retrieval-row-text { color: #4ade80; }
+
+.retrieval-row--refined .retrieval-row-tag  { color: var(--accent-amber); }
+.retrieval-row--refined .retrieval-row-text { color: var(--accent-amber); }
+
+[data-theme="light"] .retrieval-row--original .retrieval-row-tag  { color: #aaa; }
+[data-theme="light"] .retrieval-row--original .retrieval-row-text { color: #aaa; }
+[data-theme="light"] .retrieval-row--variant .retrieval-row-tag  { color: #15803d; }
+[data-theme="light"] .retrieval-row--variant .retrieval-row-text { color: #15803d; }
+[data-theme="light"] .retrieval-row--refined .retrieval-row-tag  { color: #b45309; }
+[data-theme="light"] .retrieval-row--refined .retrieval-row-text { color: #b45309; }

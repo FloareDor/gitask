@@ -42,6 +42,7 @@ export const ChatMessage = memo(function ChatMessage({
 	const isUser = msg.role === "user";
 	const isStreaming = isGenerating && isLast && !isUser;
 
+	const [retrievalExpanded, setRetrievalExpanded] = useState(false);
 	const [isEditing, setIsEditing] = useState(false);
 	const [editText, setEditText] = useState(msg.content);
 	const editRef = useRef<HTMLTextAreaElement>(null);
@@ -180,7 +181,46 @@ export const ChatMessage = memo(function ChatMessage({
 				</div>
 			)}
 
-			{msg.citations && msg.citations.length > 0 && (
+			{msg.retrieval && msg.retrieval.variants.length > 1 && (
+			<div className="chat-retrieval">
+				<button
+					type="button"
+					onClick={() => setRetrievalExpanded((v) => !v)}
+					className="chat-retrieval-toggle"
+				>
+					<span
+						className="chat-retrieval-chevron"
+						style={{ transform: retrievalExpanded ? "rotate(90deg)" : "rotate(0deg)" }}
+						aria-hidden="true"
+					>▸</span>
+					{retrievalExpanded
+						? "hide queries"
+						: `${msg.retrieval.variants.length} quer${msg.retrieval.variants.length !== 1 ? "ies" : "y"} searched${msg.retrieval.refinedQuery ? " · refined" : ""}`
+					}
+				</button>
+				{retrievalExpanded && (
+					<div className="chat-retrieval-rows">
+						{msg.retrieval.variants.map((v, i) => (
+							<div
+								key={i}
+								className={`retrieval-row ${i === 0 ? "retrieval-row--original" : "retrieval-row--variant"}`}
+							>
+								<span className="retrieval-row-tag">{i === 0 ? "orig" : "expand"}</span>
+								<span className="retrieval-row-text">{v}</span>
+							</div>
+						))}
+						{msg.retrieval.refinedQuery && (
+							<div className="retrieval-row retrieval-row--refined">
+								<span className="retrieval-row-tag">↩ retry</span>
+								<span className="retrieval-row-text">{msg.retrieval.refinedQuery}</span>
+							</div>
+						)}
+					</div>
+				)}
+			</div>
+		)}
+
+		{msg.citations && msg.citations.length > 0 && (
 				<div className="chat-sources">
 					<button
 						type="button"
