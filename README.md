@@ -79,6 +79,9 @@ open `http://localhost:3000`, paste a github URL, and start asking.
 
 that's the whole setup.
 
+Local note: this repo uses `webpack` for `npm run dev` because the `[owner]/[repo]`
+route currently hangs under Turbopack on some local machines.
+
 ---
 
 ## stack
