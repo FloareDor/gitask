@@ -1103,6 +1103,51 @@ header a[href="/"]:hover {
   box-shadow: 2px 2px 0 var(--accent);
 }
 
+/* ── Message hover action row (copy · viz) ── */
+.chat-msg-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 4px;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.15s ease, visibility 0.15s ease;
+}
+
+.chat-message--assistant:hover .chat-msg-actions {
+  opacity: 1;
+  visibility: visible;
+}
+
+.chat-msg-action-btn {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-on-dark-muted);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+  letter-spacing: 0.04em;
+  transition: color 0.1s ease;
+}
+
+.chat-msg-action-btn:hover:not(:disabled) {
+  color: var(--accent);
+}
+
+.chat-msg-action-btn:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+
+.chat-msg-action-sep {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-on-dark-muted);
+  opacity: 0.4;
+  user-select: none;
+}
+
 .chat-edit-inline {
   display: flex;
   flex-direction: column;
@@ -1260,4 +1305,545 @@ header a[href="/"]:hover {
 [data-theme="light"] .citation-link:hover {
   background: #dcfce7;
   border-color: #86efac;
+}
+
+/* ─── Diagram inline (native, no window) ────────────────────────────────────────── */
+
+.diagram-inline {
+  width: 100%;
+  margin-top: 12px;
+  border: 1px solid var(--border-dark);
+  border-radius: 8px;
+  padding: 14px 16px 12px;
+  background: rgba(8, 10, 20, 0.35);
+  animation: fade-in 0.3s ease;
+}
+
+.diagram-inline-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
+.diagram-inline-label {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--accent);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.diagram-inline-sep {
+  color: var(--text-on-dark-muted);
+  font-size: 10px;
+}
+
+.diagram-inline-title {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-on-dark-secondary);
+  letter-spacing: 0.02em;
+}
+
+.diagram-inline-stats {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-on-dark-muted);
+  margin-left: 2px;
+}
+
+.diagram-inline-hint {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-on-dark-muted);
+  opacity: 0.5;
+  letter-spacing: 0.03em;
+}
+
+.diagram-inline-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+}
+
+.diagram-inline-action-btn {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-on-dark-muted);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+  letter-spacing: 0.04em;
+  opacity: 0.6;
+  transition: opacity 0.1s ease, color 0.1s ease;
+}
+
+.diagram-inline-action-btn:hover {
+  opacity: 1;
+  color: var(--accent);
+}
+
+.diagram-inline-action-sep {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-on-dark-muted);
+  opacity: 0.3;
+  user-select: none;
+}
+
+.diagram-inline-canvas {
+  position: relative;
+  overflow-x: auto;
+  overflow-y: visible;
+}
+
+.diagram-inline-legend {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-top: 12px;
+}
+
+/* ─── Diagram Node ─────────────────────────────────────────────────────────── */
+
+.diagram-node {
+  position: relative;
+  display: flex;
+  align-items: stretch;
+  background: rgba(8, 10, 20, 0.82);
+  border: 1.5px solid var(--node-color, #38bdf8);
+  border-radius: 7px;
+  box-sizing: border-box;
+  cursor: grab;
+  overflow: hidden;
+  backdrop-filter: blur(8px);
+  box-shadow:
+    0 0 0 1px rgba(0, 0, 0, 0.4),
+    0 4px 20px rgba(0, 0, 0, 0.45),
+    0 0 16px var(--node-glow, transparent);
+  transition: box-shadow 0.2s ease, transform 0.18s ease;
+}
+
+.diagram-node:hover {
+  box-shadow:
+    0 0 0 1px rgba(0, 0, 0, 0.4),
+    0 6px 28px rgba(0, 0, 0, 0.5),
+    0 0 28px var(--node-glow, transparent);
+  transform: translateY(-1px);
+}
+
+.diagram-node:active {
+  cursor: grabbing;
+  transform: translateY(0);
+}
+
+.selected .diagram-node {
+  box-shadow:
+    0 0 0 1px rgba(0, 0, 0, 0.4),
+    0 6px 32px rgba(0, 0, 0, 0.5),
+    0 0 40px var(--node-glow, transparent);
+}
+
+/* Top color accent bar — removed (full border carries the color) */
+.diagram-node-accent {
+  display: none;
+}
+
+.diagram-node-body {
+  padding: 10px 13px;
+  min-width: 0;
+  flex: 1;
+}
+
+.diagram-node-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: #e2e8f0;
+  line-height: 1.35;
+  font-family: var(--font-mono);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  letter-spacing: 0.01em;
+}
+
+.diagram-node-sublabel {
+  font-size: 9.5px;
+  color: rgba(148, 163, 184, 0.65);
+  margin-top: 3px;
+  font-family: var(--font-mono);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  letter-spacing: 0.02em;
+}
+
+/* ─── Legend ─────────────────────────────────────────────────────────────── */
+
+.diagram-legend-item {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.diagram-legend-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.diagram-legend-label {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-on-dark-muted);
+  letter-spacing: 0.04em;
+}
+
+/* ─── Diagram Modal ───────────────────────────────────────────────────────── */
+
+.diagram-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  background: rgba(0, 0, 0, 0.82);
+  backdrop-filter: blur(6px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  animation: fade-in 0.15s ease;
+}
+
+.diagram-modal-container {
+  background: var(--bg-card-dark);
+  border: 2px solid var(--border-dark);
+  box-shadow: 6px 6px 0 var(--accent);
+  width: min(92vw, 1100px);
+  height: min(88vh, 760px);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  animation: slide-up 0.2s ease;
+}
+
+@keyframes slide-up {
+  from { opacity: 0; transform: translateY(12px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.diagram-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 18px;
+  border-bottom: 1px solid var(--border-dark);
+  flex-shrink: 0;
+  background: rgba(4, 5, 12, 0.8);
+}
+
+.diagram-modal-title-group {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.diagram-modal-repo {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-on-dark-muted);
+  flex-shrink: 0;
+}
+
+.diagram-modal-title {
+  font-family: var(--font-display);
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text-on-dark);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.diagram-modal-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.diagram-modal-regen {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  padding: 3px 10px;
+  background: transparent;
+  border: 1px solid var(--border-dark);
+  color: var(--text-on-dark-muted);
+  cursor: pointer;
+  letter-spacing: 0.04em;
+  transition: border-color 0.1s ease, color 0.1s ease;
+}
+
+.diagram-modal-regen:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.diagram-modal-close {
+  font-size: 16px;
+  line-height: 1;
+  padding: 3px 9px;
+  background: transparent;
+  border: 1px solid var(--border-dark);
+  color: var(--text-on-dark-secondary);
+  cursor: pointer;
+  font-family: var(--font-mono);
+  transition: border-color 0.1s ease, color 0.1s ease;
+}
+
+.diagram-modal-close:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.diagram-modal-canvas {
+  flex: 1;
+  position: relative;
+  overflow: hidden;
+}
+
+.diagram-modal-loading {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+}
+
+.diagram-modal-spinner {
+  width: 26px;
+  height: 26px;
+  border: 2px solid var(--border-dark);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: diag-spin 0.7s linear infinite;
+}
+
+.diagram-modal-loading-text {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text-on-dark-secondary);
+  letter-spacing: 0.04em;
+}
+
+.diagram-modal-error {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 32px;
+}
+
+.diagram-modal-error-msg {
+  color: #f87171;
+  font-size: 13px;
+  text-align: center;
+  max-width: 400px;
+  font-family: var(--font-mono);
+}
+
+.diagram-modal-footer {
+  padding: 8px 18px;
+  border-top: 1px solid var(--border-dark);
+  flex-shrink: 0;
+  display: flex;
+  gap: 14px;
+  flex-wrap: wrap;
+  background: rgba(4, 5, 12, 0.8);
+}
+
+@keyframes diag-spin {
+  to { transform: rotate(360deg); }
+}
+
+/* ─── Diagram status (ChatMessage) ────────────────────────────────────────── */
+
+.diagram-status {
+  margin-top: 10px;
+  padding: 7px 12px;
+  border: 1px solid var(--border-dark);
+  background: rgba(8, 10, 20, 0.6);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border-radius: 6px;
+}
+
+.diagram-status-spinner {
+  width: 12px;
+  height: 12px;
+  border: 1.5px solid var(--border-dark);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  flex-shrink: 0;
+  animation: diag-spin 0.7s linear infinite;
+}
+
+.diagram-status-text {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-on-dark-muted);
+  letter-spacing: 0.03em;
+}
+
+.diagram-error-status {
+  margin-top: 10px;
+  padding: 6px 12px;
+  border: 1px solid rgba(248, 113, 113, 0.2);
+  background: rgba(30, 10, 10, 0.5);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: rgba(248, 113, 113, 0.8);
+  border-radius: 6px;
+}
+
+/* ─── ReactFlow canvas overrides ─────────────────────────────────────────── */
+
+.diagram-inline-canvas .react-flow,
+.diagram-inline-canvas .react-flow__renderer,
+.diagram-inline-canvas .react-flow__container,
+.diagram-inline-canvas .react-flow__pane,
+.diagram-modal-canvas .react-flow,
+.diagram-modal-canvas .react-flow__renderer,
+.diagram-modal-canvas .react-flow__container,
+.diagram-modal-canvas .react-flow__pane {
+  background: transparent !important;
+}
+
+/* Edge text */
+.react-flow__edge-textwrapper text {
+  font-family: var(--font-mono, monospace) !important;
+}
+
+/* Controls (DiagramModal) */
+.diagram-modal-canvas .react-flow__controls {
+  background: rgba(8, 10, 20, 0.9);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+  border-radius: 8px;
+  overflow: hidden;
+  backdrop-filter: blur(8px);
+}
+
+.diagram-modal-canvas .react-flow__controls button {
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  color: rgba(148, 163, 184, 0.7);
+  border-radius: 0;
+  fill: rgba(148, 163, 184, 0.7);
+  transition: background 0.15s ease, color 0.15s ease, fill 0.15s ease;
+}
+
+.diagram-modal-canvas .react-flow__controls button:hover {
+  background: rgba(56, 189, 248, 0.08);
+  color: #38bdf8;
+  fill: #38bdf8;
+}
+
+.diagram-modal-canvas .react-flow__controls button:last-child {
+  border-bottom: none;
+}
+
+/* ─── Light theme overrides ──────────────────────────────────────────────── */
+
+[data-theme="light"] .diagram-node {
+  background: rgba(255, 255, 255, 0.97);
+  border-color: var(--node-color, #38bdf8);
+  box-shadow:
+    0 2px 12px rgba(0, 0, 0, 0.08),
+    0 0 12px var(--node-glow, transparent);
+}
+
+[data-theme="light"] .diagram-node:hover {
+  box-shadow:
+    0 6px 24px rgba(0, 0, 0, 0.12),
+    0 0 20px var(--node-glow, transparent);
+}
+
+[data-theme="light"] .selected .diagram-node {
+  box-shadow:
+    0 4px 20px rgba(0, 0, 0, 0.1),
+    0 0 32px var(--node-glow, transparent);
+}
+
+[data-theme="light"] .diagram-node-label {
+  color: #0f172a;
+}
+
+[data-theme="light"] .diagram-node-sublabel {
+  color: #64748b;
+}
+
+[data-theme="light"] .diagram-legend-label {
+  color: var(--text-secondary);
+}
+
+[data-theme="light"] .diagram-inline {
+  border-color: var(--border);
+  background: rgba(248, 250, 252, 0.5);
+}
+
+[data-theme="light"] .diagram-inline-sep,
+[data-theme="light"] .diagram-inline-stats {
+  color: var(--text-muted);
+}
+
+[data-theme="light"] .diagram-inline-title {
+  color: var(--text-secondary);
+}
+
+[data-theme="light"] .diagram-status {
+  background: rgba(248, 250, 252, 0.9);
+  border-color: var(--border);
+}
+
+[data-theme="light"] .diagram-error-status {
+  background: rgba(254, 242, 242, 0.9);
+  border-color: rgba(239, 68, 68, 0.2);
+}
+
+[data-theme="light"] .diagram-status-text {
+  color: var(--text-secondary);
+}
+
+[data-theme="light"] .diagram-modal-header,
+[data-theme="light"] .diagram-modal-footer {
+  background: rgba(248, 250, 252, 0.95);
+}
+
+[data-theme="light"] .diagram-modal-canvas .react-flow__controls {
+  background: rgba(255, 255, 255, 0.95);
+  border-color: rgba(0, 0, 0, 0.1);
+}
+
+[data-theme="light"] .diagram-modal-canvas .react-flow__controls button {
+  border-bottom-color: rgba(0, 0, 0, 0.06);
+  color: #64748b;
+  fill: #64748b;
+}
+
+[data-theme="light"] .diagram-modal-canvas .react-flow__controls button:hover {
+  background: rgba(56, 189, 248, 0.08);
+  color: #0284c7;
+  fill: #0284c7;
 }

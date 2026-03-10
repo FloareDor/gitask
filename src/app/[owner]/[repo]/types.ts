@@ -1,3 +1,9 @@
+export interface MessageDiagram {
+	title: string;
+	nodes: Array<{ id: string; label: string; sublabel?: string; category: string }>;
+	edges: Array<{ source: string; target: string; label?: string }>;
+}
+
 export interface Message {
 	id: string;
 	role: "user" | "assistant";
@@ -5,6 +11,8 @@ export interface Message {
 	citations?: MessageCitation[];
 	ui?: MessageUIState;
 	safety?: MessageSafetyState;
+	diagramStatus?: "loading" | "ready" | "skipped" | "error";
+	diagram?: MessageDiagram;
 }
 
 export interface MessageCitation {
