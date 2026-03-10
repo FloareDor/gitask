@@ -218,6 +218,75 @@ export function shouldSuggestGitHubToken(errorMessage: string): boolean {
 	);
 }
 
+/**
+ * Post-process assistant markdown to replace file-path mentions with inline
+ * GitHub links.  Fenced code blocks and existing markdown links are skipped.
+ */
+export function injectInlineFileLinks(
+	content: string,
+	knownPaths: string[],
+	owner: string,
+	repo: string,
+	commitRef: string,
+): string {
+	if (!commitRef || !owner || !repo || knownPaths.length === 0) return content;
+
+	const pathSet = new Set(knownPaths);
+	// Longest paths first — regex alternation is left-biased so longest wins.
+	const sorted = [...pathSet].sort((a, b) => b.length - a.length);
+
+	// Build one combined regex: each path optionally wrapped in backticks.
+	const alt = sorted
+		.map((p) => p.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
+		.flatMap((e) => [`\`${e}\``, e]);
+	const pathRe = new RegExp(alt.join("|"), "g");
+
+	// Collect regions to skip: fenced code blocks + existing markdown links.
+	const skipRegions: [number, number][] = [];
+
+	const fenceRe = /```[\s\S]*?```/g;
+	let m: RegExpExecArray | null;
+	while ((m = fenceRe.exec(content)) !== null) {
+		skipRegions.push([m.index, m.index + m[0].length]);
+	}
+	const linkRe = /\[[^\]]*\]\([^)]*\)/g;
+	while ((m = linkRe.exec(content)) !== null) {
+		skipRegions.push([m.index, m.index + m[0].length]);
+	}
+
+	function inSkipRegion(start: number, end: number): boolean {
+		return skipRegions.some(([s, e]) => start >= s && end <= e);
+	}
+
+	// Find all path matches outside skip regions, then replace end-to-start
+	// so string indices stay valid.
+	const hits: { index: number; length: number; path: string; tick: string }[] = [];
+	while ((m = pathRe.exec(content)) !== null) {
+		const raw = m[0];
+		const hasTick = raw.startsWith("`") && raw.endsWith("`");
+		const path = hasTick ? raw.slice(1, -1) : raw;
+		if (!pathSet.has(path)) continue;
+
+		const start = m.index;
+		const end = start + raw.length;
+		if (inSkipRegion(start, end)) continue;
+
+		hits.push({ index: start, length: raw.length, path, tick: hasTick ? "`" : "" });
+		// Mark as skip so overlapping shorter paths won't match inside this hit.
+		skipRegions.push([start, end]);
+	}
+
+	let result = content;
+	for (let i = hits.length - 1; i >= 0; i--) {
+		const { index, length, path, tick } = hits[i];
+		const encoded = encodeGitHubPath(path);
+		const url = `https://github.com/${owner}/${repo}/blob/${commitRef}/${encoded}`;
+		const replacement = `[${tick}${path}${tick}](${url})`;
+		result = result.slice(0, index) + replacement + result.slice(index + length);
+	}
+	return result;
+}
+
 export function shouldPromptForLLMSettings(errorMessage: string): boolean {
 	const message = errorMessage.toLowerCase();
 	return (

@@ -1,8 +1,17 @@
 "use client";
 
 import ReactMarkdown from "react-markdown";
+import type { Components } from "react-markdown";
 import type { Message } from "@/app/[owner]/[repo]/types";
-import { encodeGitHubPath } from "@/lib/chatUtils";
+import { encodeGitHubPath, injectInlineFileLinks } from "@/lib/chatUtils";
+
+const markdownComponents: Components = {
+	a: ({ href, children, ...props }) => (
+		<a href={href} target="_blank" rel="noopener noreferrer" {...props}>
+			{children}
+		</a>
+	),
+};
 
 interface ChatMessageProps {
 	msg: Message;
@@ -11,6 +20,7 @@ interface ChatMessageProps {
 	owner: string;
 	repo: string;
 	commitRef: string;
+	contextPaths?: string[];
 	onToggleSources: (id: string) => void;
 }
 
@@ -21,12 +31,25 @@ export function ChatMessage({
 	owner,
 	repo,
 	commitRef,
+	contextPaths,
 	onToggleSources,
 }: ChatMessageProps) {
 	const sourcesExpanded = Boolean(msg.ui?.sourcesExpanded);
 	const sourcesPanelId = `sources-${msg.id}`;
 	const isUser = msg.role === "user";
 	const isStreaming = isGenerating && isLast && !isUser;
+
+	// Build the set of known file paths from citations + context chunks.
+	const knownPaths = [
+		...(msg.citations?.map((c) => c.filePath) ?? []),
+		...(contextPaths ?? []),
+	];
+
+	// For completed assistant messages, inject inline GitHub links for file paths.
+	const renderedContent =
+		!isUser && !isStreaming && knownPaths.length > 0
+			? injectInlineFileLinks(msg.content, knownPaths, owner, repo, commitRef)
+			: msg.content;
 
 	return (
 		<div className={`chat-message chat-message--${isUser ? "user" : "assistant"}`}>
@@ -59,7 +82,7 @@ export function ChatMessage({
 						</div>
 					) : (
 						<div className="chat-markdown">
-							<ReactMarkdown>{msg.content}</ReactMarkdown>
+							<ReactMarkdown components={markdownComponents}>{renderedContent}</ReactMarkdown>
 						</div>
 					)}
 				</div>
