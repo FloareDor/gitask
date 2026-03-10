@@ -30,6 +30,7 @@ import { shouldInjectBaselineContext, isFactSeekingQuery } from "@/lib/queryUtil
 import { RepoHeader } from "@/components/chat/RepoHeader";
 import { ChatSidebar } from "@/components/chat/ChatSidebar";
 import { ChatMessage } from "@/components/chat/ChatMessage";
+import { RetrievalProgress, type RetrievalProgressState } from "@/components/chat/RetrievalProgress";
 import { EmptyChat } from "@/components/chat/EmptyChat";
 import { ContextDrawer } from "@/components/chat/ContextDrawer";
 import { ChatInput } from "@/components/chat/ChatInput";
@@ -65,6 +66,7 @@ export default function RepoPage({
 	const chatStorageKey = owner && repo ? `gitask-chat-${owner}/${repo}` : null;
 	const [input, setInput] = useState("");
 	const [isGenerating, setIsGenerating] = useState(false);
+	const [retrievalState, setRetrievalState] = useState<RetrievalProgressState | null>(null);
 	const [contextChunks, setContextChunks] = useState<ContextChunk[]>([]);
 	const [contextMeta, setContextMeta] = useState<{
 		truncated: boolean;
@@ -612,9 +614,21 @@ export default function RepoPage({
 			const limits = defaultLimitsForProvider(config.provider);
 			const readmeChunk = storeRef.current.getChunksByFile("README.md")[0]
 				?? storeRef.current.getChunksByFile("readme.md")[0];
+
+			// Phase 1: expand queries (or go straight to searching for local MLC)
+			if (config.provider !== "mlc") {
+				setRetrievalState({ phase: "expanding" });
+			} else {
+				setRetrievalState({ phase: "searching" });
+			}
+
 			const queryVariants = config.provider !== "mlc"
 				? await generateQueryVariants(userMessage, messagesRef.current, readmeChunk?.code ?? "")
 				: [userMessage];
+
+			// Phase 2: searching
+			setRetrievalState({ phase: "searching", variants: queryVariants });
+
 			const searchStart = performance.now();
 			let results = await multiPathHybridSearch(storeRef.current, queryVariants, { limit: 5 });
 			let retrievalRefinedQuery: string | undefined;
@@ -624,7 +638,9 @@ export default function RepoPage({
 					results.map((r) => ({ filePath: r.chunk.filePath, code: r.chunk.code, score: r.score }))
 				);
 				if (rq) {
+					// Phase 3: refining (second pass)
 					retrievalRefinedQuery = rq;
+					setRetrievalState({ phase: "refining", variants: queryVariants, refinedQuery: rq });
 					const refinedResults = await multiPathHybridSearch(storeRef.current, [rq], { limit: 5 });
 					const merged = new Map<string, (typeof results)[0]>();
 					for (const r of [...results, ...refinedResults]) {
@@ -778,6 +794,7 @@ ${context}`;
 			});
 
 			let fullResponse = "";
+			setRetrievalState(null);
 			appendedAssistantPlaceholder = true;
 			const placeholderMessageId = makeMessageId();
 			assistantMessageId = placeholderMessageId;
@@ -903,6 +920,7 @@ ${context}`;
 		} finally {
 			isGeneratingRef.current = false;
 			setIsGenerating(false);
+			setRetrievalState(null);
 		}
 	}, [input, isIndexed, owner, repo, llmStatus, coveEnabled]);
 
@@ -1076,12 +1094,8 @@ ${context}`;
 								/>
 							))}
 
-							{isGenerating && (
-								<div style={{ alignSelf: "flex-start", display: "flex", gap: 4, padding: "12px 18px", border: "2px solid var(--border-dark)", background: "var(--bg-card-dark)" }}>
-									<span className="pulse" style={{ width: 6, height: 6, borderRadius: "50%", background: "#16a34a", display: "inline-block" }} />
-									<span className="pulse" style={{ width: 6, height: 6, borderRadius: "50%", background: "#16a34a", display: "inline-block", animationDelay: "0.2s" }} />
-									<span className="pulse" style={{ width: 6, height: 6, borderRadius: "50%", background: "#16a34a", display: "inline-block", animationDelay: "0.4s" }} />
-								</div>
+							{isGenerating && retrievalState && (
+								<RetrievalProgress {...retrievalState} />
 							)}
 
 							<div ref={chatEndRef} />

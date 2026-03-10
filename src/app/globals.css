@@ -1339,3 +1339,81 @@ header a[href="/"]:hover {
 [data-theme="light"] .retrieval-row--variant .retrieval-row-text { color: #15803d; }
 [data-theme="light"] .retrieval-row--refined .retrieval-row-tag  { color: #b45309; }
 [data-theme="light"] .retrieval-row--refined .retrieval-row-text { color: #b45309; }
+
+/* ── Retrieval progress (live loading indicator pre-streaming) ── */
+.retrieval-progress {
+  align-self: flex-start;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px 16px;
+  border: 2px solid var(--border-dark);
+  background: var(--bg-card-dark);
+  min-width: 180px;
+  max-width: 440px;
+  animation: fadeIn 0.15s ease;
+}
+
+.retrieval-progress-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.retrieval-progress-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+  flex-shrink: 0;
+  animation: live-dot-pulse 1s ease-in-out infinite;
+}
+
+.retrieval-progress-phase {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--accent);
+  letter-spacing: 0.04em;
+}
+
+.retrieval-progress-queries {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.retrieval-progress-query {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1.5;
+  animation: fadeIn 0.2s ease both;
+}
+
+.retrieval-progress-tag {
+  font-size: 9px;
+  width: 28px;
+  text-align: right;
+  flex-shrink: 0;
+  opacity: 0.7;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.retrieval-progress-text {
+  word-break: break-word;
+}
+
+.retrieval-progress-query--orig .retrieval-progress-tag  { color: var(--text-on-dark-muted); }
+.retrieval-progress-query--orig .retrieval-progress-text { color: var(--text-on-dark-muted); }
+.retrieval-progress-query--variant .retrieval-progress-tag  { color: var(--accent); }
+.retrieval-progress-query--variant .retrieval-progress-text { color: #4ade80; }
+.retrieval-progress-query--refined .retrieval-progress-tag  { color: var(--accent-amber); }
+.retrieval-progress-query--refined .retrieval-progress-text { color: var(--accent-amber); }
+
+[data-theme="light"] .retrieval-progress-query--variant .retrieval-progress-text { color: #15803d; }
+[data-theme="light"] .retrieval-progress-query--variant .retrieval-progress-tag  { color: #15803d; }
+[data-theme="light"] .retrieval-progress-query--refined .retrieval-progress-text { color: #b45309; }
+[data-theme="light"] .retrieval-progress-query--refined .retrieval-progress-tag  { color: #b45309; }
