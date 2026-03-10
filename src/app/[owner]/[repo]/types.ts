@@ -3,6 +3,8 @@ export interface MessageRetrievalState {
 	variants: string[];
 	/** Refined query from the sufficiency check second pass, if triggered. */
 	refinedQuery?: string;
+	/** Active loading phase — only present while retrieval is in progress. */
+	loadingPhase?: string;
 }
 
 export interface Message {

@@ -30,7 +30,6 @@ import { shouldInjectBaselineContext, isFactSeekingQuery } from "@/lib/queryUtil
 import { RepoHeader } from "@/components/chat/RepoHeader";
 import { ChatSidebar } from "@/components/chat/ChatSidebar";
 import { ChatMessage } from "@/components/chat/ChatMessage";
-import { RetrievalProgress, type RetrievalProgressState } from "@/components/chat/RetrievalProgress";
 import { EmptyChat } from "@/components/chat/EmptyChat";
 import { ContextDrawer } from "@/components/chat/ContextDrawer";
 import { ChatInput } from "@/components/chat/ChatInput";
@@ -66,7 +65,6 @@ export default function RepoPage({
 	const chatStorageKey = owner && repo ? `gitask-chat-${owner}/${repo}` : null;
 	const [input, setInput] = useState("");
 	const [isGenerating, setIsGenerating] = useState(false);
-	const [retrievalState, setRetrievalState] = useState<RetrievalProgressState | null>(null);
 	const [contextChunks, setContextChunks] = useState<ContextChunk[]>([]);
 	const [contextMeta, setContextMeta] = useState<{
 		truncated: boolean;
@@ -490,30 +488,23 @@ export default function RepoPage({
 		if (!current) return;
 		const isLastChat = chatSessions.length <= 1;
 		const confirmMessage = isLastChat
-			? `Delete "${current?.title ?? "this chat"}"? This is the last chat for ${owner}/${repo}, so indexed files will also be removed.`
+			? `Delete "${current?.title ?? "this chat"}"? A new empty chat will be created and indexed files will be kept.`
 			: `Delete "${current?.title ?? "this chat"}"?`;
 		const confirmed = typeof window === "undefined" || window.confirm(confirmMessage);
 		if (!confirmed) return;
 
 		if (isLastChat) {
-			try {
-				if (chatStorageKey) {
-					try { localStorage.removeItem(chatStorageKey); } catch { /* ignore */ }
-				}
-				if (owner && repo) {
-					await storeRef.current.clearCache(owner, repo);
-					storeRef.current.clear();
-				}
-			} catch (err) {
-				console.error("Failed to clear indexed files for last chat deletion:", err);
+			const fresh = makeNewChat("Chat 1");
+			if (chatStorageKey) {
+				try { localStorage.removeItem(chatStorageKey); } catch { /* ignore */ }
 			}
-			setChatSessions([]);
-			setActiveChatId(null);
+			pendingChatSwitchRef.current = fresh.chat_id;
+			setChatSessions([fresh]);
+			setActiveChatId(fresh.chat_id);
 			setMessages([]);
 			setContextChunks([]);
 			setContextMeta(null);
 			setInput("");
-			router.push("/");
 			return;
 		}
 
@@ -534,7 +525,7 @@ export default function RepoPage({
 			setContextChunks([]);
 			setContextMeta(null);
 		}
-	}, [activeChatId, chatSessions, chatStorageKey, owner, repo, router]);
+	}, [activeChatId, chatSessions, chatStorageKey]);
 
 	const handleClearCacheAndReindex = useCallback(async () => {
 		if (!owner || !repo) return;
@@ -604,10 +595,20 @@ export default function RepoPage({
 			);
 		}
 		setIsGenerating(true);
-		let appendedAssistantPlaceholder = false;
-		let assistantMessageId: string | null = null;
+		const placeholderMessageId = makeMessageId();
+		let assistantMessageId: string | null = placeholderMessageId;
+		let appendedAssistantPlaceholder = true;
 		let sawStreamToken = false;
 		const interruptedSuffixPrefix = "[Generation interrupted:";
+		setMessages((prev) => [
+			...prev,
+			{
+				id: placeholderMessageId,
+				role: "assistant",
+				content: "",
+				ui: { sourcesExpanded: false },
+			},
+		]);
 
 		try {
 			const config = getLLMConfig();
@@ -615,20 +616,21 @@ export default function RepoPage({
 			const readmeChunk = storeRef.current.getChunksByFile("README.md")[0]
 				?? storeRef.current.getChunksByFile("readme.md")[0];
 
-			// Phase 1: expand queries (or go straight to searching for local MLC)
 			if (config.provider !== "mlc") {
-				setRetrievalState({ phase: "expanding" });
-			} else {
-				setRetrievalState({ phase: "searching" });
-			}
-
-			const queryVariants = config.provider !== "mlc"
+			setMessages((prev) => prev.map((m) => m.id !== placeholderMessageId ? m : {
+				...m,
+				retrieval: { variants: [], loadingPhase: "Expanding queries" },
+			}));
+		}
+		const queryVariants = config.provider !== "mlc"
 				? await generateQueryVariants(userMessage, messagesRef.current, readmeChunk?.code ?? "")
 				: [userMessage];
 
-			// Phase 2: searching
-			setRetrievalState({ phase: "searching", variants: queryVariants });
 
+			setMessages((prev) => prev.map((m) => m.id !== placeholderMessageId ? m : {
+				...m,
+				retrieval: { variants: queryVariants, loadingPhase: "Searching" },
+			}));
 			const searchStart = performance.now();
 			let results = await multiPathHybridSearch(storeRef.current, queryVariants, { limit: 5 });
 			let retrievalRefinedQuery: string | undefined;
@@ -638,9 +640,11 @@ export default function RepoPage({
 					results.map((r) => ({ filePath: r.chunk.filePath, code: r.chunk.code, score: r.score }))
 				);
 				if (rq) {
-					// Phase 3: refining (second pass)
 					retrievalRefinedQuery = rq;
-					setRetrievalState({ phase: "refining", variants: queryVariants, refinedQuery: rq });
+					setMessages((prev) => prev.map((m) => m.id !== placeholderMessageId ? m : {
+						...m,
+						retrieval: { variants: queryVariants, loadingPhase: "Refining" },
+					}));
 					const refinedResults = await multiPathHybridSearch(storeRef.current, [rq], { limit: 5 });
 					const merged = new Map<string, (typeof results)[0]>();
 					for (const r of [...results, ...refinedResults]) {
@@ -676,22 +680,16 @@ export default function RepoPage({
 			const shouldStrictBlock = injectionScan.level === "high" || riskyDominance;
 			if (shouldStrictBlock) {
 				recordSafetyScan(injectionScan.level, true, 0, injectionScan.signals.length);
-				setMessages((prev) => [
-					...prev,
-					{
-						id: makeMessageId(),
-						role: "assistant",
-						content: [
-							"Request blocked due to likely prompt-injection content in retrieved repository context.",
-							injectionScan.signals.length > 0 ? `Signals: ${injectionScan.signals.join(", ")}.` : "",
-							"I did not execute generation to avoid following untrusted instructions in repository text.",
-							"Try narrowing the question to exact file paths/symbols, or re-index and retry.",
-						].filter(Boolean).join("\n"),
-						ui: { sourcesExpanded: false },
-						safety: { blocked: true, reason: "prompt_injection_risk", signals: injectionScan.signals },
-					},
-				]);
-				setIsGenerating(false);
+				setMessages((prev) => prev.map((m) => m.id !== placeholderMessageId ? m : {
+					...m,
+					content: [
+						"Request blocked due to likely prompt-injection content in retrieved repository context.",
+						injectionScan.signals.length > 0 ? `Signals: ${injectionScan.signals.join(", ")}.` : "",
+						"I did not execute generation to avoid following untrusted instructions in repository text.",
+						"Try narrowing the question to exact file paths/symbols, or re-index and retry.",
+					].filter(Boolean).join("\n"),
+					safety: { blocked: true, reason: "prompt_injection_risk", signals: injectionScan.signals },
+				}));
 				return;
 			}
 
@@ -717,17 +715,11 @@ export default function RepoPage({
 					"",
 					"Try re-indexing, or ask with exact file/symbol names to narrow retrieval.",
 				].filter(Boolean).join("\n");
-				setMessages((prev) => [
-					...prev,
-					{
-						id: makeMessageId(),
-						role: "assistant",
-						content: groundedFallback,
-						citations: responseCitations.length > 0 ? responseCitations : undefined,
-						ui: { sourcesExpanded: false },
-					},
-				]);
-				setIsGenerating(false);
+				setMessages((prev) => prev.map((m) => m.id !== placeholderMessageId ? m : {
+					...m,
+					content: groundedFallback,
+					citations: responseCitations.length > 0 ? responseCitations : undefined,
+				}));
 				return;
 			}
 
@@ -769,17 +761,13 @@ ${context}`;
 			}
 
 			if (getLLMStatus() !== "ready" && getLLMStatus() !== "generating") {
-				setMessages((prev) => [
-					...prev,
-					{
-						id: makeMessageId(),
-						role: "assistant",
-						content: `**LLM is still loading (${llmStatus}). Here are the most relevant code sections:**\n\n${context}`,
-						citations: responseCitations.length > 0 ? responseCitations : undefined,
-						ui: { sourcesExpanded: false },
-					},
-				]);
-				setIsGenerating(false);
+				setMessages((prev) => prev.map((m) => m.id !== placeholderMessageId ? m : {
+					...m,
+					content: `**LLM is still loading (${llmStatus}). Here are the most relevant code sections:**
+
+${context}`,
+					citations: responseCitations.length > 0 ? responseCitations : undefined,
+				}));
 				return;
 			}
 
@@ -793,24 +781,15 @@ ${context}`;
 				userMessage,
 			});
 
+			// Attach retrieval data and citations to the placeholder now that we have them
+			setMessages((prev) => prev.map((m) => m.id !== placeholderMessageId ? m : {
+				...m,
+				citations: responseCitations.length > 0 ? responseCitations : undefined,
+				retrieval: queryVariants.length > 1
+					? { variants: queryVariants, refinedQuery: retrievalRefinedQuery }
+					: undefined,
+			}));
 			let fullResponse = "";
-			setRetrievalState(null);
-			appendedAssistantPlaceholder = true;
-			const placeholderMessageId = makeMessageId();
-			assistantMessageId = placeholderMessageId;
-			setMessages((prev) => [
-				...prev,
-				{
-					id: placeholderMessageId,
-					role: "assistant",
-					content: "",
-					citations: responseCitations.length > 0 ? responseCitations : undefined,
-					retrieval: queryVariants.length > 1
-						? { variants: queryVariants, refinedQuery: retrievalRefinedQuery }
-						: undefined,
-					ui: { sourcesExpanded: false },
-				},
-			]);
 
 			for await (const token of generate(chatMessages)) {
 				fullResponse += token;
@@ -920,7 +899,6 @@ ${context}`;
 		} finally {
 			isGeneratingRef.current = false;
 			setIsGenerating(false);
-			setRetrievalState(null);
 		}
 	}, [input, isIndexed, owner, repo, llmStatus, coveEnabled]);
 
@@ -1094,9 +1072,6 @@ ${context}`;
 								/>
 							))}
 
-							{isGenerating && retrievalState && (
-								<RetrievalProgress {...retrievalState} />
-							)}
 
 							<div ref={chatEndRef} />
 						</div>
