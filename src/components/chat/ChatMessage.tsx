@@ -51,7 +51,7 @@ export const ChatMessage = memo(function ChatMessage({
 	const isStreaming = isGenerating && isLast && !isUser;
 
 	const [thinkingExpanded, setThinkingExpanded] = useState(false);
-	const [seenVariants, setSeenVariants] = useState<string[]>([]);
+	const seenVariantsRef = useRef<Set<string>>(new Set());
 	const [isEditing, setIsEditing] = useState(false);
 	const [editText, setEditText] = useState(msg.content);
 
@@ -152,14 +152,9 @@ export const ChatMessage = memo(function ChatMessage({
 	const completedCount = msg.retrieval?.completedCount ?? 0;
 
 	// Accumulate variants as they arrive across phase changes — never replace.
-	useEffect(() => {
-		if (thinkingVariants.length === 0) return;
-		setSeenVariants((prev) => {
-			const existing = new Set(prev);
-			const fresh = thinkingVariants.filter((v) => !existing.has(v));
-			return fresh.length > 0 ? [...prev, ...fresh] : prev;
-		});
-	}, [thinkingVariants]);
+	// Mutating a ref during render is safe; the component re-renders anyway during streaming.
+	thinkingVariants.forEach((v) => seenVariantsRef.current.add(v));
+	const seenVariants = [...seenVariantsRef.current];
 
 	return (
 		<>
@@ -232,7 +227,7 @@ export const ChatMessage = memo(function ChatMessage({
 						className={`chat-thinking-phase${seenVariants.length > 0 ? " chat-thinking-phase--clickable" : ""}`}
 						onClick={() => seenVariants.length > 0 && setThinkingExpanded((v) => !v)}
 					>
-						{thinkingPhase}
+						<span className="chat-thinking-phase-label">{thinkingPhase}</span>
 						<span className="chat-thinking-dots" aria-hidden="true">
 							<span className="chat-thinking-dot chat-thinking-dot--1" />
 							<span className="chat-thinking-dot chat-thinking-dot--2" />
@@ -242,7 +237,7 @@ export const ChatMessage = memo(function ChatMessage({
 					{thinkingExpanded && seenVariants.length > 0 && (
 						<div className="chat-thinking-rows">
 							{seenVariants.map((v, i) => (
-								<div key={i} className={`thinking-row ${i === 0 ? "thinking-row--original" : "thinking-row--variant"} ${i < completedCount ? "thinking-row--done" : "thinking-row--loading"}`}>
+								<div key={i} className={`thinking-row ${i === 0 ? "thinking-row--original" : "thinking-row--variant"} ${i < completedCount && !isStreaming ? "thinking-row--done" : "thinking-row--loading"}`}>
 									<span className="thinking-row-tag">{i === 0 ? "·" : "+"}</span>
 									<span className="thinking-row-text">{v}</span>
 								</div>

@@ -1871,6 +1871,38 @@ header a[href="/"]:hover {
   opacity: 0.75;
 }
 
+.chat-thinking-phase-label {
+  background: linear-gradient(
+    90deg,
+    var(--text-on-dark-secondary) 0%,
+    var(--text-on-dark-secondary) 20%,
+    rgba(255, 255, 255, 0.7) 50%,
+    var(--text-on-dark-secondary) 80%,
+    var(--text-on-dark-secondary) 100%
+  );
+  background-size: 250% auto;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: thinking-row-shimmer 1.8s ease-in-out infinite;
+}
+
+[data-theme="light"] .chat-thinking-phase-label {
+  background: linear-gradient(
+    90deg,
+    #888 0%,
+    #888 20%,
+    var(--accent) 50%,
+    #888 80%,
+    #888 100%
+  );
+  background-size: 250% auto;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: thinking-row-shimmer 1.8s ease-in-out infinite;
+}
+
 .chat-thinking-dots {
   display: inline-flex;
   align-items: center;
@@ -1923,50 +1955,52 @@ header a[href="/"]:hover {
   color: var(--text-on-dark-muted);
 }
 
-/* Loading: dim while search is pending */
+/* Loading: shimmer gradient sweeping through text */
 .thinking-row--loading .thinking-row-text {
-  opacity: 0.35;
+  background: linear-gradient(
+    90deg,
+    var(--text-on-dark-muted) 0%,
+    var(--text-on-dark-muted) 20%,
+    rgba(255, 255, 255, 0.6) 50%,
+    var(--text-on-dark-muted) 80%,
+    var(--text-on-dark-muted) 100%
+  );
+  background-size: 250% auto;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: thinking-row-shimmer 1.8s ease-in-out infinite;
 }
 
-/* Done: bright gradient sweeps left-to-right then settles */
+@keyframes thinking-row-shimmer {
+  0%   { background-position: 160% center; }
+  100% { background-position: -60% center; }
+}
+
+/* Light mode shimmer */
+[data-theme="light"] .thinking-row--loading .thinking-row-text {
+  background: linear-gradient(
+    90deg,
+    #bbb 0%,
+    #bbb 20%,
+    var(--accent) 50%,
+    #bbb 80%,
+    #bbb 100%
+  );
+  background-size: 250% auto;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: thinking-row-shimmer 1.8s ease-in-out infinite;
+}
+
+/* Done: solid text, no animation */
 .thinking-row--done .thinking-row-text {
-  background: linear-gradient(
-    90deg,
-    var(--text-on-dark-secondary) 0%,
-    var(--text-on-dark) 30%,
-    #ffffff 48%,
-    var(--text-on-dark) 66%,
-    var(--text-on-dark-secondary) 100%
-  );
-  background-size: 300% auto;
-  background-position: 100% center;
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
-  animation: thinking-row-sweep 0.7s cubic-bezier(0.25, 0.46, 0.45, 0.94) forwards;
+  color: var(--text-on-dark-secondary);
 }
 
-@keyframes thinking-row-sweep {
-  from { background-position: 100% center; }
-  to   { background-position: 0% center; }
-}
-
-/* Light mode: white flash on light bg is invisible, use accent instead */
 [data-theme="light"] .thinking-row--done .thinking-row-text {
-  background: linear-gradient(
-    90deg,
-    #666 0%,
-    #111 30%,
-    var(--accent) 48%,
-    #111 66%,
-    #666 100%
-  );
-  background-size: 300% auto;
-  background-position: 100% center;
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
-  animation: thinking-row-sweep 0.7s cubic-bezier(0.25, 0.46, 0.45, 0.94) forwards;
+  color: #555;
 }
 
 .thinking-row--variant .thinking-row-tag  { opacity: 0.7; color: var(--accent); }

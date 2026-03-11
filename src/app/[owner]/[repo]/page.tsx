@@ -88,7 +88,7 @@ export default function RepoPage({
 	const [notificationPermission, setNotificationPermission] = useState<NotificationPermission | null>(null);
 	const [isMobile, setIsMobile] = useState(false);
 	const [coveEnabled, setCoveEnabled] = useState(false);
-	const [queryExpansionEnabled, setQueryExpansionEnabled] = useState(false);
+	const [queryExpansionEnabled, setQueryExpansionEnabled] = useState(() => getLLMConfig().provider !== "mlc");
 	const [indexedSha, setIndexedSha] = useState<string | null>(null);
 	const [repoStale, setRepoStale] = useState(false);
 	const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
@@ -100,6 +100,7 @@ export default function RepoPage({
 	const indexStartTimeRef = useRef<number | null>(null);
 	const chatLoadedRef = useRef(false);
 	const messagesRef = useRef<Message[]>([]);
+	const chatSessionsRef = useRef<ChatSession[]>([]);
 	const pendingChatSwitchRef = useRef<string | null>(null);
 	const staleNoticeShownRef = useRef(false);
 	const isGeneratingRef = useRef(false);
@@ -141,7 +142,7 @@ export default function RepoPage({
 			const saved = localStorage.getItem("gitask-cove-enabled");
 			if (saved === "true") setCoveEnabled(true);
 			const savedQE = localStorage.getItem("gitask-query-expansion-enabled");
-			if (savedQE === "false") setQueryExpansionEnabled(false);
+			if (savedQE !== null) setQueryExpansionEnabled(savedQE === "true");
 		} catch { /* ignore */ }
 	}, []);
 
@@ -236,11 +237,11 @@ export default function RepoPage({
 	}, [chatStorageKey]);
 
 	useEffect(() => {
-		if (!chatLoadedRef.current || !activeChatId || isGenerating) return;
-		const active = chatSessions.find((session) => session.chat_id === activeChatId);
+		if (!chatLoadedRef.current || !activeChatId) return;
+		const active = chatSessionsRef.current.find((session) => session.chat_id === activeChatId);
 		const nextMessages = active?.messages ?? [];
 		setMessages((prev) => (areMessagesEqual(prev, nextMessages) ? prev : nextMessages));
-	}, [chatSessions, activeChatId, isGenerating]);
+	}, [activeChatId]);
 
 	useEffect(() => {
 		if (!chatLoadedRef.current || !activeChatId || isGenerating) return;
@@ -267,7 +268,7 @@ export default function RepoPage({
 			});
 			return changed ? next : prev;
 		});
-	}, [messages, activeChatId, isGenerating, chatSessions]);
+	}, [messages, activeChatId, isGenerating]);
 
 	useEffect(() => {
 		if (!chatStorageKey || !chatLoadedRef.current || chatSessions.length === 0) return;
@@ -299,6 +300,8 @@ export default function RepoPage({
 	useEffect(() => {
 		messagesRef.current = messages;
 	}, [messages]);
+
+	chatSessionsRef.current = chatSessions;
 
 	useEffect(() => {
 		const handleVisibilityChange = () => {
