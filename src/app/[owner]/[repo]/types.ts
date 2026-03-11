@@ -19,6 +19,8 @@ export interface Message {
 	id: string;
 	role: "user" | "assistant";
 	content: string;
+	/** Internal reasoning from thinking models (Qwen3), hidden by default. */
+	thinking?: string;
 	citations?: MessageCitation[];
 	retrieval?: MessageRetrievalState;
 	ui?: MessageUIState;
