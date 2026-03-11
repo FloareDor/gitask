@@ -26,7 +26,7 @@ it started as a toy to see if I can make a basic offline RAG system for code. it
 ## demo
 
 <div align="center">
-  <a href="https://drive.google.com/file/d/1I91z52aV2g4xpZOWVt_rIryyLjfDWzWm/view?usp=sharing">
+  <a href="https://drive.google.com/file/d/19OH0iDe94BqBHfbW9ho7b8Ivq5Wv2dzL/view?usp=sharing">
     <img src="assets/gitask-demo-poster.png" alt="GitAsk demo video preview" width="800" />
   </a>
 </div>
