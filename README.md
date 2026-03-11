@@ -53,7 +53,8 @@ it started as a toy to see if I can make a basic offline RAG system for code. it
 
 this is the part that actually makes answers good.
 
-- **multi-query expansion** - your question gets expanded into two variants: the raw question, and a code-symbol-focused version. catches things a single-query approach misses.
+- **multi-query expansion** - cloud llms: 3 rephrased variants using conversation context. local model: adds a code-symbol search path for free. follow-up queries get terms from prior turns injected automatically.
+- **adaptive retrieval refinement** - if the first pass comes back weak, the LLM rewrites the query and tries again. no user input needed.
 - **hybrid search** - dense retrieval (hamming distance on binary embeddings) fused with BM25 sparse search. neither one alone is enough.
 - **RRF** - reciprocal rank fusion merges the ranked lists from each query/retriever into one signal.
 - **graph expansion** - the import/definition graph lets retrieval hop from a file to its dependencies when the chunk boundary cuts off relevant context.
@@ -104,7 +105,8 @@ route currently hangs under Turbopack on some local machines.
 - **AST-aware chunking** - chunks respect code structure, not just line counts
 - **binary quantization** - 32x memory savings on the embedding index
 - **hybrid search** - dense + sparse, fused with RRF
-- **multi-query expansion** - CodeRAG-style, catches what single queries miss
+- **multi-query expansion** - CodeRAG-style. LLM or heuristic, depending on provider. follow-up queries get context from prior turns
+- **adaptive retrieval refinement** - weak results trigger an automatic second pass with an LLM-rewritten query
 - **dependency graph traversal** - retrieval follows imports to surface related code
 - **CoVe self-correction** - the model checks its own answers against the codebase
 - **persistent index** - close the tab, reopen, resume chatting
@@ -131,7 +133,7 @@ this is the thing I built to scratch that itch.
 the retrieval design draws from two papers:
 
 - **CodeRAG** - Zhang et al., *Finding Relevant and Necessary Knowledge for Retrieval-Augmented Repository-Level Code Completion*, EMNLP 2025. [arXiv:2509.16112](https://arxiv.org/abs/2509.16112)
-  -> multi-query expansion, hybrid retrieval, RRF fusion
+  -> multi-query expansion, hybrid retrieval, RRF fusion, adaptive retrieval refinement
 
 - **CoVe** - Dhuliawala et al., *Chain-of-Verification Reduces Hallucination in Large Language Models*, Findings of ACL 2024. [arXiv:2309.11495](https://arxiv.org/abs/2309.11495)
   -> self-verification loop on generated answers
