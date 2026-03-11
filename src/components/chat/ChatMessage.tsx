@@ -287,14 +287,38 @@ export const ChatMessage = memo(function ChatMessage({
 			)}
 
 			{!msg.safety?.blocked && !isUser && !isStreaming && (
-				<button
-					className="chat-msg-action-btn chat-msg-action-btn--viz-corner"
-					onClick={() => { void handleViz(); }}
-					title="Visualize as diagram"
-					disabled={vizStatus === "loading"}
-				>
-					{vizStatus === "loading" ? "viz..." : "viz"}
-				</button>
+				<div className="viz-doodle-wrap">
+					<svg
+						className="viz-doodle-svg"
+						viewBox="0 0 50 44"
+						aria-hidden="true"
+						focusable="false"
+					>
+						{/* medium sparkle — top-center */}
+						<path
+							className="viz-doodle-path"
+							d="M 36 5.5 L 36.9 11.1 L 42.5 12 L 36.9 12.9 L 36 18.5 L 35.1 12.9 L 29.5 12 L 35.1 11.1 Z"
+						/>
+						{/* tiny sparkle — right */}
+						<path
+							className="viz-doodle-path"
+							d="M 44 20.5 L 44.5 23.5 L 47.5 24 L 44.5 24.5 L 44 27.5 L 43.5 24.5 L 40.5 24 L 43.5 23.5 Z"
+						/>
+						{/* extra tiny sparkle — top right */}
+						<path
+							className="viz-doodle-path"
+							d="M 46 5.5 L 46.25 7.75 L 48.5 8 L 46.25 8.25 L 46 10.5 L 45.75 8.25 L 43.5 8 L 45.75 7.75 Z"
+						/>
+					</svg>
+					<button
+						className="chat-msg-action-btn chat-msg-action-btn--viz-corner"
+						onClick={() => { void handleViz(); }}
+						title="Visualize as diagram"
+						disabled={vizStatus === "loading"}
+					>
+						{vizStatus === "loading" ? "viz..." : "viz"}
+					</button>
+				</div>
 			)}
 
 			{!msg.safety?.blocked && !isUser && !isStreaming && (

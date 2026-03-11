@@ -1133,10 +1133,91 @@ header a[href="/"]:hover {
 }
 
 /* ── Viz button — top-right of message container ── */
-.chat-msg-action-btn--viz-corner {
+.viz-doodle-wrap {
   position: absolute;
   top: 0;
   right: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  overflow: visible;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.15s ease, visibility 0.15s ease;
+}
+
+.chat-message--assistant:hover .viz-doodle-wrap {
+  opacity: 1;
+  visibility: visible;
+}
+
+/* ── ✨ sparkle doodle — 3 stars draw in sequence then fade ── */
+.viz-doodle-svg {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-38%, -65%);
+  width: 28px;
+  height: 24px;
+  pointer-events: none;
+  overflow: visible;
+}
+
+.viz-doodle-path {
+  fill: none;
+  stroke: #f5c518;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  opacity: 0;
+}
+
+/* medium star */
+.viz-doodle-path:nth-child(1) {
+  stroke-width: 1;
+  stroke-dasharray: 47;
+  stroke-dashoffset: 47;
+}
+/* tiny star */
+.viz-doodle-path:nth-child(2) {
+  stroke-width: 0.9;
+  stroke-dasharray: 26;
+  stroke-dashoffset: 26;
+}
+
+/* extra tiny star */
+.viz-doodle-path:nth-child(3) {
+  stroke-width: 0.8;
+  stroke-dasharray: 20;
+  stroke-dashoffset: 20;
+}
+
+.chat-message--assistant:hover .viz-doodle-path:nth-child(1) {
+  animation: viz-doodle-draw 1.5s ease forwards 0s;
+}
+.chat-message--assistant:hover .viz-doodle-path:nth-child(2) {
+  animation: viz-doodle-draw 1.5s ease forwards 0.22s;
+}
+.chat-message--assistant:hover .viz-doodle-path:nth-child(3) {
+  animation: viz-doodle-draw-dim 1.5s ease forwards 0.38s;
+}
+
+@keyframes viz-doodle-draw-dim {
+  0%   { opacity: 0; }
+  6%   { opacity: 0.2; }
+  55%  { stroke-dashoffset: 0; opacity: 0.2; }
+  75%  { stroke-dashoffset: 0; opacity: 0.2; }
+  100% { stroke-dashoffset: 0; opacity: 0; }
+}
+
+@keyframes viz-doodle-draw {
+  0%   { opacity: 0; }
+  6%   { opacity: 0.9; }
+  55%  { stroke-dashoffset: 0; opacity: 0.9; }
+  75%  { stroke-dashoffset: 0; opacity: 0.9; }
+  100% { stroke-dashoffset: 0; opacity: 0; }
+}
+
+.chat-msg-action-btn--viz-corner {
   font-family: var(--font-mono);
   font-size: 10px;
   color: var(--text-on-dark-muted);
@@ -1145,14 +1226,9 @@ header a[href="/"]:hover {
   cursor: pointer;
   padding: 0;
   letter-spacing: 0.04em;
-  opacity: 0;
-  visibility: hidden;
-  transition: color 0.1s ease, opacity 0.15s ease, visibility 0.15s ease;
-}
-
-.chat-message--assistant:hover .chat-msg-action-btn--viz-corner {
-  opacity: 1;
-  visibility: visible;
+  position: relative;
+  z-index: 1;
+  transition: color 0.1s ease;
 }
 
 .chat-msg-action-btn--viz-corner:hover:not(:disabled) {
