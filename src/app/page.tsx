@@ -411,10 +411,19 @@ export default function LandingPage() {
           color: "var(--page-text-dim)",
           lineHeight: 1.6,
           maxWidth: 540,
-          marginBottom: 40,
+          marginBottom: 16,
         }}>
           Index any repo in your browser. Chat with its code using your own API key.
           Embeddings, retrieval, and storage — all on-device.
+        </p>
+        <p style={{
+          fontFamily: "var(--font-mono)",
+          fontSize: "11px",
+          color: "var(--page-text-muted)",
+          letterSpacing: "0.04em",
+          marginBottom: 40,
+        }}>
+          AST chunking · hybrid search · multi-query expansion · adaptive retrieval refinement · CoVe
         </p>
 
         {/* WebGPU warning — only when !gpuSupported */}
