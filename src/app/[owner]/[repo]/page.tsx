@@ -276,7 +276,7 @@ export default function RepoPage({
 			localStorage.setItem(chatStorageKey, JSON.stringify({ activeChatId, sessions: chatSessions }));
 		} catch (e) {
 			console.warn("Failed to persist chat sessions to localStorage:", e);
-			setToastMessage("Warning: chat history could not be saved — your browser storage may be full.");
+			setToastMessage("Couldn't save chat history. Your browser storage may be full.");
 		}
 	}, [chatStorageKey, chatSessions, activeChatId]);
 
@@ -435,7 +435,7 @@ export default function RepoPage({
 				console.warn("Stale context check failed:", e);
 				if (consecutiveFailures >= MAX_CONSECUTIVE_FAILURES && !stalePollWarnShown && !cancelled) {
 					stalePollWarnShown = true;
-					setToastMessage("Could not reach GitHub to check for repo updates. Stale-context detection paused.");
+					setToastMessage("Can't reach GitHub right now. Update checks are paused.");
 				}
 			}
 		};
@@ -725,10 +725,9 @@ export default function RepoPage({
 				setMessages((prev) => prev.map((m) => m.id !== placeholderMessageId ? m : {
 					...m,
 					content: [
-						"Request blocked due to likely prompt-injection content in retrieved repository context.",
-						injectionScan.signals.length > 0 ? `Signals: ${injectionScan.signals.join(", ")}.` : "",
-						"I did not execute generation to avoid following untrusted instructions in repository text.",
-						"Try narrowing the question to exact file paths/symbols, or re-index and retry.",
+						"Blocked. Some code in this repo looks like it's trying to hijack the AI.",
+						injectionScan.signals.length > 0 ? `Suspicious patterns: ${injectionScan.signals.join(", ")}.` : "",
+						"Try asking about a specific file or symbol instead.",
 					].filter(Boolean).join("\n"),
 					safety: { blocked: true, reason: "prompt_injection_risk", signals: injectionScan.signals },
 				}));
@@ -752,10 +751,9 @@ export default function RepoPage({
 			if (shouldBlockUngroundedAnswer) {
 				const missingLabel = evidenceCoverage.missing.slice(0, 5).map((term) => `"${term}"`).join(", ");
 				const groundedFallback = [
-					"I can't find grounded evidence in the indexed repo context for this request, so I won't guess.",
-					missingLabel ? `Missing terms in retrieved code: ${missingLabel}.` : "",
-					"",
-					!queryExpansionEnabled && llmProvider !== "mlc" ? "Try enabling multi-query (in the ››› menu) — it searches more angles. Or re-index and ask with exact file/symbol names." : "Try re-indexing, or ask with exact file/symbol names to narrow retrieval.",
+					"I couldn't find enough relevant code to answer this confidently.",
+					missingLabel ? `Couldn't find: ${missingLabel}.` : "",
+					!queryExpansionEnabled && llmProvider !== "mlc" ? "Try turning on multi-query (in the ››› menu) or ask with a specific file or function name." : "Try asking with a specific file or function name.",
 				].filter(Boolean).join("\n");
 				setMessages((prev) => prev.map((m) => m.id !== placeholderMessageId ? m : {
 					...m,

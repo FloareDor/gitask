@@ -121,7 +121,7 @@ export function ModelSettings() {
 			console.error(e);
 			setStatusMsg(
 				e instanceof BYOKVaultError && e.code === "WRONG_PASSPHRASE"
-					? "Wrong passphrase. Please try again."
+					? "Wrong passphrase, try again."
 					: getUserMessage(e)
 			);
 		} finally {
@@ -141,7 +141,7 @@ export function ModelSettings() {
 			console.error(e);
 			setStatusMsg(
 				e instanceof BYOKVaultError && e.code === "WRONG_PASSPHRASE"
-					? "Wrong passphrase. Please try again."
+					? "Wrong passphrase, try again."
 					: getUserMessage(e)
 			);
 		} finally {
@@ -258,7 +258,7 @@ export function ModelSettings() {
 			console.error(e);
 			setStatusMsg(
 				e instanceof BYOKVaultError && e.code === "WRONG_PASSPHRASE"
-					? "Wrong passphrase. Please try again."
+					? "Wrong passphrase, try again."
 					: getUserMessage(e)
 			);
 		} finally {
@@ -380,11 +380,11 @@ export function ModelSettings() {
 									{config.provider === "mlc" ? (
 										<>runs in your browser via{" "}
 											<a href="https://github.com/mlc-ai/web-llm" target="_blank" rel="noopener noreferrer" style={{ color: "var(--accent)" }}>web-llm</a>
-											{" "}— private, offline, no API key needed</>
+											{" "}(private, offline, no API key needed)</>
 									) : config.provider === "groq" ? (
-										"groq cloud, very fast, no download — needs your API key"
+										"groq cloud, very fast, no download. needs your API key"
 									) : (
-										"google cloud, fast, no download — needs your API key"
+										"google cloud, fast, no download. needs your API key"
 									)}
 								</p>
 							</div>

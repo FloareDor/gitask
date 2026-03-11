@@ -76,16 +76,12 @@ export async function fetchRepoTree(
 			throw new Error(privateRepoGuidance(owner, repo));
 		}
 		if (repoRes.status === 401) {
-			throw new Error(
-				`GitHub token was rejected (401). Update your token in "GH Token" and try again.`
-			);
+			throw new Error(`GitHub token was rejected. Update it in "GH Token" and try again.`);
 		}
 		if (repoRes.status === 403) {
-			throw new Error(
-				`GitHub API access was denied or rate-limited (403). Add a personal token in "GH Token" and try again.`
-			);
+			throw new Error(`GitHub access denied. You may be rate-limited. Add a token in "GH Token" and try again.`);
 		}
-		throw new Error(`GitHub API error (${repoRes.status}): ${details}`);
+		throw new Error(`GitHub error (${repoRes.status}): ${details}`);
 	}
 	const repoData = await repoRes.json();
 	const defaultBranch: string = repoData.default_branch;
@@ -101,16 +97,12 @@ export async function fetchRepoTree(
 			throw new Error(privateRepoGuidance(owner, repo));
 		}
 		if (commitRes.status === 401) {
-			throw new Error(
-				`GitHub token was rejected while reading repository commit (401). Update your token in "GH Token" and try again.`
-			);
+			throw new Error(`GitHub token was rejected. Update it in "GH Token" and try again.`);
 		}
 		if (commitRes.status === 403) {
-			throw new Error(
-				`GitHub blocked commit access (403), often due to rate limits or missing permissions. Add a personal token in "GH Token" and try again.`
-			);
+			throw new Error(`GitHub access denied. You may be rate-limited. Add a token in "GH Token" and try again.`);
 		}
-		throw new Error(`GitHub Commit API error (${commitRes.status}): ${details}`);
+		throw new Error(`GitHub error (${commitRes.status}): ${details}`);
 	}
 	const commitData = await commitRes.json();
 	const commitSha =
@@ -134,16 +126,12 @@ export async function fetchRepoTree(
 			throw new Error(privateRepoGuidance(owner, repo));
 		}
 		if (treeRes.status === 401) {
-			throw new Error(
-				`GitHub token was rejected while reading repository tree (401). Update your token in "GH Token" and try again.`
-			);
+			throw new Error(`GitHub token was rejected. Update it in "GH Token" and try again.`);
 		}
 		if (treeRes.status === 403) {
-			throw new Error(
-				`GitHub blocked tree access (403), often due to rate limits or missing permissions. Add a personal token in "GH Token" and try again.`
-			);
+			throw new Error(`GitHub access denied. You may be rate-limited. Add a token in "GH Token" and try again.`);
 		}
-		throw new Error(`GitHub Tree API error (${treeRes.status}): ${details}`);
+		throw new Error(`GitHub error (${treeRes.status}): ${details}`);
 	}
 	const treeData = await treeRes.json();
 
@@ -183,21 +171,15 @@ export async function compareCommits(
 	if (!res.ok) {
 		const details = await readGitHubErrorMessage(res);
 		if (res.status === 404) {
-			throw new Error(
-				`Compare not found (404). Base or head SHA may be invalid: ${details}`
-			);
+			throw new Error(`Couldn't compare commits. One of the SHAs may be invalid.`);
 		}
 		if (res.status === 401) {
-			throw new Error(
-				`GitHub token was rejected (401). Update your token in "GH Token" and try again.`
-			);
+			throw new Error(`GitHub token was rejected. Update it in "GH Token" and try again.`);
 		}
 		if (res.status === 403) {
-			throw new Error(
-				`GitHub API access denied or rate-limited (403). Add a personal token in "GH Token" and try again.`
-			);
+			throw new Error(`GitHub access denied. You may be rate-limited. Add a token in "GH Token" and try again.`);
 		}
-		throw new Error(`GitHub Compare API error (${res.status}): ${details}`);
+		throw new Error(`GitHub error (${res.status}): ${details}`);
 	}
 	const data = (await res.json()) as { files?: Array<{ filename?: string; status?: string; previous_filename?: string }> };
 	const rawFiles = data?.files ?? [];
@@ -266,7 +248,7 @@ export async function fetchFileContent(
 			&& e.name === "AbortError"
 		) {
 			throw new Error(
-				`Failed to fetch ${path}: request timed out after ${RAW_FILE_FETCH_TIMEOUT_MS / 1000}s`
+				`Timed out fetching ${path}. Check your connection and try again.`
 			);
 		}
 		throw e;

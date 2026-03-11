@@ -472,7 +472,7 @@ export default function LandingPage() {
               Local WebGPU inference unavailable in this browser.
             </strong>
             <p style={{ margin: 0, fontSize: "12px", color: "#a16207", lineHeight: 1.5 }}>
-              Use Gemini or Groq instead — open settings and enter your API key.
+              Use Gemini or Groq instead. Open settings and enter your API key.
               Local indexing still works on CPU, just slower.
               {gpuSupportReason !== "ok"
                 ? ` ${formatWebGPUReason(gpuSupportReason)}`
