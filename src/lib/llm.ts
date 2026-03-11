@@ -34,14 +34,18 @@ export interface MLCModelInfo {
 	label: string;
 	size: string;
 	vram: string;
+	thinking?: boolean;
 }
 
 export const MLC_MODELS: MLCModelInfo[] = [
-	{ id: "Qwen2-0.5B-Instruct-q4f16_1-MLC",    label: "Qwen2 0.5B",    size: "0.5B", vram: "~380MB" },
-	{ id: "Llama-3.2-1B-Instruct-q4f16_1-MLC",  label: "Llama 3.2 1B",  size: "1B",   vram: "~700MB" },
-	{ id: "Llama-3.2-3B-Instruct-q4f32_1-MLC",  label: "Llama 3.2 3B",  size: "3B",   vram: "~1.8GB" },
-	{ id: "Phi-3.5-mini-instruct-q4f16_1-MLC",  label: "Phi 3.5 mini",  size: "3.8B", vram: "~2.2GB" },
-	{ id: "Llama-3.1-8B-Instruct-q4f16_1-MLC",  label: "Llama 3.1 8B",  size: "8B",   vram: "~4.9GB" },
+	{ id: "Qwen2.5-0.5B-Instruct-q4f16_1-MLC",   label: "Qwen2.5 0.5B",   size: "0.5B", vram: "~380MB" },
+	{ id: "Qwen2.5-1.5B-Instruct-q4f16_1-MLC",   label: "Qwen2.5 1.5B",   size: "1.5B", vram: "~950MB" },
+	{ id: "Qwen2.5-3B-Instruct-q4f16_1-MLC",     label: "Qwen2.5 3B",     size: "3B",   vram: "~1.8GB" },
+	{ id: "Qwen2.5-7B-Instruct-q4f16_1-MLC",     label: "Qwen2.5 7B",     size: "7B",   vram: "~4.5GB" },
+	{ id: "Qwen3-0.6B-q4f16_1-MLC",              label: "Qwen3 0.6B",     size: "0.6B", vram: "~400MB",  thinking: true },
+	{ id: "Qwen3-1.7B-q4f16_1-MLC",              label: "Qwen3 1.7B",     size: "1.7B", vram: "~1.1GB",  thinking: true },
+	{ id: "Qwen3-4B-q4f16_1-MLC",                label: "Qwen3 4B",       size: "4B",   vram: "~2.5GB",  thinking: true },
+	{ id: "Qwen3-8B-q4f16_1-MLC",                label: "Qwen3 8B",       size: "8B",   vram: "~5.0GB",  thinking: true },
 ];
 
 export interface ChatMessage {
@@ -268,6 +272,9 @@ export function getLLMConfig(): LLMConfig {
 						parsed.cloudStorage ?? parsed.geminiStorage
 					);
 				}
+				if (provider === "mlc" && typeof parsed.mlcModelId === "string") {
+					baseConfig.mlcModelId = parsed.mlcModelId;
+				}
 				if (typeof parsed.apiKey === "string" && parsed.apiKey.trim().length > 0) {
 					baseConfig.apiKey = parsed.apiKey;
 				}
@@ -310,11 +317,21 @@ export function setLLMConfig(config: LLMConfig) {
 			config.cloudStorage ?? config.geminiStorage
 		);
 	}
+	if (safeConfig.provider === "mlc" && config.mlcModelId) {
+		safeConfig.mlcModelId = config.mlcModelId;
+	}
 	try {
 		localStorage.setItem(STORAGE_KEY, JSON.stringify(safeConfig));
 	} catch {
 		// Ignore localStorage failures in restricted browser modes.
 	}
+}
+
+export function isThinkingModel(): boolean {
+	const config = getLLMConfig();
+	if (config.provider !== "mlc") return false;
+	const modelId = config.mlcModelId ?? MLC_MODELS[0].id;
+	return MLC_MODELS.find((m) => m.id === modelId)?.thinking ?? false;
 }
 
 // ─── MLC Implementation ─────────────────────────────────────────────────────

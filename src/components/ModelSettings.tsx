@@ -421,6 +421,16 @@ export function ModelSettings() {
 													}}>
 														{model.size}
 													</span>
+													{model.thinking && (
+														<span style={{
+															...styles.mlcModelBadge,
+															background: isSelected ? "rgba(168,139,250,0.25)" : "rgba(168,139,250,0.1)",
+															color: isSelected ? "rgba(216,200,255,0.9)" : "#a78bfa",
+															border: isSelected ? "1px solid rgba(168,139,250,0.3)" : "1px solid rgba(168,139,250,0.2)",
+														}}>
+															thinks
+														</span>
+													)}
 												</div>
 												<div style={styles.mlcModelMeta}>
 													<span style={{
