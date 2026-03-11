@@ -24,6 +24,7 @@ export function ChatInput({
 	return (
 		<form
 			onSubmit={(e) => { e.preventDefault(); onSend(); }}
+			className="chat-input-form"
 			style={{ padding: "16px 24px", borderTop: "2px solid var(--border-dark)", background: "var(--bg-app)", display: "flex", gap: 12, alignItems: "flex-end", flexShrink: 0 }}
 		>
 			<textarea

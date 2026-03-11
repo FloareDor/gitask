@@ -87,32 +87,33 @@ export function RepoHeader({
 	}, [showOverflow]);
 
 	return (
-		<nav style={{
+		<nav className="chat-nav" style={{
 			display: "flex", alignItems: "center", justifyContent: "space-between",
 			padding: "0 20px", height: 52,
 			background: "var(--bg-app)", borderBottom: "2px solid var(--border-dark)",
 			flexShrink: 0, zIndex: 30,
 		}}>
-			<div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+			<div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
 				{sidebarCollapsed && (
 					<button
 						onClick={onExpandSidebar}
-						style={{ background: "transparent", border: "none", color: "var(--text-on-dark-muted)", cursor: "pointer", fontSize: "14px", padding: "4px 6px" }}
+						style={{ background: "transparent", border: "none", color: "var(--text-on-dark-muted)", cursor: "pointer", fontSize: "14px", padding: "4px 6px", flexShrink: 0 }}
 						title="Expand sidebar"
 					>
 						→
 					</button>
 				)}
-				<a href="/" style={{ fontFamily: "var(--font-display)", fontWeight: 800, fontSize: "0.95rem", color: "var(--text-on-dark)", textDecoration: "none" }}>
+				<a href="/" style={{ fontFamily: "var(--font-display)", fontWeight: 800, fontSize: "0.95rem", color: "var(--text-on-dark)", textDecoration: "none", flexShrink: 0 }}>
 					gitask
 				</a>
-				<span style={{ color: "var(--text-on-dark-muted)", fontSize: "0.9rem" }}>/</span>
-				<span style={{ fontFamily: "var(--font-mono)", fontSize: "0.8rem", color: "var(--text-on-dark-secondary)", padding: "2px 8px", border: "1px solid var(--border-dark)", background: "var(--bg-card-dark)" }}>
+				<span style={{ color: "var(--text-on-dark-muted)", fontSize: "0.9rem", flexShrink: 0 }}>/</span>
+				<span className="chat-nav-repo-badge" style={{ fontFamily: "var(--font-mono)", fontSize: "0.8rem", color: "var(--text-on-dark-secondary)", padding: "2px 8px", border: "1px solid var(--border-dark)", background: "var(--bg-card-dark)" }}>
 					{owner}/{repo}
 				</span>
 				{isIndexed && repoStale && (
 					<span
-						style={{ fontFamily: "var(--font-mono)", fontSize: "11px", color: "#d97706", padding: "2px 8px", border: "1px solid #d97706", background: "rgba(217,119,6,0.08)", cursor: "pointer" }}
+						className="chat-nav-stale"
+						style={{ fontFamily: "var(--font-mono)", fontSize: "11px", color: "#d97706", padding: "2px 8px", border: "1px solid #d97706", background: "rgba(217,119,6,0.08)", cursor: "pointer", flexShrink: 0 }}
 						onClick={onReindex}
 						title="Repository changed on GitHub. Click to re-index."
 					>
@@ -120,7 +121,7 @@ export function RepoHeader({
 					</span>
 				)}
 			</div>
-			<div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+			<div style={{ display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
 				<div style={{
 					width: 8, height: 8, borderRadius: "50%", flexShrink: 0,
 					background: llmStatus === "ready" ? "#16a34a" : llmStatus === "generating" ? "#d97706" : llmStatus === "loading" ? "#3b82f6" : "var(--text-on-dark-muted)",
@@ -147,6 +148,11 @@ export function RepoHeader({
 							<button style={overflowItemStyle} onClick={() => { onToggleTokenInput(); setShowOverflow(false); }}>
 								GH Token
 							</button>
+							{isIndexed && (
+								<button style={overflowItemStyle} onClick={() => { onToggleFileBrowser(); setShowOverflow(false); }}>
+									{fileBrowserOpen ? "Hide files" : "Browse files"}
+								</button>
+							)}
 							{isIndexed && (
 								<button style={overflowItemStyle} onClick={() => { onToggleContext(); setShowOverflow(false); }}>
 									{showContext ? "Hide context" : "View context"}
@@ -199,6 +205,7 @@ export function RepoHeader({
 				</div>
 				{isIndexed && (
 					<button
+						className="chat-nav-browse-btn"
 						onClick={onToggleFileBrowser}
 						style={{ padding: "6px 12px", border: "2px solid var(--border-dark)", background: "transparent", color: "var(--text-on-dark-secondary)", cursor: "pointer", fontSize: "12px", fontFamily: "var(--font-mono)" }}
 					>

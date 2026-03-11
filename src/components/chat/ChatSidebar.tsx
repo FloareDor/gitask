@@ -49,7 +49,7 @@ export function ChatSidebar({
 	const [interactiveChatId, setInteractiveChatId] = useState<string | null>(null);
 
 	return (
-		<aside style={{
+		<aside className="chat-sidebar-aside" style={{
 			width: sidebarCollapsed ? 0 : 220,
 			minWidth: sidebarCollapsed ? 0 : 220,
 			background: "var(--bg-app)",

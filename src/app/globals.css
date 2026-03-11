@@ -2366,3 +2366,64 @@ header a[href="/"]:hover {
     gap: 14px !important;
   }
 }
+
+/* ── Chat page mobile ── */
+
+/* Sidebar backdrop (mobile only) */
+.chat-sidebar-backdrop {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  z-index: 49;
+  cursor: pointer;
+}
+
+@media (max-width: 640px) {
+  /* Sidebar overlays content instead of pushing it */
+  .chat-sidebar-aside {
+    position: fixed !important;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    height: 100% !important;
+    z-index: 50;
+  }
+
+  .chat-sidebar-backdrop {
+    display: block;
+  }
+
+  /* Nav */
+  .chat-nav {
+    padding: 0 12px !important;
+    height: 48px !important;
+  }
+
+  .chat-nav-repo-badge {
+    max-width: 110px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    display: inline-block;
+  }
+
+  .chat-nav-stale {
+    display: none !important;
+  }
+
+  .chat-nav-browse-btn {
+    display: none !important;
+  }
+
+  /* Messages */
+  .chat-messages-area {
+    padding: 14px 14px !important;
+  }
+
+  /* Input */
+  .chat-input-form {
+    padding: 10px 12px !important;
+    gap: 8px !important;
+  }
+}
