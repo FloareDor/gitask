@@ -671,7 +671,7 @@ export default function RepoPage({
 				onProgress: queryVariants.length > 1 ? (done, total) => {
 					setMessages((prev) => prev.map((m) => m.id !== placeholderMessageId ? m : {
 						...m,
-						retrieval: { variants: queryVariants, loadingPhase: "Searching", completedCount: done },
+						retrieval: { variants: queryVariants, loadingPhase: "searching", completedCount: done },
 					}));
 				} : undefined,
 			});

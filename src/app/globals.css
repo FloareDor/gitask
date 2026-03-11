@@ -1871,6 +1871,22 @@ header a[href="/"]:hover {
   opacity: 0.75;
 }
 
+/* Drive shimmer position from parent so all children stay in sync */
+@property --shimmer-pos {
+  syntax: '<percentage>';
+  inherits: true;
+  initial-value: 160%;
+}
+
+@keyframes shimmer-driver {
+  0%   { --shimmer-pos: 160%; }
+  100% { --shimmer-pos: -60%; }
+}
+
+.chat-thinking {
+  animation: shimmer-driver 1.8s ease-in-out infinite;
+}
+
 .chat-thinking-phase-label {
   background: linear-gradient(
     90deg,
@@ -1881,10 +1897,10 @@ header a[href="/"]:hover {
     var(--text-on-dark-secondary) 100%
   );
   background-size: 250% auto;
+  background-position: var(--shimmer-pos) center;
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
-  animation: thinking-row-shimmer 1.8s ease-in-out infinite;
 }
 
 [data-theme="light"] .chat-thinking-phase-label {
@@ -1897,32 +1913,47 @@ header a[href="/"]:hover {
     #888 100%
   );
   background-size: 250% auto;
+  background-position: var(--shimmer-pos) center;
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
-  animation: thinking-row-shimmer 1.8s ease-in-out infinite;
 }
 
 .chat-thinking-dots {
-  display: inline-flex;
-  align-items: center;
-  width: 18px;
-  gap: 2px;
-  margin-left: 2px;
+  display: inline;
+  margin-left: 1px;
+  font-size: 1.4em;
+  line-height: 1;
+  background: linear-gradient(
+    90deg,
+    var(--text-on-dark-secondary) 0%,
+    var(--text-on-dark-secondary) 20%,
+    rgba(255, 255, 255, 0.7) 50%,
+    var(--text-on-dark-secondary) 80%,
+    var(--text-on-dark-secondary) 100%
+  );
+  background-size: 250% auto;
+  background-position: var(--shimmer-pos) center;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
 }
 
-.chat-thinking-dot {
-  display: inline-block;
-  width: 2.5px;
-  height: 2px;
-  border-radius: 50%;
-  background: var(--accent);
-  animation: live-dot-pulse 1.2s ease-in-out infinite;
-  flex-shrink: 0;
+[data-theme="light"] .chat-thinking-dots {
+  background: linear-gradient(
+    90deg,
+    #888 0%,
+    #888 20%,
+    var(--accent) 50%,
+    #888 80%,
+    #888 100%
+  );
+  background-size: 250% auto;
+  background-position: var(--shimmer-pos) center;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
 }
-.chat-thinking-dot--1 { animation-delay: 0s; }
-.chat-thinking-dot--2 { animation-delay: 0.22s; }
-.chat-thinking-dot--3 { animation-delay: 0.44s; }
 
 .chat-thinking-rows {
   display: flex;
@@ -1966,15 +1997,10 @@ header a[href="/"]:hover {
     var(--text-on-dark-muted) 100%
   );
   background-size: 250% auto;
+  background-position: var(--shimmer-pos) center;
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
-  animation: thinking-row-shimmer 1.8s ease-in-out infinite;
-}
-
-@keyframes thinking-row-shimmer {
-  0%   { background-position: 160% center; }
-  100% { background-position: -60% center; }
 }
 
 /* Light mode shimmer */
@@ -1988,10 +2014,10 @@ header a[href="/"]:hover {
     #bbb 100%
   );
   background-size: 250% auto;
+  background-position: var(--shimmer-pos) center;
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
-  animation: thinking-row-shimmer 1.8s ease-in-out infinite;
 }
 
 /* Done: solid text, no animation */

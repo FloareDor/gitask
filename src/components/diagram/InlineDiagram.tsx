@@ -49,13 +49,20 @@ function InlineDiagramInner({ data }: InlineDiagramProps) {
 			const dataUrl = await toPng(canvasRef.current, {
 				backgroundColor: isDark ? "#080a14" : "#f8fafc",
 				pixelRatio: 2,
+				skipFonts: true,
 			});
+			const res = await fetch(dataUrl);
+			const blob = await res.blob();
+			const url = URL.createObjectURL(blob);
 			const a = document.createElement("a");
-			a.href = dataUrl;
+			a.href = url;
 			a.download = `${data.title.replace(/\s+/g, "-").toLowerCase()}.png`;
 			document.body.appendChild(a);
 			a.click();
 			document.body.removeChild(a);
+			setTimeout(() => URL.revokeObjectURL(url), 1000);
+		} catch (err) {
+			console.error("PNG save failed:", err);
 		} finally {
 			setTimeout(() => setSaved(false), 1500);
 		}

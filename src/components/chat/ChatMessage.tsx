@@ -228,11 +228,7 @@ export const ChatMessage = memo(function ChatMessage({
 						onClick={() => seenVariants.length > 0 && setThinkingExpanded((v) => !v)}
 					>
 						<span className="chat-thinking-phase-label">{thinkingPhase}</span>
-						<span className="chat-thinking-dots" aria-hidden="true">
-							<span className="chat-thinking-dot chat-thinking-dot--1" />
-							<span className="chat-thinking-dot chat-thinking-dot--2" />
-							<span className="chat-thinking-dot chat-thinking-dot--3" />
-						</span>
+						<span className="chat-thinking-dots" aria-hidden="true">...</span>
 					</span>
 					{thinkingExpanded && seenVariants.length > 0 && (
 						<div className="chat-thinking-rows">
