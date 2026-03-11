@@ -139,7 +139,7 @@ the retrieval design draws from two papers:
 
 ---
 
-## Star History
+## star history
 
 <a href="https://www.star-history.com/?repos=FloareDor%2Fgitask&type=date&legend=top-left">
  <picture>
