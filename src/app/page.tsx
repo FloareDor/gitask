@@ -113,6 +113,7 @@ export default function LandingPage() {
   const [gpuSupportReason, setGpuSupportReason] =
     useState<WebGPUAvailabilityReason>("ok");
   const [isMobile, setIsMobile] = useState(false);
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const howSectionRef = useRef<HTMLElement>(null);
   const router = useRouter();
 
@@ -326,70 +327,88 @@ export default function LandingPage() {
   return (
     <div style={{ minHeight: "100vh", background: "var(--page-bg)", color: "var(--page-text)", fontFamily: "var(--font-sans)" }}>
       {/* NAV */}
-      <nav style={{
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "space-between",
-        padding: "20px 40px",
-        borderBottom: "1px solid var(--page-border)",
-        background: "var(--page-bg)",
-        position: "sticky",
-        top: 0,
-        zIndex: 40,
-      }}>
-        <span style={{ fontFamily: "var(--font-display)", fontWeight: 800, fontSize: "1.1rem", letterSpacing: "-0.02em", color: "var(--page-text)" }}>
-          gitask
-        </span>
-        <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
-          <ModelSettings />
-          <ThemeToggle />
-          <a
-            href="/storage"
-            style={{
-              fontSize: "13px",
-              fontWeight: 600,
-              color: "var(--page-text-muted)",
-              textDecoration: "none",
-              padding: "6px 14px",
-              fontFamily: "var(--font-mono)",
-              letterSpacing: "0.02em",
-              border: "1px solid transparent",
-              transition: "color 0.15s, border-color 0.15s",
-            }}
-            onMouseEnter={(e) => {
-              const el = e.currentTarget as HTMLElement;
-              el.style.color = "var(--page-text)";
-              el.style.borderColor = "var(--page-border)";
-            }}
-            onMouseLeave={(e) => {
-              const el = e.currentTarget as HTMLElement;
-              el.style.color = "var(--page-text-muted)";
-              el.style.borderColor = "transparent";
-            }}
-          >
+      <div style={{ position: "sticky", top: 0, zIndex: 40 }}>
+        <nav className="landing-nav" style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          padding: "20px 40px",
+          borderBottom: "1px solid var(--page-border)",
+          background: "var(--page-bg)",
+        }}>
+          <span style={{ fontFamily: "var(--font-display)", fontWeight: 800, fontSize: "1.1rem", letterSpacing: "-0.02em", color: "var(--page-text)" }}>
+            gitask
+          </span>
+          <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
+            <ModelSettings />
+            <ThemeToggle />
+            <a
+              href="/storage"
+              className="nav-hide-mobile"
+              style={{
+                fontSize: "13px",
+                fontWeight: 600,
+                color: "var(--page-text-muted)",
+                textDecoration: "none",
+                padding: "6px 14px",
+                fontFamily: "var(--font-mono)",
+                letterSpacing: "0.02em",
+                border: "1px solid transparent",
+                transition: "color 0.15s, border-color 0.15s",
+              }}
+              onMouseEnter={(e) => {
+                const el = e.currentTarget as HTMLElement;
+                el.style.color = "var(--page-text)";
+                el.style.borderColor = "var(--page-border)";
+              }}
+              onMouseLeave={(e) => {
+                const el = e.currentTarget as HTMLElement;
+                el.style.color = "var(--page-text-muted)";
+                el.style.borderColor = "transparent";
+              }}
+            >
+              Storage
+            </a>
+            <a
+              href="https://github.com/FloareDor/gitask"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="nav-hide-mobile"
+              style={{
+                fontSize: "13px",
+                fontWeight: 600,
+                color: "var(--page-text)",
+                textDecoration: "none",
+                border: "1px solid var(--page-border)",
+                padding: "6px 14px",
+                fontFamily: "var(--font-sans)",
+              }}
+            >
+              GitHub ↗
+            </a>
+            <button
+              className="mobile-menu-btn"
+              onClick={() => setIsMobileMenuOpen((v) => !v)}
+              aria-label="Menu"
+              aria-expanded={isMobileMenuOpen}
+            >
+              {isMobileMenuOpen ? "✕" : "☰"}
+            </button>
+          </div>
+        </nav>
+        {/* Mobile dropdown menu */}
+        <div className={`mobile-menu-panel${isMobileMenuOpen ? " open" : ""}`}>
+          <a href="/storage" className="mobile-menu-item" onClick={() => setIsMobileMenuOpen(false)}>
             Storage
           </a>
-          <a
-            href="https://github.com/FloareDor/gitask"
-            target="_blank"
-            rel="noopener noreferrer"
-            style={{
-              fontSize: "13px",
-              fontWeight: 600,
-              color: "var(--page-text)",
-              textDecoration: "none",
-              border: "1px solid var(--page-border)",
-              padding: "6px 14px",
-              fontFamily: "var(--font-sans)",
-            }}
-          >
+          <a href="https://github.com/FloareDor/gitask" target="_blank" rel="noopener noreferrer" className="mobile-menu-item" onClick={() => setIsMobileMenuOpen(false)}>
             GitHub ↗
           </a>
         </div>
-      </nav>
+      </div>
 
       {/* HERO */}
-      <section style={{
+      <section className="hero-section" style={{
         minHeight: "80vh",
         display: "flex",
         flexDirection: "column",
@@ -400,7 +419,7 @@ export default function LandingPage() {
         background: "var(--page-bg)",
       }}>
         {/* Status badge */}
-        <div style={{
+        <div className="hero-badge" style={{
           display: "inline-flex",
           alignItems: "center",
           gap: 8,
@@ -500,49 +519,19 @@ export default function LandingPage() {
 
         {/* URL form */}
         <div style={{ width: "100%", maxWidth: 620, display: "flex", flexDirection: "column", gap: 10 }}>
-          <form
-            onSubmit={handleSubmit}
-            style={{
-              display: "flex",
-              width: "100%",
-              border: "1px solid var(--page-border)",
-              boxShadow: "var(--page-shadow)",
-            }}
-          >
+          <form onSubmit={handleSubmit} className="hero-form">
             <input
               type="text"
               placeholder="github.com/owner/repo"
               value={url}
               onChange={(e) => setUrl(e.target.value)}
               id="repo-url-input"
-              style={{
-                flex: 1,
-                padding: "16px 20px",
-                fontFamily: "var(--font-mono)",
-                fontSize: "1rem",
-                border: "none",
-                outline: "none",
-                background: "var(--page-surface)",
-                color: "var(--page-text)",
-              }}
+              className="hero-input"
             />
             <button
               type="submit"
               id="go-btn"
-              style={{
-                padding: "16px 28px",
-                background: "#0a0a0a",
-                color: "#f5f5f0",
-                border: "none",
-                cursor: "pointer",
-                fontWeight: 700,
-                fontSize: "1rem",
-                fontFamily: "var(--font-display)",
-                whiteSpace: "nowrap",
-                transition: "background 0.15s",
-              }}
-              onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.background = "#16a34a"; }}
-              onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.background = "#0a0a0a"; }}
+              className="hero-submit-btn"
             >
               Explore Repo →
             </button>
@@ -617,9 +606,9 @@ export default function LandingPage() {
 
       {/* RECENT CHATS — only if savedChats.length > 0 */}
       {savedChats.length > 0 && (
-        <section style={{ padding: "40px 24px", background: "var(--page-bg)", borderTop: "1px solid var(--page-border)" }}>
+        <section className="landing-section" style={{ padding: "40px 24px", background: "var(--page-bg)", borderTop: "1px solid var(--page-border)" }}>
           <div style={{ maxWidth: 900, margin: "0 auto" }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+            <div className="recent-chats-header" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
               <p style={{ fontFamily: "var(--font-mono)", fontSize: "11px", textTransform: "uppercase", letterSpacing: "0.1em", color: "var(--page-text-muted)" }}>
                 Recent chats
               </p>
@@ -652,7 +641,7 @@ export default function LandingPage() {
                   tabIndex={0}
                   onClick={() => handleOpenSavedChat(chat)}
                   onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") handleOpenSavedChat(chat); }}
-                  style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 16px", background: "var(--page-surface)", border: "1px solid var(--page-border)", cursor: "pointer", transition: "transform 0.1s ease, box-shadow 0.1s ease, border-color 0.1s ease" }}
+                  className="recent-chat-card"
                   onMouseEnter={(e) => {
                     const el = e.currentTarget;
                     el.style.transform = "translate(-3px, -3px)";
@@ -666,17 +655,18 @@ export default function LandingPage() {
                     el.style.borderColor = "var(--page-border)";
                   }}
                 >
-                  <span style={{ fontFamily: "var(--font-mono)", fontSize: "0.8rem", fontWeight: 600, color: "var(--page-text)", flexShrink: 0 }}>
+                  <span className="rcc-repo" style={{ fontFamily: "var(--font-mono)", fontSize: "0.8rem", fontWeight: 600, color: "var(--page-text)" }}>
                     {chat.owner}/{chat.repo}
                   </span>
-                  <span style={{ fontSize: "0.75rem", color: "var(--page-text-dim)", flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  <span className="rcc-label" style={{ fontSize: "0.75rem", color: "var(--page-text-dim)" }}>
                     {chat.label} · {chat.messageCount} msg{chat.messageCount === 1 ? "" : "s"}
                   </span>
                   <button
                     onClick={(e) => { e.stopPropagation(); handleDeleteSavedChat(chat); }}
-                    style={{ fontSize: "11px", color: "var(--page-text-muted)", background: "none", border: "none", cursor: "pointer", flexShrink: 0 }}
+                    className="rcc-delete"
+                    style={{ fontSize: "11px", color: "var(--page-text-muted)", background: "none", border: "none", cursor: "pointer" }}
                   >
-                    Delete
+                    ✕
                   </button>
                 </div>
               ))}
@@ -686,12 +676,12 @@ export default function LandingPage() {
       )}
 
       {/* EXAMPLE REPOS */}
-      <section style={{ padding: "60px 24px", background: "var(--page-bg)", borderTop: "1px solid var(--page-border)" }}>
+      <section className="landing-section" style={{ padding: "60px 24px", background: "var(--page-bg)", borderTop: "1px solid var(--page-border)" }}>
         <div style={{ maxWidth: 900, margin: "0 auto" }}>
           <p style={{ fontFamily: "var(--font-mono)", fontSize: "11px", textTransform: "uppercase", letterSpacing: "0.1em", color: "var(--page-text-muted)", marginBottom: 24 }}>
             Try an example
           </p>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 16 }}>
+          <div className="example-repos-grid">
             {EXAMPLE_REPOSITORIES.map(({ owner, repo }) => (
               <button
                 key={`${owner}/${repo}`}
@@ -726,6 +716,7 @@ export default function LandingPage() {
       {/* HOW IT WORKS + ARCHITECTURE — merged */}
       <section
         ref={howSectionRef}
+        className="how-section"
         style={{
           padding: "80px 24px",
           background: "var(--page-bg)",
@@ -744,17 +735,14 @@ export default function LandingPage() {
           </h2>
 
           {/* Step cards */}
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 0, marginBottom: 64 }}>
+          <div className="step-cards-grid">
             {[
               { num: "01", title: "Paste a GitHub URL", desc: "Any public repo. Private repos with a token." },
               { num: "02", title: "Index in your browser", desc: "AST chunking + WebGPU embeddings. No server. Binary quantization shrinks vectors 32x. For ex: mlc-ai/web-llm goes from 2.1 MB to 67 KB." },
               { num: "03", title: "Ask questions", desc: "Chat with your LLM of choice. Results cite real code." },
             ].map((step, i) => (
-              <div key={step.num} style={{
-                padding: "32px 28px",
-                border: "1px solid var(--page-border)",
+              <div key={step.num} className="step-card" style={{
                 borderRight: i < 2 ? "none" : "1px solid var(--page-border)",
-                background: "var(--page-surface)",
               }}>
                 <span style={{ fontFamily: "var(--font-mono)", fontSize: "2rem", fontWeight: 700, color: "var(--page-text-muted)", display: "block", marginBottom: 12 }}>{step.num}</span>
                 <h3 style={{ fontFamily: "var(--font-display)", fontWeight: 700, fontSize: "1rem", marginBottom: 8, color: "var(--page-text)" }}>{step.title}</h3>
@@ -769,7 +757,7 @@ export default function LandingPage() {
       </section>
 
       {/* FOOTER */}
-      <footer style={{ padding: "24px 40px", background: "var(--page-bg)", borderTop: "1px solid var(--page-border)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+      <footer className="landing-footer" style={{ background: "var(--page-bg)", borderTop: "1px solid var(--page-border)", display: "flex", justifyContent: "space-between", alignItems: "center", padding: "24px 40px" }}>
         <span style={{ fontFamily: "var(--font-display)", fontWeight: 800, fontSize: "0.9rem", color: "var(--page-text-muted)" }}>gitask</span>
         <div style={{ display: "flex", gap: 16 }}>
           <a href="/storage" style={{ fontSize: "12px", color: "var(--page-text-muted)", textDecoration: "none", fontFamily: "var(--font-mono)" }}>Storage</a>
