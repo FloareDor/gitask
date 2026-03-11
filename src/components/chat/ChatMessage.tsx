@@ -58,6 +58,13 @@ export const ChatMessage = memo(function ChatMessage({
 	const [vizStatus, setVizStatus] = useState<"idle" | "loading" | "error">("idle");
 	const [copied, setCopied] = useState(false);
 	const editRef = useRef<HTMLTextAreaElement>(null);
+	const diagramRef = useRef<HTMLDivElement>(null);
+
+	useEffect(() => {
+		if (msg.diagramStatus === "ready" && diagramRef.current) {
+			diagramRef.current.scrollIntoView({ behavior: "smooth", block: "nearest" });
+		}
+	}, [msg.diagramStatus]);
 
 	// Focus, set caret, and size the textarea when entering edit mode.
 	useEffect(() => {
@@ -166,7 +173,18 @@ export const ChatMessage = memo(function ChatMessage({
 				) : (
 					<>
 						{isStreaming && !showThinking && <span className="chat-live-dot" aria-hidden="true" />}
-						<span>✦ gitask</span>
+						{!isStreaming && !showThinking ? (
+							<span
+								className="chat-role-gitviz"
+								onClick={() => { void handleViz(); }}
+								title="Visualize as diagram"
+							>
+								<span className="chat-role-gitviz-default">✦ gitask</span>
+								<span className="chat-role-gitviz-hover">✦ gitviz</span>
+							</span>
+						) : (
+							<span>✦ gitask</span>
+						)}
 					</>
 				)}
 			</div>
@@ -269,18 +287,20 @@ export const ChatMessage = memo(function ChatMessage({
 			)}
 
 			{!msg.safety?.blocked && !isUser && !isStreaming && (
+				<button
+					className="chat-msg-action-btn chat-msg-action-btn--viz-corner"
+					onClick={() => { void handleViz(); }}
+					title="Visualize as diagram"
+					disabled={vizStatus === "loading"}
+				>
+					{vizStatus === "loading" ? "viz..." : "viz"}
+				</button>
+			)}
+
+			{!msg.safety?.blocked && !isUser && !isStreaming && (
 				<div className="chat-msg-actions">
 					<button className="chat-msg-action-btn" onClick={handleCopy} title="Copy message">
 						{copied ? "copied" : "copy"}
-					</button>
-					<span className="chat-msg-action-sep">·</span>
-					<button
-						className="chat-msg-action-btn"
-						onClick={() => { void handleViz(); }}
-						title="Visualize as diagram"
-						disabled={vizStatus === "loading"}
-					>
-						{vizStatus === "loading" ? "viz..." : "viz"}
 					</button>
 				</div>
 			)}
@@ -341,7 +361,9 @@ export const ChatMessage = memo(function ChatMessage({
 			)}
 		</div>
 		{!isUser && msg.diagramStatus === "ready" && msg.diagram && (
-			<InlineDiagram data={msg.diagram} />
+			<div ref={diagramRef}>
+				<InlineDiagram data={msg.diagram} />
+			</div>
 		)}
 		{!isUser && vizStatus === "error" && (
 			<div className="diagram-error-status">could not extract a diagram from this message</div>
