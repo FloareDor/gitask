@@ -243,6 +243,16 @@ export const ChatMessage = memo(function ChatMessage({
 				</div>
 			)}
 
+		
+			{!msg.safety?.blocked && !isUser && msg.thinking && (
+				<details className="chat-model-thinking">
+					<summary className="chat-model-thinking-summary">
+						{isStreaming && !msg.content ? "thinking…" : "thought process"}
+					</summary>
+					<div className="chat-model-thinking-content">{msg.thinking}</div>
+				</details>
+			)}
+
 			{!msg.safety?.blocked && !isUser && (!isStreaming || msg.content) && (
 				<div className={`chat-bubble chat-bubble--assistant`}>
 					{isStreaming ? (
