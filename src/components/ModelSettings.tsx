@@ -14,6 +14,7 @@ import {
 	getDownloadedMLCModels,
 	deleteMLCModel,
 	MLC_MODELS,
+	DEFAULT_MLC_MODEL_ID,
 	type LLMConfig,
 	type CloudStorageMode,
 } from "@/lib/llm";
@@ -395,7 +396,7 @@ export function ModelSettings() {
 									<div style={styles.sectionDivider} />
 									<p style={styles.sectionLabel}>local model</p>
 									{MLC_MODELS.map((model) => {
-										const isSelected = (config.mlcModelId ?? MLC_MODELS[0].id) === model.id;
+										const isSelected = (config.mlcModelId ?? DEFAULT_MLC_MODEL_ID) === model.id;
 										const isDownloaded = downloadedModels.includes(model.id);
 										return (
 											<div

@@ -47,6 +47,7 @@ export const MLC_MODELS: MLCModelInfo[] = [
 	{ id: "Qwen3-4B-q4f16_1-MLC",                label: "Qwen3 4B",       size: "4B",   vram: "~2.5GB",  thinking: true },
 	{ id: "Qwen3-8B-q4f16_1-MLC",                label: "Qwen3 8B",       size: "8B",   vram: "~5.0GB",  thinking: true },
 ];
+export const DEFAULT_MLC_MODEL_ID = "Qwen3-0.6B-q4f16_1-MLC";
 
 export interface ChatMessage {
 	role: "system" | "user" | "assistant";
@@ -330,13 +331,11 @@ export function setLLMConfig(config: LLMConfig) {
 export function isThinkingModel(): boolean {
 	const config = getLLMConfig();
 	if (config.provider !== "mlc") return false;
-	const modelId = config.mlcModelId ?? MLC_MODELS[0].id;
+	const modelId = config.mlcModelId ?? DEFAULT_MLC_MODEL_ID;
 	return MLC_MODELS.find((m) => m.id === modelId)?.thinking ?? false;
 }
 
 // ─── MLC Implementation ─────────────────────────────────────────────────────
-
-const DEFAULT_MLC_MODEL_ID = MLC_MODELS[0].id;
 
 class MLCEngineWrapper implements LLMEngine {
 	// eslint-disable-next-line @typescript-eslint/no-explicit-any
