@@ -236,11 +236,11 @@ export default function RepoPage({
 	}, [chatStorageKey]);
 
 	useEffect(() => {
-		if (!chatLoadedRef.current || !activeChatId) return;
+		if (!chatLoadedRef.current || !activeChatId || isGenerating) return;
 		const active = chatSessions.find((session) => session.chat_id === activeChatId);
 		const nextMessages = active?.messages ?? [];
 		setMessages((prev) => (areMessagesEqual(prev, nextMessages) ? prev : nextMessages));
-	}, [chatSessions, activeChatId]);
+	}, [chatSessions, activeChatId, isGenerating]);
 
 	useEffect(() => {
 		if (!chatLoadedRef.current || !activeChatId || isGenerating) return;

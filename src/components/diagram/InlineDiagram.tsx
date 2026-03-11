@@ -53,7 +53,9 @@ function InlineDiagramInner({ data }: InlineDiagramProps) {
 			const a = document.createElement("a");
 			a.href = dataUrl;
 			a.download = `${data.title.replace(/\s+/g, "-").toLowerCase()}.png`;
+			document.body.appendChild(a);
 			a.click();
+			document.body.removeChild(a);
 		} finally {
 			setTimeout(() => setSaved(false), 1500);
 		}
