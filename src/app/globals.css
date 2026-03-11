@@ -2094,3 +2094,275 @@ header a[href="/"]:hover {
   background: rgba(124, 58, 237, 0.05);
   border-left-color: rgba(124, 58, 237, 0.25);
 }
+
+/* ═══════════════════════════════════════════════════════
+   Landing Page — Mobile Responsive
+   ═══════════════════════════════════════════════════════ */
+
+/* Mobile hamburger button — hidden on desktop */
+.mobile-menu-btn {
+  display: none;
+  background: none;
+  border: 1px solid var(--page-border);
+  color: var(--page-text);
+  cursor: pointer;
+  padding: 6px 10px;
+  font-size: 16px;
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+/* Mobile nav dropdown panel */
+.mobile-menu-panel {
+  display: none;
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  background: var(--page-bg);
+  border-bottom: 1px solid var(--page-border);
+  z-index: 39;
+  flex-direction: column;
+}
+
+.mobile-menu-panel.open {
+  display: flex;
+}
+
+.mobile-menu-item {
+  display: block;
+  padding: 14px 20px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--page-text-dim);
+  text-decoration: none;
+  border-top: 1px solid var(--page-border);
+  font-family: var(--font-mono);
+  letter-spacing: 0.02em;
+}
+
+.mobile-menu-item:active {
+  background: var(--page-surface);
+}
+
+/* Hero form */
+.hero-form {
+  display: flex;
+  width: 100%;
+  border: 1px solid var(--page-border);
+  box-shadow: var(--page-shadow);
+}
+
+.hero-input {
+  flex: 1;
+  padding: 16px 20px;
+  font-family: var(--font-mono);
+  font-size: 1rem;
+  border: none;
+  outline: none;
+  background: var(--page-surface);
+  color: var(--page-text);
+}
+
+.hero-submit-btn {
+  padding: 16px 28px;
+  background: #0a0a0a;
+  color: #f5f5f0;
+  border: none;
+  cursor: pointer;
+  font-weight: 700;
+  font-size: 1rem;
+  font-family: var(--font-display);
+  white-space: nowrap;
+  transition: background 0.15s;
+}
+
+.hero-submit-btn:hover {
+  background: #16a34a;
+}
+
+[data-theme="light"] .hero-submit-btn {
+  background: var(--page-text);
+}
+
+[data-theme="light"] .hero-submit-btn:hover {
+  background: #16a34a;
+}
+
+/* Example repos grid */
+.example-repos-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 16px;
+}
+
+/* How-it-works step cards */
+.step-cards-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0;
+  margin-bottom: 64px;
+}
+
+.step-card {
+  padding: 32px 28px;
+  border: 1px solid var(--page-border);
+  background: var(--page-surface);
+}
+
+/* Recent chat cards */
+.recent-chat-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  background: var(--page-surface);
+  border: 1px solid var(--page-border);
+  cursor: pointer;
+  transition: transform 0.1s ease, box-shadow 0.1s ease, border-color 0.1s ease;
+}
+
+.rcc-repo {
+  flex-shrink: 0;
+}
+
+.rcc-label {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rcc-delete {
+  flex-shrink: 0;
+}
+
+/* ── Mobile (≤ 640px) ── */
+@media (max-width: 640px) {
+  /* Nav */
+  .landing-nav {
+    padding: 12px 18px !important;
+    position: relative;
+  }
+
+  .nav-hide-mobile {
+    display: none !important;
+  }
+
+  .mobile-menu-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .mobile-menu-panel {
+    /* shown via .open class */
+  }
+
+  /* Hero */
+  .hero-section {
+    padding: 48px 18px 40px !important;
+    min-height: unset !important;
+  }
+
+  .hero-badge {
+    font-size: 9.5px !important;
+    padding: 4px 10px !important;
+    letter-spacing: 0.04em !important;
+    max-width: 88vw !important;
+    text-align: center !important;
+    justify-content: center !important;
+    flex-wrap: wrap !important;
+    gap: 6px !important;
+  }
+
+  /* Form */
+  .hero-form {
+    flex-direction: column;
+    box-shadow: none;
+    border: none;
+  }
+
+  .hero-input {
+    border: 1px solid var(--page-border);
+    border-bottom: none;
+    font-size: 0.9rem;
+    padding: 14px 16px;
+  }
+
+  .hero-submit-btn {
+    padding: 15px;
+    font-size: 0.95rem;
+    border: 1px solid var(--page-border);
+    border-top: 2px solid #16a34a;
+    white-space: normal;
+  }
+
+  /* Sections horizontal padding */
+  .landing-section {
+    padding-left: 18px !important;
+    padding-right: 18px !important;
+  }
+
+  /* Example repos — 2 per row */
+  .example-repos-grid {
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+  }
+
+  /* Step cards — single column */
+  .step-cards-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .step-cards-grid .step-card {
+    border-right: 1px solid var(--page-border) !important;
+    border-bottom: none !important;
+  }
+
+  .step-cards-grid .step-card:last-child {
+    border-bottom: 1px solid var(--page-border) !important;
+  }
+
+  /* How it works section */
+  .how-section {
+    padding: 48px 18px 40px !important;
+  }
+
+  /* Recent chats */
+  .recent-chats-header {
+    flex-wrap: wrap !important;
+    gap: 8px !important;
+  }
+
+  .recent-chat-card {
+    flex-wrap: wrap;
+    row-gap: 4px;
+  }
+
+  .rcc-repo {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .rcc-label {
+    width: 100%;
+    flex: none;
+    white-space: normal;
+    overflow: visible;
+    text-overflow: unset;
+    order: 3;
+  }
+
+  .rcc-delete {
+    order: 2;
+  }
+
+  /* Footer */
+  .landing-footer {
+    padding: 20px 18px !important;
+    flex-direction: column !important;
+    align-items: flex-start !important;
+    gap: 14px !important;
+  }
+}
