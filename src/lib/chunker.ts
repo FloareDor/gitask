@@ -72,6 +72,9 @@ const CHUNK_NODE_TYPES = new Set([
 	// Python
 	"function_definition",
 	"class_definition",
+	// C / C++
+	"class_specifier",
+	"struct_specifier",
 	// Rust
 	"function_item",
 	"impl_item",
@@ -207,14 +210,23 @@ export function chunkFromTree(
  */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function extractName(node: any): string | null {
-	// Look for a 'name' or 'identifier' child
 	for (const child of node.children ?? []) {
 		if (
 			child.type === "identifier" ||
-			child.type === "property_identifier" ||
+			child.type === "property_identifier" || // JS/TS methods
+			child.type === "field_identifier" ||    // Go methods
 			child.type === "type_identifier"
 		) {
 			return child.text;
+		}
+		// C/C++: name is nested inside declarator chains
+		if (
+			child.type === "function_declarator" ||
+			child.type === "pointer_declarator" ||
+			child.type === "reference_declarator"
+		) {
+			const nested = extractName(child);
+			if (nested) return nested;
 		}
 	}
 	return null;

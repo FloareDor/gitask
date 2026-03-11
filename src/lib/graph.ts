@@ -19,6 +19,22 @@ export interface FileSymbol {
 	line: number;
 }
 
+/** Recursively find the identifier name through C/C++ declarator chains. */
+function findNameInDeclarator(node: SyntaxNode): string | null {
+	for (const child of node.children ?? []) {
+		if (child.type === "identifier" || child.type === "type_identifier") return child.text as string;
+		if (
+			child.type === "function_declarator" ||
+			child.type === "pointer_declarator" ||
+			child.type === "reference_declarator"
+		) {
+			const found = findNameInDeclarator(child);
+			if (found) return found;
+		}
+	}
+	return null;
+}
+
 /**
  * Collect dependency/definition metadata for a single AST node.
  * Optional symbol collection can be enabled by passing `symbols`.
@@ -55,37 +71,67 @@ export function collectGraphMetadataFromNode(
 	if (!symbols) return;
 
 	let kind = "";
-	if (
-		node.type === "function_declaration" ||
-		node.type === "function_definition" ||
-		node.type === "function_item"
-	) {
-		kind = "function";
-	} else if (
-		node.type === "class_declaration" ||
-		node.type === "class_definition"
-	) {
-		kind = "class";
-	} else if (node.type === "interface_declaration") {
-		kind = "interface";
-	} else if (
-		node.type === "method_definition" ||
-		node.type === "method_declaration"
-	) {
-		kind = "method";
+	switch (node.type) {
+		case "function_declaration":
+		case "function_definition":   // Python, C/C++
+		case "function_item":         // Rust
+			kind = "function"; break;
+		case "method_definition":     // JS/TS
+		case "method_declaration":    // Java, Go
+		case "constructor_declaration": // Java
+			kind = "method"; break;
+		case "class_declaration":     // JS/TS, Java
+		case "class_definition":      // Python
+		case "class_specifier":       // C++
+			kind = "class"; break;
+		case "struct_item":           // Rust
+		case "struct_specifier":      // C/C++
+			kind = "struct"; break;
+		case "enum_item":             // Rust
+			kind = "enum"; break;
+		case "impl_item":             // Rust
+			kind = "impl"; break;
+		case "interface_declaration": // Java/TS
+			kind = "interface"; break;
+		case "type_declaration":      // Go
+			kind = "type"; break;
 	}
 
 	if (!kind) return;
 
-	const nameNode = node.children.find(
-		(c: SyntaxNode) =>
-			c.type === "identifier" ||
-			c.type === "type_identifier" ||
-			c.type === "name"
-	);
-	if (!nameNode?.text) return;
+	// Name resolution — different languages put the name in different places.
+	let nameText: string | undefined;
+
+	if (node.type === "type_declaration") {
+		// Go: type_declaration → type_spec → type_identifier
+		const spec = node.children.find((c: SyntaxNode) => c.type === "type_spec");
+		nameText = spec?.children.find((c: SyntaxNode) => c.type === "type_identifier")?.text;
+	} else {
+		// Direct name child — covers most languages
+		nameText = node.children.find(
+			(c: SyntaxNode) =>
+				c.type === "identifier" ||
+				c.type === "type_identifier" ||
+				c.type === "property_identifier" || // JS/TS methods
+				c.type === "field_identifier" ||     // Go methods
+				c.type === "name"
+		)?.text;
+
+		// C/C++: name nested inside declarator chain
+		if (!nameText) {
+			const decl = node.children.find(
+				(c: SyntaxNode) =>
+					c.type === "function_declarator" ||
+					c.type === "pointer_declarator" ||
+					c.type === "reference_declarator"
+			);
+			if (decl) nameText = findNameInDeclarator(decl) ?? undefined;
+		}
+	}
+
+	if (!nameText) return;
 	symbols.push({
-		name: nameNode.text,
+		name: nameText,
 		kind,
 		line: node.startPosition.row + 1,
 	});
@@ -221,34 +267,10 @@ function extractCpp(node: SyntaxNode, imports: Set<string>, definitions: Set<str
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function visitSymbols(cursor: any, language: string, symbols: FileSymbol[]) {
 	const node: SyntaxNode = cursor.currentNode;
-	let kind = "";
-	let nameNode: SyntaxNode | null = null;
+	const imports = new Set<string>();
+	const definitions = new Set<string>();
+	collectGraphMetadataFromNode(node, language, imports, definitions, symbols);
 
-	// Simple mapping based on node type
-	if (node.type === "function_declaration" || node.type === "function_definition" || node.type === "function_item") {
-		kind = "function";
-	} else if (node.type === "class_declaration" || node.type === "class_definition") {
-		kind = "class";
-	} else if (node.type === "interface_declaration") {
-		kind = "interface";
-	} else if (node.type === "method_definition" || node.type === "method_declaration") {
-		kind = "method";
-	}
-
-	if (kind) {
-		// Try to find identifier
-		nameNode = node.children.find((c: SyntaxNode) => c.type === "identifier" || c.type === "type_identifier" || c.type === "name");
-
-		if (nameNode?.text) {
-			symbols.push({
-				name: nameNode.text,
-				kind,
-				line: node.startPosition.row + 1
-			});
-		}
-	}
-
-	// Recurse
 	if (cursor.gotoFirstChild()) {
 		do {
 			visitSymbols(cursor, language, symbols);

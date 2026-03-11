@@ -5,7 +5,6 @@ import type { EmbeddedChunk } from "@/lib/embedder";
 
 interface IndexBrowserProps {
 	chunks: EmbeddedChunk[];
-	onClose?: () => void;
 }
 
 interface FileGroup {
@@ -51,7 +50,7 @@ const NODE_TYPE_LABELS: Record<string, string> = {
 	text_chunk: "chunk",
 };
 
-export default function IndexBrowser({ chunks, onClose }: IndexBrowserProps) {
+export default function IndexBrowser({ chunks }: IndexBrowserProps) {
 	const fileGroups = useMemo(() => buildFileTree(chunks), [chunks]);
 	const [expandedFiles, setExpandedFiles] = useState<Set<string>>(() => {
 		// Expand first 5 files by default for quick browsing
@@ -133,16 +132,6 @@ export default function IndexBrowser({ chunks, onClose }: IndexBrowserProps) {
 					>
 						Collapse
 					</button>
-					{onClose && (
-						<button
-							type="button"
-							className="btn btn-ghost"
-							style={{ fontSize: "12px", padding: "4px 8px" }}
-							onClick={onClose}
-						>
-							✕
-						</button>
-					)}
 				</div>
 			</div>
 

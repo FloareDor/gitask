@@ -280,11 +280,36 @@ export async function indexRepository(
 	// 2. Check cache
 	const cached = await store.loadFromCache(owner, repo, tree.sha);
 	if (cached) {
+		// Derive AST nodes and chunk counts from cached chunks so the file tree is populated.
+		// Maps raw tree-sitter nodeType → friendly AstNode kind used by AstTreeView.
+		const NODE_TYPE_TO_KIND: Record<string, string> = {
+			function_declaration: "function", function: "function", arrow_function: "function",
+			function_definition: "function", function_item: "function",
+			method_definition: "method", method_declaration: "method", constructor_declaration: "method",
+			class_declaration: "class", class_definition: "class", class_specifier: "class",
+			struct_item: "struct", struct_specifier: "struct",
+			interface_declaration: "interface",
+			enum_item: "enum",
+			impl_item: "impl",
+			type_declaration: "type",
+			lexical_declaration: "constant", variable_declaration: "constant",
+		};
+		const derivedAstNodes: AstNode[] = [];
+		const derivedTextChunkCounts: Record<string, number> = {};
+		for (const chunk of store.getAll()) {
+			derivedTextChunkCounts[chunk.filePath] = (derivedTextChunkCounts[chunk.filePath] ?? 0) + 1;
+			const kind = NODE_TYPE_TO_KIND[chunk.nodeType];
+			if (kind && chunk.name && !chunk.name.startsWith("chunk_")) {
+				derivedAstNodes.push({ filePath: chunk.filePath, name: chunk.name, kind, status: "done" });
+			}
+		}
 		onProgress?.({
 			phase: "cached",
 			message: `Loaded ${store.size} chunks from cache`,
 			current: store.size,
 			total: store.size,
+			astNodes: derivedAstNodes,
+			textChunkCounts: derivedTextChunkCounts,
 		});
 		return {
 			sha: tree.sha,

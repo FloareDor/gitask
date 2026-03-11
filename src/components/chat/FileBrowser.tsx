@@ -90,8 +90,10 @@ export function FileBrowser({
 					</button>
 				</div>
 				<button
+					type="button"
+					className="btn btn-ghost"
+					style={{ fontSize: "12px", padding: "4px 8px" }}
 					onClick={onClose}
-					style={{ background: "transparent", border: "none", color: "var(--text-on-dark-muted)", cursor: "pointer", fontSize: "16px" }}
 				>
 					✕
 				</button>
@@ -101,7 +103,7 @@ export function FileBrowser({
 					<AstTreeView astNodes={astNodes} textChunkCounts={textChunkCounts} />
 				)}
 				{fileBrowserTab === "chunks" && (
-					<IndexBrowser chunks={store.getAll()} onClose={onClose} />
+					<IndexBrowser chunks={store.getAll()} />
 				)}
 			</div>
 		</div>

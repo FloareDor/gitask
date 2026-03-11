@@ -527,7 +527,7 @@ header a[href="/"]:hover {
 .ast-column-header {
   padding: 12px 16px;
   border-bottom: 1px solid var(--border-dark);
-  background: #111;
+  background: var(--bg-app);
   flex-shrink: 0;
 }
 
@@ -594,7 +594,7 @@ header a[href="/"]:hover {
 .ast-tree-badge {
   font-size: 10px;
   font-family: var(--font-mono);
-  background: #222;
+  background: var(--border-dark);
   border: 1px solid var(--border-dark);
   border-radius: 2px;
   padding: 0 6px;
