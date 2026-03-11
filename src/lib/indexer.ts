@@ -1,5 +1,5 @@
 /**
- * Indexing Orchestrator —” ties the full RAG pipeline together.
+ * Indexing Orchestrator —" ties the full RAG pipeline together.
  *
  * indexRepository() → fetch tree → chunk (AST) → embed (WebGPU)
  * → store in VectorStore → persist to IndexedDB.
@@ -161,7 +161,7 @@ export async function indexRepository(
 		console.warn("Failed to init tree-sitter:", e);
 		onProgress?.({
 			phase: "fetching",
-			message: “Falling back to basic text splitting. Search may be slightly less accurate.”,
+			message: "Falling back to basic text splitting. Search may be slightly less accurate.",
 			current: 0,
 			total: 1,
 		});
@@ -712,7 +712,7 @@ export async function indexRepository(
 				for (const [fp, range] of fileChunkRanges) {
 					if (overallDone >= range.end) fileStatusMap.set(fp, "done");
 					else if (overallDone > range.start) fileStatusMap.set(fp, "embedding");
-					// else stays "parsed" —” no update needed
+					// else stays "parsed" —" no update needed
 				}
 
 				const updatedNodes = astNodes.map((node) => {
@@ -749,7 +749,7 @@ export async function indexRepository(
 					console.warn("Failed to save partial embedding progress:", e);
 					onProgress?.({
 						phase: "embedding",
-						message: “Couldn't save progress. Don't close this tab or indexing will restart.”,
+						message: "Couldn't save progress. Don't close this tab or indexing will restart.",
 						current: soFar.length,
 						total: allChunks.length,
 						estimatedSizeBytes: estimatedBytes,
@@ -781,7 +781,7 @@ export async function indexRepository(
 
 	const skippedNote =
 		skippedFiles.length > 0
-			? ` —” ${skippedFiles.length} file${skippedFiles.length > 1 ? "s" : ""} could not be fetched`
+			? ` —" ${skippedFiles.length} file${skippedFiles.length > 1 ? "s" : ""} could not be fetched`
 			: "";
 	onProgress?.({
 		phase: "done",
