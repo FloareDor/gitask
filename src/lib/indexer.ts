@@ -677,7 +677,7 @@ export async function indexRepository(
 	} else if (embedConfig.batchSize > 1) {
 		onProgress?.({
 			phase: "embedding",
-			message: `WebGPU detected —” using batch size ${embedConfig.batchSize} for fast embedding`,
+			message: `WebGPU found! Running at full speed (batch size ${embedConfig.batchSize})`,
 			current: embeddedSoFar.length,
 			total: allChunks.length,
 			estimatedSizeBytes: estimatedBytes,
