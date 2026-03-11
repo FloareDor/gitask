@@ -4,11 +4,23 @@ export interface MessageDiagram {
 	edges: Array<{ source: string; target: string; label?: string }>;
 }
 
+export interface MessageRetrievalState {
+	/** All query variants searched — first is original, rest are LLM-generated. */
+	variants: string[];
+	/** Refined query from the sufficiency check second pass, if triggered. */
+	refinedQuery?: string;
+	/** Active loading phase — only present while retrieval is in progress. */
+	loadingPhase?: string;
+	/** How many variant searches have completed (for per-row progress animation). */
+	completedCount?: number;
+}
+
 export interface Message {
 	id: string;
 	role: "user" | "assistant";
 	content: string;
 	citations?: MessageCitation[];
+	retrieval?: MessageRetrievalState;
 	ui?: MessageUIState;
 	safety?: MessageSafetyState;
 	diagramStatus?: "loading" | "ready" | "skipped" | "error";

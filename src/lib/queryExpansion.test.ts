@@ -1,40 +1,51 @@
 /**
- * Tests for query expansion — CodeRAG-style multi-path query variants.
+ * Tests for LLM-powered query expansion.
+ * The LLM won't be available in test env, so we verify fallback behaviour.
  */
 
 import { describe, it, expect } from "vitest";
-import { expandQuery } from "./queryExpansion";
+import { generateQueryVariants, getRetrievalRefinement } from "./queryExpansion";
 
-describe("expandQuery", () => {
-	it("returns at least original message", () => {
-		const variants = expandQuery("how does it work?");
+describe("generateQueryVariants", () => {
+	it("returns original query as fallback when LLM not available", async () => {
+		const variants = await generateQueryVariants("how does it work?", [], "");
 		expect(variants.length).toBeGreaterThanOrEqual(1);
 		expect(variants[0]).toBe("how does it work?");
 	});
 
-	it("returns two variants when message contains identifiers", () => {
-		const variants = expandQuery("where is hybridSearch defined?");
-		expect(variants.length).toBeGreaterThanOrEqual(2);
-		expect(variants[0]).toBe("where is hybridSearch defined?");
-		expect(variants[1]).toContain("hybridSearch");
-		expect(variants[1]).toContain("implementation definition");
+	it("handles empty query", async () => {
+		const variants = await generateQueryVariants("", [], "");
+		expect(variants).toEqual([""]);
 	});
 
-	it("never returns duplicate query strings", () => {
-		const variants = expandQuery("someFunction and otherSymbol");
-		const unique = [...new Set(variants)];
-		expect(unique.length).toBe(variants.length);
+	it("returns an array of strings", async () => {
+		const variants = await generateQueryVariants("where is hybridSearch defined?", [], "");
+		for (const v of variants) {
+			expect(typeof v).toBe("string");
+		}
 	});
 
-	it("extracts multiple symbols for code-style variant", () => {
-		const variants = expandQuery("how does embedText call the pipeline?");
-		expect(variants.length).toBeGreaterThanOrEqual(2);
-		expect(variants[1]).toContain("embedText");
-		expect(variants[1]).toContain("pipeline");
+	it("never returns duplicate strings", async () => {
+		const variants = await generateQueryVariants("what llms are used?", [], "");
+		const lower = variants.map((v) => v.toLowerCase());
+		const unique = [...new Set(lower)];
+		expect(unique.length).toBe(lower.length);
+	});
+});
+
+describe("getRetrievalRefinement", () => {
+	it("returns null when results are sufficient", async () => {
+		const results = [
+			{ filePath: "src/llm.ts", code: "export function generate()", score: 0.9 },
+			{ filePath: "src/llm.ts", code: "export function generateFull()", score: 0.85 },
+			{ filePath: "src/gemini.ts", code: "const model = new GoogleGenerativeAI()", score: 0.8 },
+		];
+		const refined = await getRetrievalRefinement("how does generate work?", results);
+		expect(refined).toBeNull();
 	});
 
-	it("trims and handles empty", () => {
-		expect(expandQuery("")).toEqual([""]);
-		expect(expandQuery("  ")).toEqual([""]);
+	it("returns null on empty results when LLM not available", async () => {
+		const refined = await getRetrievalRefinement("what llms are used?", []);
+		expect(refined).toBeNull();
 	});
 });
