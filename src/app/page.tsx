@@ -416,6 +416,7 @@ export default function LandingPage() {
           Index any repo in your browser. Chat with its code using your own API key.
           Embeddings, retrieval, and storage — all on-device.
         </p>
+        {/* AST chunking · hybrid search · multi-query expansion · adaptive retrieval refinement · CoVe
         <p style={{
           fontFamily: "var(--font-mono)",
           fontSize: "11px",
@@ -425,6 +426,7 @@ export default function LandingPage() {
         }}>
           AST chunking · hybrid search · multi-query expansion · adaptive retrieval refinement · CoVe
         </p>
+        */}
 
         {/* WebGPU warning — only when !gpuSupported */}
         {!gpuSupported && (
