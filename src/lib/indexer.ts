@@ -95,7 +95,7 @@ function buildEmbeddingFallbackMessage(workerCount: number): string {
 		: "";
 	const workerNote =
 		workerCount > 1 ? ` Using ${workerCount} parallel workers.` : "";
-	return `Using CPU (WASM) for embeddings.${reason} Embedding will be slower.${workerNote}`;
+	return `No WebGPU, using CPU instead.${reason} This will be slower.${workerNote}`;
 }
 
 function resolveChunkWorkerCount(totalPendingFiles: number, hasToken: boolean): number {
@@ -140,7 +140,7 @@ export async function indexRepository(
 	// Fail fast on truncated trees to avoid stale/partial context from incomplete repository views.
 	if (tree.truncated) {
 		throw new Error(
-			"Repository tree is truncated by GitHub API. Indexing stopped to avoid partial context. Add a GitHub token with repo read access and retry."
+			"GitHub returned a partial file list. Add a GitHub token in \"GH Token\" to index the full repo."
 		);
 	}
 
@@ -161,7 +161,7 @@ export async function indexRepository(
 		console.warn("Failed to init tree-sitter:", e);
 		onProgress?.({
 			phase: "fetching",
-			message: "AST parsing unavailable —” falling back to text chunking. Search quality may be reduced.",
+			message: “Falling back to basic text splitting. Search may be slightly less accurate.”,
 			current: 0,
 			total: 1,
 		});
@@ -749,7 +749,7 @@ export async function indexRepository(
 					console.warn("Failed to save partial embedding progress:", e);
 					onProgress?.({
 						phase: "embedding",
-						message: "Warning: could not save progress checkpoint —” if you close this tab, indexing will restart from scratch.",
+						message: “Couldn't save progress. Don't close this tab or indexing will restart.”,
 						current: soFar.length,
 						total: allChunks.length,
 						estimatedSizeBytes: estimatedBytes,

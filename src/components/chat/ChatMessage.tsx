@@ -140,7 +140,7 @@ export const ChatMessage = memo(function ChatMessage({
 
 	// Stable random word for the "no phase yet" gap (LLM queued but not streaming).
 	const idleWordRef = useRef(
-		["cooking", "brewing", "thinking", "generating", "working on it", "writing", "penning down my thoughts", "hol' up", "let me cook", "let me cook"][
+		["cooking", "brewing", "generating", "working on it", "writing", "penning down my thoughts", "hol' up", "let me cook", "let me cook", "hol' up"][
 			Math.floor(Math.random() * 5)
 		]
 	);

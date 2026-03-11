@@ -61,13 +61,13 @@ function normalizeGeminiError(err: unknown): Error {
 		lower.includes("unauthorized")
 	) {
 		return new Error(
-			"Gemini API key is invalid or rejected. Open LLM Settings and update your key."
+			"Gemini API key is invalid. Open LLM Settings and update your key."
 		);
 	}
 
 	if (lower.includes("permission") || lower.includes("forbidden")) {
 		return new Error(
-			"Gemini request was denied. Check your API key permissions in LLM Settings."
+			"Gemini access denied. Check your API key in LLM Settings."
 		);
 	}
 
@@ -85,7 +85,7 @@ function normalizeGroqError(err: unknown): Error {
 		lower.includes("invalid_api_key")
 	) {
 		return new Error(
-			"Groq API key is invalid or rejected. Open LLM Settings and update your key."
+			"Groq API key is invalid. Open LLM Settings and update your key."
 		);
 	}
 
@@ -95,13 +95,13 @@ function normalizeGroqError(err: unknown): Error {
 		lower.includes("too many requests")
 	) {
 		return new Error(
-			"Groq API rate limit or quota exceeded. Wait a moment and try again."
+			"Groq rate limit hit. Wait a moment and try again."
 		);
 	}
 
 	if (lower.includes("permission") || lower.includes("forbidden")) {
 		return new Error(
-			"Groq request was denied. Check your API key permissions in LLM Settings."
+			"Groq access denied. Check your API key in LLM Settings."
 		);
 	}
 
@@ -118,11 +118,11 @@ function normalizeMLCInitError(err: unknown): Error {
 		lower.includes("adapter")
 	) {
 		return new Error(
-			"Local Web-LLM is unavailable in this browser. Open LLM Settings, switch to Gemini or Groq, and add your API key."
+			"Local model isn't supported in this browser. Switch to Gemini or Groq in LLM Settings."
 		);
 	}
 	return new Error(
-		`Failed to initialize local Web-LLM: ${message}. Switch to Gemini or Groq in LLM Settings if this continues.`
+		`Local model failed to load: ${message}. Try switching to Gemini or Groq in LLM Settings.`
 	);
 }
 
