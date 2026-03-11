@@ -31,7 +31,7 @@ export function ChatInput({
 				value={input}
 				onChange={e => onChange(e.target.value)}
 				onKeyDown={onKeyDown}
-				placeholder={isIndexed ? `Ask about ${owner}/${repo}...` : "Index the repo first..."}
+				placeholder={isIndexed ? `Ask about ${owner}/${repo}...` : "hold up, until I index the repo..."}
 				disabled={!isIndexed || isGenerating}
 				rows={1}
 				id="chat-input"
