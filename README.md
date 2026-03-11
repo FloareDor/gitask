@@ -139,14 +139,14 @@ the retrieval design draws from two papers:
 
 ---
 
-## star history
+## Star History
 
-<a href="https://star-history.com/#FloareDor/gitask&Date">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=FloareDor/gitask&type=Date&theme=dark" />
-    <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=FloareDor/gitask&type=Date" />
-    <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=FloareDor/gitask&type=Date" />
-  </picture>
+<a href="https://www.star-history.com/?repos=FloareDor%2Fgitask&type=date&legend=top-left">
+ <picture>
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/image?repos=FloareDor/gitask&type=date&theme=dark&legend=top-left" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/image?repos=FloareDor/gitask&type=date&legend=top-left" />
+   <img alt="Star History Chart" src="https://api.star-history.com/image?repos=FloareDor/gitask&type=date&legend=top-left" />
+ </picture>
 </a>
 
 ---
