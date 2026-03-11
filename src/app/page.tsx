@@ -344,6 +344,32 @@ export default function LandingPage() {
           <ModelSettings />
           <ThemeToggle />
           <a
+            href="/storage"
+            style={{
+              fontSize: "13px",
+              fontWeight: 600,
+              color: "var(--page-text-muted)",
+              textDecoration: "none",
+              padding: "6px 14px",
+              fontFamily: "var(--font-mono)",
+              letterSpacing: "0.02em",
+              border: "1px solid transparent",
+              transition: "color 0.15s, border-color 0.15s",
+            }}
+            onMouseEnter={(e) => {
+              const el = e.currentTarget as HTMLElement;
+              el.style.color = "var(--page-text)";
+              el.style.borderColor = "var(--page-border)";
+            }}
+            onMouseLeave={(e) => {
+              const el = e.currentTarget as HTMLElement;
+              el.style.color = "var(--page-text-muted)";
+              el.style.borderColor = "transparent";
+            }}
+          >
+            Storage
+          </a>
+          <a
             href="https://github.com/FloareDor/gitask"
             target="_blank"
             rel="noopener noreferrer"
@@ -597,12 +623,26 @@ export default function LandingPage() {
               <p style={{ fontFamily: "var(--font-mono)", fontSize: "11px", textTransform: "uppercase", letterSpacing: "0.1em", color: "var(--page-text-muted)" }}>
                 Recent chats
               </p>
-              <button
-                onClick={handleDeleteAllSavedChats}
-                style={{ fontSize: "11px", color: "var(--page-text-muted)", background: "none", border: "none", cursor: "pointer", textDecoration: "underline" }}
-              >
-                Clear all
-              </button>
+              <div style={{ display: "flex", gap: 16, alignItems: "center" }}>
+                <a
+                  href="/storage"
+                  style={{
+                    fontSize: "11px",
+                    fontFamily: "var(--font-mono)",
+                    color: "#16a34a",
+                    textDecoration: "none",
+                    letterSpacing: "0.04em",
+                  }}
+                >
+                  Manage storage →
+                </a>
+                <button
+                  onClick={handleDeleteAllSavedChats}
+                  style={{ fontSize: "11px", color: "var(--page-text-muted)", background: "none", border: "none", cursor: "pointer", textDecoration: "underline" }}
+                >
+                  Clear all
+                </button>
+              </div>
             </div>
             <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
               {savedChats.slice(0, 5).map((chat) => (
@@ -707,7 +747,7 @@ export default function LandingPage() {
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 0, marginBottom: 64 }}>
             {[
               { num: "01", title: "Paste a GitHub URL", desc: "Any public repo. Private repos with a token." },
-              { num: "02", title: "Index in your browser", desc: "AST chunking + embeddings. No server. Everything local." },
+              { num: "02", title: "Index in your browser", desc: "AST chunking + WebGPU embeddings. No server. Binary quantization shrinks vectors 32x. For ex: mlc-ai/web-llm goes from 2.1 MB to 67 KB." },
               { num: "03", title: "Ask questions", desc: "Chat with your LLM of choice. Results cite real code." },
             ].map((step, i) => (
               <div key={step.num} style={{
@@ -732,6 +772,7 @@ export default function LandingPage() {
       <footer style={{ padding: "24px 40px", background: "var(--page-bg)", borderTop: "1px solid var(--page-border)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
         <span style={{ fontFamily: "var(--font-display)", fontWeight: 800, fontSize: "0.9rem", color: "var(--page-text-muted)" }}>gitask</span>
         <div style={{ display: "flex", gap: 16 }}>
+          <a href="/storage" style={{ fontSize: "12px", color: "var(--page-text-muted)", textDecoration: "none", fontFamily: "var(--font-mono)" }}>Storage</a>
           <a href="/ablation" style={{ fontSize: "12px", color: "var(--page-text-muted)", textDecoration: "none" }}>Ablation</a>
           <a href="/metrics" style={{ fontSize: "12px", color: "var(--page-text-muted)", textDecoration: "none" }}>Metrics</a>
           <a href="https://github.com/FloareDor/gitask" target="_blank" rel="noopener noreferrer" style={{ fontSize: "12px", color: "var(--page-text-muted)", textDecoration: "none" }}>GitHub</a>
