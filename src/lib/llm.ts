@@ -268,6 +268,9 @@ export function getLLMConfig(): LLMConfig {
 						parsed.cloudStorage ?? parsed.geminiStorage
 					);
 				}
+				if (provider === "mlc" && typeof parsed.mlcModelId === "string") {
+					baseConfig.mlcModelId = parsed.mlcModelId;
+				}
 				if (typeof parsed.apiKey === "string" && parsed.apiKey.trim().length > 0) {
 					baseConfig.apiKey = parsed.apiKey;
 				}
@@ -309,6 +312,9 @@ export function setLLMConfig(config: LLMConfig) {
 		safeConfig.cloudStorage = normalizeCloudStorageMode(
 			config.cloudStorage ?? config.geminiStorage
 		);
+	}
+	if (safeConfig.provider === "mlc" && config.mlcModelId) {
+		safeConfig.mlcModelId = config.mlcModelId;
 	}
 	try {
 		localStorage.setItem(STORAGE_KEY, JSON.stringify(safeConfig));
