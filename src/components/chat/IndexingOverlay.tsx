@@ -27,7 +27,7 @@ export function IndexingOverlay({
 		return (
 			<div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}>
 				<div style={{ border: "2px solid #dc2626", padding: "24px 28px", background: "var(--bg-card-dark)", maxWidth: 420, width: "100%", boxShadow: "4px 4px 0 #dc2626" }}>
-					<p style={{ fontWeight: 700, color: "#dc2626", marginBottom: 8, fontFamily: "var(--font-display)", margin: "0 0 8px 0" }}>Indexing failed</p>
+					<p style={{ fontWeight: 700, color: "#dc2626", marginBottom: 8, fontFamily: "var(--font-display)", margin: "0 0 8px 0" }}>Something went wrong</p>
 					<p style={{ fontSize: "13px", color: "var(--text-on-dark-secondary)", marginBottom: 16, lineHeight: 1.5 }}>{indexProgress.message}</p>
 					<button onClick={onRetry} style={{ background: "#0a0a0a", color: "#f5f5f0", border: "2px solid #f5f5f0", padding: "10px 20px", cursor: "pointer", fontWeight: 700, fontSize: "13px" }}>
 						Retry

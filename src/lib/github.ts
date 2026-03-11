@@ -46,7 +46,7 @@ async function readGitHubErrorMessage(res: Response): Promise<string> {
 }
 
 function privateRepoGuidance(owner: string, repo: string): string {
-	return `Repository "${owner}/${repo}" was not found. It may be private. Add a GitHub Personal Access Token in "GH Token" (with repository read access) and try again, or verify the owner/repo name.`;
+	return `Couldn't find this repo. Is it private? Add a GitHub token in "GH Token" to access it.`;
 }
 
 function headers(token?: string): HeadersInit {
