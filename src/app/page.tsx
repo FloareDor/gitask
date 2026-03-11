@@ -303,19 +303,6 @@ export default function LandingPage() {
     }
   }
 
-  function handleDeleteAllSavedChats() {
-    if (savedChats.length === 0) return;
-    if (typeof window !== "undefined") {
-      const confirmed = window.confirm("Delete all local chats across repositories?");
-      if (!confirmed) return;
-      const keys = new Set(savedChats.map((entry) => entry.storageKey));
-      for (const key of keys) {
-        localStorage.removeItem(key);
-      }
-      setSavedChats([]);
-    }
-  }
-
   function handleOpenLLMSettings() {
     if (typeof window === "undefined") return;
     window.dispatchEvent(new Event("gitask-open-llm-settings"));
@@ -612,26 +599,18 @@ export default function LandingPage() {
               <p style={{ fontFamily: "var(--font-mono)", fontSize: "11px", textTransform: "uppercase", letterSpacing: "0.1em", color: "var(--page-text-muted)" }}>
                 Recent chats
               </p>
-              <div style={{ display: "flex", gap: 16, alignItems: "center" }}>
-                <a
-                  href="/storage"
-                  style={{
-                    fontSize: "11px",
-                    fontFamily: "var(--font-mono)",
-                    color: "#16a34a",
-                    textDecoration: "none",
-                    letterSpacing: "0.04em",
-                  }}
-                >
-                  Manage storage →
-                </a>
-                <button
-                  onClick={handleDeleteAllSavedChats}
-                  style={{ fontSize: "11px", color: "var(--page-text-muted)", background: "none", border: "none", cursor: "pointer", textDecoration: "underline" }}
-                >
-                  Clear all
-                </button>
-              </div>
+              <a
+                href="/storage"
+                style={{
+                  fontSize: "11px",
+                  fontFamily: "var(--font-mono)",
+                  color: "#16a34a",
+                  textDecoration: "none",
+                  letterSpacing: "0.04em",
+                }}
+              >
+                Manage storage →
+              </a>
             </div>
             <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
               {savedChats.slice(0, 5).map((chat) => (
