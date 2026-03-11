@@ -996,6 +996,7 @@ header a[href="/"]:hover {
   align-items: flex-end;
 }
 .chat-message--assistant {
+  position: relative;
   align-self: flex-start;
   align-items: flex-start;
 }
@@ -1017,6 +1018,34 @@ header a[href="/"]:hover {
 }
 .chat-role-label--assistant {
   color: var(--accent);
+}
+
+.chat-role-gitviz {
+  cursor: pointer;
+  position: relative;
+  display: inline-block;
+}
+
+.chat-role-gitviz-default {
+  display: inline-block;
+  transition: opacity 0.15s ease;
+}
+
+.chat-role-gitviz-hover {
+  position: absolute;
+  left: 0;
+  top: 0;
+  opacity: 0;
+  white-space: nowrap;
+  transition: opacity 0.15s ease;
+}
+
+.chat-role-gitviz:hover .chat-role-gitviz-default {
+  opacity: 0;
+}
+
+.chat-role-gitviz:hover .chat-role-gitviz-hover {
+  opacity: 1;
 }
 
 /* Live dot for streaming */
@@ -1103,7 +1132,39 @@ header a[href="/"]:hover {
   box-shadow: 2px 2px 0 var(--accent);
 }
 
-/* ── Message hover action row (copy · viz) ── */
+/* ── Viz button — top-right of message container ── */
+.chat-msg-action-btn--viz-corner {
+  position: absolute;
+  top: 0;
+  right: 0;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-on-dark-muted);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+  letter-spacing: 0.04em;
+  opacity: 0;
+  visibility: hidden;
+  transition: color 0.1s ease, opacity 0.15s ease, visibility 0.15s ease;
+}
+
+.chat-message--assistant:hover .chat-msg-action-btn--viz-corner {
+  opacity: 1;
+  visibility: visible;
+}
+
+.chat-msg-action-btn--viz-corner:hover:not(:disabled) {
+  color: var(--accent);
+}
+
+.chat-msg-action-btn--viz-corner:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+
+/* ── Copy action row — below the bubble ── */
 .chat-msg-actions {
   display: flex;
   align-items: center;
