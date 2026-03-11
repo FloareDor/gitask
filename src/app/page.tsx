@@ -14,7 +14,7 @@ import { useRouter } from "next/navigation";
 const CHAT_STORAGE_PREFIX = "gitask-chat-";
 const EXAMPLE_REPOSITORIES = [
   { owner: "mlc-ai", repo: "web-llm" },
-  { owner: "huggingface", repo: "smolagents" },
+  { owner: "karpathy", repo: "autoresearch" },
   { owner: "FloareDor", repo: "gitask" },
 ];
 
