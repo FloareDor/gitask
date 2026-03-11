@@ -91,7 +91,9 @@ export default function RepoPage({
 	const [queryExpansionEnabled, setQueryExpansionEnabled] = useState(() => getLLMConfig().provider !== "mlc");
 	const [indexedSha, setIndexedSha] = useState<string | null>(null);
 	const [repoStale, setRepoStale] = useState(false);
-	const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+	const [sidebarCollapsed, setSidebarCollapsed] = useState(() =>
+		typeof window !== "undefined" && window.innerWidth < 640
+	);
 	const [fileBrowserOpen, setFileBrowserOpen] = useState(false);
 	const [fileBrowserTab, setFileBrowserTab] = useState<"tree" | "chunks">("tree");
 	const [showDiagram, setShowDiagram] = useState(false);
@@ -1094,6 +1096,15 @@ ${context}`,
 
 			<div style={{ display: "flex", flex: 1, overflow: "hidden" }}>
 
+				{/* Backdrop to close sidebar on mobile */}
+				{!sidebarCollapsed && isMobile && (
+					<div
+						className="chat-sidebar-backdrop"
+						onClick={() => setSidebarCollapsed(true)}
+						aria-hidden="true"
+					/>
+				)}
+
 				<ChatSidebar
 					isIndexed={isIndexed}
 					isIndexing={isIndexing}
@@ -1137,7 +1148,7 @@ ${context}`,
 					)}
 
 					{(isIndexed || (!isIndexing && !indexingFailed)) && (
-						<div style={{ flex: 1, overflowY: "auto", padding: "24px 32px", display: "flex", flexDirection: "column", gap: 20 }}>
+						<div className="chat-messages-area" style={{ flex: 1, overflowY: "auto", padding: "24px 32px", display: "flex", flexDirection: "column", gap: 20 }}>
 							{messages.length === 0 && isIndexed && (
 								<EmptyChat
 									owner={owner}
