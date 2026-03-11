@@ -8,7 +8,7 @@ import { multiPathHybridSearch } from "@/lib/search";
 import { generateQueryVariants, getRetrievalRefinement, buildContextualQuery, expandQuery } from "@/lib/queryExpansion";
 import { defaultLimitsForProvider } from "@/lib/contextAssembly";
 import { fetchRepoTree } from "@/lib/github";
-import { initLLM, generate, getLLMStatus, getLLMConfig, onStatusChange, type LLMStatus } from "@/lib/llm";
+import { initLLM, generate, getLLMStatus, getLLMConfig, onStatusChange, isThinkingModel, type LLMStatus } from "@/lib/llm";
 import { recordSearch, recordSafetyScan } from "@/lib/metrics";
 import { buildSafeContext, scanChunksForInjection } from "@/lib/promptSafety";
 import { verifyAndRefine } from "@/lib/cove";
@@ -832,17 +832,37 @@ ${context}`,
 					: undefined,
 			}));
 			let fullResponse = "";
+			const useThinking = isThinkingModel();
 
 			for await (const token of generate(chatMessages)) {
 				fullResponse += token;
 				sawStreamToken = true;
+
+				// Separate <think>...</think> block from visible content
+				let thinking: string | undefined;
+				let visibleContent = fullResponse;
+				if (useThinking) {
+					const thinkStart = fullResponse.indexOf("<think>");
+					const thinkEnd = fullResponse.indexOf("</think>");
+					if (thinkStart !== -1) {
+						if (thinkEnd !== -1) {
+							thinking = fullResponse.slice(thinkStart + 7, thinkEnd).trim();
+							visibleContent = (fullResponse.slice(0, thinkStart) + fullResponse.slice(thinkEnd + 8)).trim();
+						} else {
+							// Still inside <think> block — hide everything after <think>
+							thinking = fullResponse.slice(thinkStart + 7).trim();
+							visibleContent = fullResponse.slice(0, thinkStart).trim();
+						}
+					}
+				}
+
 				setMessages((prev) => {
 					if (!assistantMessageId) return prev;
 					let changed = false;
 					const updated = prev.map((message) => {
 						if (message.id !== assistantMessageId) return message;
 						changed = true;
-						return { ...message, role: "assistant" as const, content: fullResponse, citations: responseCitations.length > 0 ? responseCitations : undefined };
+						return { ...message, role: "assistant" as const, content: visibleContent, thinking, citations: responseCitations.length > 0 ? responseCitations : undefined };
 					});
 					return changed ? updated : prev;
 				});

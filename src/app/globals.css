@@ -2037,3 +2037,60 @@ header a[href="/"]:hover {
 [data-theme="light"] .thinking-row-text       { color: #888; }
 [data-theme="light"] .thinking-row--variant .thinking-row-tag  { color: #15803d; }
 [data-theme="light"] .thinking-row--variant .thinking-row-text { color: #444; }
+
+/* ── Model thinking block (Qwen3 <think> output) ────── */
+.chat-model-thinking {
+  margin: 4px 0 6px 0;
+  max-width: 82%;
+}
+
+.chat-model-thinking-summary {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: #a78bfa;
+  cursor: pointer;
+  user-select: none;
+  list-style: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.chat-model-thinking-summary::before {
+  content: "▸";
+  font-size: 9px;
+  transition: transform 0.15s ease;
+}
+
+.chat-model-thinking[open] > .chat-model-thinking-summary::before {
+  transform: rotate(90deg);
+}
+
+.chat-model-thinking-summary::-webkit-details-marker {
+  display: none;
+}
+
+.chat-model-thinking-content {
+  margin-top: 6px;
+  padding: 8px 12px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-on-dark-secondary, #a0a0a0);
+  background: rgba(168, 139, 250, 0.06);
+  border-left: 2px solid rgba(168, 139, 250, 0.3);
+  border-radius: 4px;
+  white-space: pre-wrap;
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+[data-theme="light"] .chat-model-thinking-summary {
+  color: #7c3aed;
+}
+
+[data-theme="light"] .chat-model-thinking-content {
+  color: #555;
+  background: rgba(124, 58, 237, 0.05);
+  border-left-color: rgba(124, 58, 237, 0.25);
+}
