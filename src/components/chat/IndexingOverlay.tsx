@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import type { IndexProgress } from "@/lib/indexer";
 
 interface IndexingOverlayProps {
@@ -175,6 +176,42 @@ export function IndexingOverlay({
 		);
 	}
 
+	const [showDetails, setShowDetails] = useState(false);
+	const isBigRepo = (indexProgress?.estimatedSizeBytes ?? 0) > 1.5 * 1024 * 1024;
+
+	if (!isBigRepo) {
+		return (
+			<div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}>
+				<div style={{ border: "2px solid var(--border-dark)", padding: "28px 32px", background: "var(--bg-card-dark)", maxWidth: 420, width: "100%", boxShadow: "var(--shadow-card-dark)" }}>
+					<div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+						<span style={{ fontFamily: "var(--font-display)", fontWeight: 700, fontSize: "0.9rem", textTransform: "uppercase", letterSpacing: "0.05em", color: "var(--text-on-dark)" }}>
+							Indexing
+						</span>
+						<span style={{ fontFamily: "var(--font-mono)", fontWeight: 700, fontSize: "1.1rem", color: "#16a34a" }}>
+							{progressPercent}%
+						</span>
+					</div>
+					<div style={{ height: 6, background: "var(--bg-glass)", marginBottom: 14, border: "1px solid var(--border-dark)" }}>
+						<div style={{ height: "100%", background: "#16a34a", width: `${progressPercent}%`, transition: "width 0.3s" }} />
+					</div>
+					<p style={{ fontSize: "0.85rem", color: "var(--text-on-dark-secondary)", marginBottom: 0 }}>
+						{indexProgress?.message ?? "Starting..."}
+					</p>
+					{indexProgress?.estimatedSizeBytes != null && indexProgress.estimatedSizeBytes > 0 && (
+						<p style={{ fontFamily: "var(--font-mono)", fontSize: "0.72rem", color: "var(--text-on-dark-muted)", margin: "4px 0 0 0" }}>
+							~{formatBytes(indexProgress.estimatedSizeBytes)}
+						</p>
+					)}
+					{timeRemaining && (
+						<p style={{ fontFamily: "var(--font-mono)", fontSize: "0.72rem", color: "var(--text-on-dark-muted)", margin: "4px 0 0 0" }}>
+							{timeRemaining} remaining
+						</p>
+					)}
+				</div>
+			</div>
+		);
+	}
+
 	return (
 		<>
 			<style>{CSS}</style>
@@ -300,31 +337,8 @@ export function IndexingOverlay({
 							and come back when it&apos;s done!
 						</p>
 
-						{/* Progress bar */}
-						<div style={{ marginBottom: 14 }}>
-							<div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
-								<span
-									style={{
-										fontFamily: "var(--font-mono)",
-										fontSize: "0.68rem",
-										color: "var(--text-on-dark-muted)",
-										textTransform: "uppercase",
-										letterSpacing: "0.07em",
-									}}
-								>
-									Progress
-								</span>
-								<span
-									style={{
-										fontFamily: "var(--font-mono)",
-										fontWeight: 700,
-										fontSize: "0.88rem",
-										color: "#16a34a",
-									}}
-								>
-									{progressPercent}%
-								</span>
-							</div>
+						{/* Progress bar (always visible, no label) */}
+						<div style={{ marginBottom: 12 }}>
 							<div
 								style={{
 									height: 7,
@@ -346,32 +360,51 @@ export function IndexingOverlay({
 							</div>
 						</div>
 
-						{/* Status message */}
-						<p
+						{/* Collapsed toggle */}
+						<button
+							onClick={() => setShowDetails((v) => !v)}
 							style={{
-								fontSize: "0.78rem",
-								color: "var(--text-on-dark-secondary)",
-								margin: 0,
-								lineHeight: 1.5,
+								background: "none",
+								border: "none",
+								padding: 0,
+								cursor: "pointer",
+								display: "flex",
+								alignItems: "center",
+								gap: 5,
+								color: "var(--text-on-dark-muted)",
 								fontFamily: "var(--font-mono)",
+								fontSize: "0.68rem",
+								letterSpacing: "0.04em",
 							}}
 						>
-							{indexProgress?.message ?? "Starting…"}
-						</p>
+							<svg
+								width="10" height="10" viewBox="0 0 10 10" fill="none"
+								style={{ transition: "transform 0.2s", transform: showDetails ? "rotate(90deg)" : "rotate(0deg)" }}
+								aria-hidden
+							>
+								<path d="M3 2 L7 5 L3 8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+							</svg>
+							{showDetails ? "hide details" : `${progressPercent}% · show details`}
+						</button>
 
-						{/* Meta — size + time */}
-						{(indexProgress?.estimatedSizeBytes || timeRemaining) && (
-							<div style={{ display: "flex", gap: 14, marginTop: 6, flexWrap: "wrap" }}>
-								{indexProgress?.estimatedSizeBytes != null && indexProgress.estimatedSizeBytes > 0 && (
-									<span style={{ fontFamily: "var(--font-mono)", fontSize: "0.68rem", color: "var(--text-on-dark-muted)" }}>
-										~{formatBytes(indexProgress.estimatedSizeBytes)}
-									</span>
-								)}
-								{timeRemaining && (
-									<span style={{ fontFamily: "var(--font-mono)", fontSize: "0.68rem", color: "var(--text-on-dark-muted)" }}>
-										{timeRemaining} remaining
-									</span>
-								)}
+						{/* Expandable details */}
+						{showDetails && (
+							<div style={{ marginTop: 10, display: "flex", flexDirection: "column", gap: 4 }}>
+								<p style={{ fontSize: "0.78rem", color: "var(--text-on-dark-secondary)", margin: 0, lineHeight: 1.5, fontFamily: "var(--font-mono)" }}>
+									{indexProgress?.message ?? "Starting…"}
+								</p>
+								<div style={{ display: "flex", gap: 14, flexWrap: "wrap" }}>
+									{indexProgress?.estimatedSizeBytes != null && indexProgress.estimatedSizeBytes > 0 && (
+										<span style={{ fontFamily: "var(--font-mono)", fontSize: "0.68rem", color: "var(--text-on-dark-muted)" }}>
+											~{formatBytes(indexProgress.estimatedSizeBytes)}
+										</span>
+									)}
+									{timeRemaining && (
+										<span style={{ fontFamily: "var(--font-mono)", fontSize: "0.68rem", color: "var(--text-on-dark-muted)" }}>
+											{timeRemaining} remaining
+										</span>
+									)}
+								</div>
 							</div>
 						)}
 					</div>
