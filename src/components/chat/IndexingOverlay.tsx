@@ -17,6 +17,29 @@ function formatBytes(bytes: number): string {
 	return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+function friendlyErrorMessage(raw: string): string {
+	const lower = raw.toLowerCase();
+	const isRateLimit =
+		lower.includes("retrydelay") ||
+		lower.includes("retryinfo") ||
+		lower.includes("resource_exhausted") ||
+		lower.includes("quota") ||
+		lower.includes("rate limit") ||
+		lower.includes("too many requests") ||
+		lower.includes("429");
+
+	if (!isRateLimit) return raw;
+
+	// Try to extract the retry delay (e.g. "retryDelay":"43s" or "retryDelay": "1m2s")
+	const delayMatch = raw.match(/"retryDelay"\s*:\s*"([^"]+)"/i);
+	const delay = delayMatch?.[1];
+
+	if (delay) {
+		return `API rate limit hit. too many requests at once. retry in ${delay} and it should work fine.`;
+	}
+	return "API rate limit hit. too many requests at once. wait a moment and retry.";
+}
+
 // ── Doodle SVGs ──────────────────────────────────────────────────────────────
 
 function DoodleStar({ size = 16, color = "#16a34a", style }: { size?: number; color?: string; style?: React.CSSProperties }) {
@@ -167,7 +190,7 @@ export function IndexingOverlay({
 			<div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}>
 				<div style={{ border: "2px solid #dc2626", padding: "24px 28px", background: "var(--bg-card-dark)", maxWidth: 420, width: "100%", boxShadow: "4px 4px 0 #dc2626" }}>
 					<p style={{ fontWeight: 700, color: "#dc2626", fontFamily: "var(--font-display)", margin: "0 0 8px 0" }}>Something went wrong</p>
-					<p style={{ fontSize: "13px", color: "var(--text-on-dark-secondary)", marginBottom: 16, lineHeight: 1.5 }}>{indexProgress.message}</p>
+					<p style={{ fontSize: "13px", color: "var(--text-on-dark-secondary)", marginBottom: 16, lineHeight: 1.5 }}>{friendlyErrorMessage(indexProgress.message)}</p>
 					<button onClick={onRetry} style={{ background: "#0a0a0a", color: "#f5f5f0", border: "2px solid #f5f5f0", padding: "10px 20px", cursor: "pointer", fontWeight: 700, fontSize: "13px" }}>
 						Retry
 					</button>
