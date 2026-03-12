@@ -1056,6 +1056,19 @@ ${context}`,
 					}}
 				>
 					{toastMessage}
+					{shouldSuggestGitHubToken(toastMessage) && (
+						<>
+							<br />
+							<a
+								href="https://github.com/settings/tokens/new?scopes=repo&description=GitAsk"
+								target="_blank"
+								rel="noopener noreferrer"
+								style={{ color: "var(--text-on-dark)", textDecoration: "underline", textUnderlineOffset: "2px" }}
+							>
+								Get a token
+							</a>
+						</>
+					)}
 				</div>
 			)}
 
