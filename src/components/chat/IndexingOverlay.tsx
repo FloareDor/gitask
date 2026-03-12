@@ -353,7 +353,8 @@ export function IndexingOverlay({
 								marginBottom: 20,
 							}}
 						>
-							indexing your repo. big codebases can take a few minutes.{" "}
+							indexing your repo. big codebases can take a few minutes.
+							<br />
 							<span style={{ color: "#16a34a", fontWeight: 600 }}>
 								you can leave this tab in the background
 							</span>{" "}
