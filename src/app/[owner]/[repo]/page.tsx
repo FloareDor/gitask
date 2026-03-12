@@ -929,7 +929,7 @@ ${context}`,
 		} catch (err) {
 			const errorMessage = err instanceof Error ? err.message : String(err);
 			if (shouldPromptForLLMSettings(errorMessage)) {
-				setToastMessage("LLM authentication failed. Open LLM Settings to update your API key.");
+				setToastMessage(errorMessage);
 				if (typeof window !== "undefined") {
 					window.dispatchEvent(new Event("gitask-open-llm-settings"));
 				}

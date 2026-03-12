@@ -53,9 +53,24 @@ export interface ChatMessage {
 	content: string;
 }
 
+const VAULT_LOCKED_MSG = "Your API key is locked. Open LLM Settings and unlock it to continue.";
+
+function isVaultLockedError(lower: string): boolean {
+	return (
+		lower.includes("vault is locked") ||
+		lower.includes("key is locked") ||
+		lower.includes("not unlocked") ||
+		lower.includes("locked") && lower.includes("unlock")
+	);
+}
+
 function normalizeGeminiError(err: unknown): Error {
 	const message = err instanceof Error ? err.message : String(err);
 	const lower = message.toLowerCase();
+
+	if (isVaultLockedError(lower)) {
+		return new Error(VAULT_LOCKED_MSG);
+	}
 
 	if (
 		lower.includes("api key not valid") ||
@@ -81,6 +96,10 @@ function normalizeGeminiError(err: unknown): Error {
 function normalizeGroqError(err: unknown): Error {
 	const message = err instanceof Error ? err.message : String(err);
 	const lower = message.toLowerCase();
+
+	if (isVaultLockedError(lower)) {
+		return new Error(VAULT_LOCKED_MSG);
+	}
 
 	if (
 		lower.includes("invalid api key") ||
@@ -879,7 +898,7 @@ export async function initLLM(
 						storageMode === "local"
 							? `Add your ${providerLabel} API key in LLM Settings.`
 							: state === "locked"
-							? "Please unlock your API key in Settings."
+							? VAULT_LOCKED_MSG
 							: "Add an API key in Settings or use the default key."
 					);
 				}
