@@ -5,7 +5,11 @@
   "scripts": {
     "dev": "node scripts/dev-cleanup.js && next dev --webpack",
     "build": "rimraf .next/cache && next build --webpack",
-    "start": "next start"
+    "start": "next start",
+    "typecheck": "tsc -p tsconfig.ci.json --noEmit",
+    "test:ci": "vitest run src/lib/search.test.ts src/lib/graph_integration.test.ts src/lib/contextAssembly.test.ts src/lib/promptSafety.test.ts src/lib/chatHistory.test.ts src/lib/vectorStore.test.ts src/lib/chunker.test.ts",
+    "test:research": "vitest run src/lib/ablation.test.ts",
+    "test:benchmark": "vitest run src/lib/pipeline-benchmark.test.ts"
   },
   "dependencies": {
     "@babycommando/entity-db": "^1.0.11",
