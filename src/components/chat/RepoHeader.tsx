@@ -107,9 +107,9 @@ export function RepoHeader({
 					gitask
 				</a>
 				<span style={{ color: "var(--text-on-dark-muted)", fontSize: "0.9rem", flexShrink: 0 }}>/</span>
-				<span className="chat-nav-repo-badge" style={{ fontFamily: "var(--font-mono)", fontSize: "0.8rem", color: "var(--text-on-dark-secondary)", padding: "2px 8px", border: "1px solid var(--border-dark)", background: "var(--bg-card-dark)" }}>
+				<a href={`https://github.com/${owner}/${repo}`} target="_blank" rel="noopener noreferrer" className="chat-nav-repo-badge" style={{ fontFamily: "var(--font-mono)", fontSize: "0.8rem", color: "var(--text-on-dark-secondary)", padding: "2px 8px", border: "1px solid var(--border-dark)", background: "var(--bg-card-dark)", textDecoration: "none" }}>
 					{owner}/{repo}
-				</span>
+				</a>
 				{isIndexed && repoStale && (
 					<span
 						className="chat-nav-stale"
