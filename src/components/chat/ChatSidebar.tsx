@@ -24,6 +24,8 @@ interface ChatSidebarProps {
 	onCreateChat: () => void;
 	onCollapse: () => void;
 	onRequestNotification: () => void;
+	onCancelIndexing?: () => void;
+	isCancellingIndex?: boolean;
 }
 
 export function ChatSidebar({
@@ -45,6 +47,8 @@ export function ChatSidebar({
 	onCreateChat,
 	onCollapse,
 	onRequestNotification,
+	onCancelIndexing,
+	isCancellingIndex,
 }: ChatSidebarProps) {
 	const [interactiveChatId, setInteractiveChatId] = useState<string | null>(null);
 
@@ -87,6 +91,17 @@ export function ChatSidebar({
 									title="Get a system notification when indexing completes"
 								>
 									Notify when ready
+								</button>
+							)}
+							{onCancelIndexing && (
+								<button
+									type="button"
+									style={{ marginTop: 8, fontSize: "10px", padding: "2px 6px", background: "transparent", border: "1px solid var(--border-dark)", color: "var(--text-on-dark-muted)", cursor: isCancellingIndex ? "default" : "pointer", fontFamily: "var(--font-mono)", display: "block" }}
+									onClick={onCancelIndexing}
+									disabled={isCancellingIndex}
+									title="Stop indexing and return home"
+								>
+									{isCancellingIndex ? "Cancelling…" : "Cancel indexing"}
 								</button>
 							)}
 						</div>
