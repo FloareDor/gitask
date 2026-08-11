@@ -9,6 +9,7 @@ import {
 	compareCommits,
 	fetchRepoTree,
 	fetchFileContent,
+	isAbortError,
 	isIndexable,
 	prioritiseFiles,
 } from "./github";
@@ -68,6 +69,21 @@ export class IndexAbortError extends Error {
 
 function checkAborted(signal?: AbortSignal): void {
 	if (signal?.aborted) throw new IndexAbortError();
+}
+
+/** Re-throw abort-like errors as IndexAbortError so callers can stop cleanly. */
+function rethrowIfAborted(error: unknown, signal?: AbortSignal): void {
+	if (error instanceof IndexAbortError) throw error;
+	if (signal?.aborted || isAbortError(error)) throw new IndexAbortError();
+}
+
+async function withAbort<T>(promise: Promise<T>, signal?: AbortSignal): Promise<T> {
+	try {
+		return await promise;
+	} catch (error) {
+		rethrowIfAborted(error, signal);
+		throw error;
+	}
 }
 
 const DIRECTORY_SUMMARY_LIMITS = {
@@ -134,7 +150,7 @@ export async function indexRepository(
 		total: 1,
 	});
 
-	const tree = await fetchRepoTree(owner, repo, token);
+	const tree = await withAbort(fetchRepoTree(owner, repo, token, signal), signal);
 	checkAborted(signal);
 
 	// Fail fast on truncated trees to avoid stale/partial context from incomplete repository views.
@@ -208,7 +224,7 @@ export async function indexRepository(
 		checkAborted(signal);
 		try {
 			// Fetch each file from the exact commit snapshot resolved during tree fetch.
-			const content = await fetchFileContent(owner, repo, file.path, token, tree.sha);
+			const content = await fetchFileContent(owner, repo, file.path, token, tree.sha, signal);
 			checkAborted(signal);
 			const lang = detectLanguage(file.path);
 			let chunks: CodeChunk[] = [];
@@ -263,7 +279,7 @@ export async function indexRepository(
 				symbolNodes,
 			};
 		} catch (e) {
-			if (e instanceof IndexAbortError) throw e;
+			rethrowIfAborted(e, signal);
 			return {
 				fileIndex,
 				filePath: file.path,
@@ -326,7 +342,10 @@ export async function indexRepository(
 	if (blob && blob.sha !== tree.sha) {
 		await store.clearPartialProgress(owner, repo);
 		try {
-			const compare = await compareCommits(owner, repo, blob.sha, tree.sha, token);
+			const compare = await withAbort(
+				compareCommits(owner, repo, blob.sha, tree.sha, token, signal),
+				signal
+			);
 			const KNOWN_STATUSES = new Set(["added", "removed", "modified", "renamed"]);
 			if (compare.files.length <= INCREMENTAL_CHANGED_FILES_LIMIT) {
 				const pathsToRemove = new Set<string>();
@@ -414,20 +433,23 @@ export async function indexRepository(
 							current: 0,
 							total: allNewChunks.length,
 						});
-						const embeddedNew = await embedChunks(
-							allNewChunks,
-							(done, total) => {
-								onProgress?.({
-									phase: "embedding",
-									message: `Embedded ${done}/${total} new chunks`,
-									current: done,
-									total,
-								});
-							},
-							embedConfig.batchSize,
-							signal,
-							undefined,
-							embedConfig.workerCount
+						const embeddedNew = await withAbort(
+							embedChunks(
+								allNewChunks,
+								(done, total) => {
+									onProgress?.({
+										phase: "embedding",
+										message: `Embedded ${done}/${total} new chunks`,
+										current: done,
+										total,
+									});
+								},
+								embedConfig.batchSize,
+								signal,
+								undefined,
+								embedConfig.workerCount
+							),
+							signal
 						);
 						store.insert(embeddedNew);
 					}
@@ -696,7 +718,8 @@ export async function indexRepository(
 		for (const [fp] of fileChunkRanges) fileStatusMap.set(fp, "parsed");
 		let lastProgressMs = 0;
 
-		const newlyEmbedded = await embedChunks(
+		const newlyEmbedded = await withAbort(
+			embedChunks(
 			chunksToEmbed,
 			(done, _total) => {
 				checkAborted(signal);
@@ -757,6 +780,8 @@ export async function indexRepository(
 				});
 			},
 			embedConfig.workerCount
+			),
+			signal
 		);
 		embedded = [...embeddedSoFar, ...newlyEmbedded];
 	}
