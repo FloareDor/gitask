@@ -8,7 +8,9 @@ interface IndexingOverlayProps {
 	progressPercent: number;
 	timeRemaining: string | null;
 	onRetry: () => void;
+	onCancel?: () => void;
 	isError?: boolean;
+	isCancelling?: boolean;
 }
 
 function formatBytes(bytes: number): string {
@@ -183,8 +185,12 @@ export function IndexingOverlay({
 	progressPercent,
 	timeRemaining,
 	onRetry,
+	onCancel,
 	isError,
+	isCancelling,
 }: IndexingOverlayProps) {
+	const [showDetails, setShowDetails] = useState(false);
+
 	if (isError && indexProgress?.message) {
 		return (
 			<div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}>
@@ -199,8 +205,30 @@ export function IndexingOverlay({
 		);
 	}
 
-	const [showDetails, setShowDetails] = useState(false);
 	const isBigRepo = (indexProgress?.estimatedSizeBytes ?? 0) > 1.5 * 1024 * 1024;
+
+	const cancelButton = onCancel ? (
+		<button
+			type="button"
+			onClick={onCancel}
+			disabled={isCancelling}
+			style={{
+				marginTop: 16,
+				background: "transparent",
+				color: isCancelling ? "var(--text-on-dark-muted)" : "var(--text-on-dark-secondary)",
+				border: "1px solid var(--border-dark)",
+				padding: "8px 14px",
+				cursor: isCancelling ? "default" : "pointer",
+				fontWeight: 600,
+				fontSize: "12px",
+				fontFamily: "var(--font-mono)",
+				letterSpacing: "0.02em",
+			}}
+			title="Stop indexing and return home"
+		>
+			{isCancelling ? "Cancelling…" : "Cancel indexing"}
+		</button>
+	) : null;
 
 	if (!isBigRepo) {
 		return (
@@ -218,18 +246,19 @@ export function IndexingOverlay({
 						<div style={{ height: "100%", background: "#16a34a", width: `${progressPercent}%`, transition: "width 0.3s" }} />
 					</div>
 					<p style={{ fontSize: "0.85rem", color: "var(--text-on-dark-secondary)", marginBottom: 0 }}>
-						{indexProgress?.message ?? "Starting..."}
+						{isCancelling ? "Stopping…" : (indexProgress?.message ?? "Starting...")}
 					</p>
 					{indexProgress?.estimatedSizeBytes != null && indexProgress.estimatedSizeBytes > 0 && (
 						<p style={{ fontFamily: "var(--font-mono)", fontSize: "0.72rem", color: "var(--text-on-dark-muted)", margin: "4px 0 0 0" }}>
 							~{formatBytes(indexProgress.estimatedSizeBytes)}
 						</p>
 					)}
-					{timeRemaining && (
+					{timeRemaining && !isCancelling && (
 						<p style={{ fontFamily: "var(--font-mono)", fontSize: "0.72rem", color: "var(--text-on-dark-muted)", margin: "4px 0 0 0" }}>
 							{timeRemaining} remaining
 						</p>
 					)}
+					{cancelButton}
 				</div>
 			</div>
 		);
@@ -415,7 +444,7 @@ export function IndexingOverlay({
 						{showDetails && (
 							<div style={{ marginTop: 10, display: "flex", flexDirection: "column", gap: 4 }}>
 								<p style={{ fontSize: "0.78rem", color: "var(--text-on-dark-secondary)", margin: 0, lineHeight: 1.5, fontFamily: "var(--font-mono)" }}>
-									{indexProgress?.message ?? "Starting…"}
+									{isCancelling ? "Stopping…" : (indexProgress?.message ?? "Starting…")}
 								</p>
 								<div style={{ display: "flex", gap: 14, flexWrap: "wrap" }}>
 									{indexProgress?.estimatedSizeBytes != null && indexProgress.estimatedSizeBytes > 0 && (
@@ -423,7 +452,7 @@ export function IndexingOverlay({
 											~{formatBytes(indexProgress.estimatedSizeBytes)}
 										</span>
 									)}
-									{timeRemaining && (
+									{timeRemaining && !isCancelling && (
 										<span style={{ fontFamily: "var(--font-mono)", fontSize: "0.68rem", color: "var(--text-on-dark-muted)" }}>
 											{timeRemaining} remaining
 										</span>
@@ -431,6 +460,8 @@ export function IndexingOverlay({
 								</div>
 							</div>
 						)}
+
+						{cancelButton}
 					</div>
 				</div>
 			</div>

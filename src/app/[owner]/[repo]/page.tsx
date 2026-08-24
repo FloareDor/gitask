@@ -97,9 +97,11 @@ export default function RepoPage({
 	const [fileBrowserOpen, setFileBrowserOpen] = useState(false);
 	const [fileBrowserTab, setFileBrowserTab] = useState<"tree" | "chunks">("tree");
 	const [showDiagram, setShowDiagram] = useState(false);
+	const [isCancellingIndex, setIsCancellingIndex] = useState(false);
 
 	const completedWhileHiddenRef = useRef(false);
 	const indexStartTimeRef = useRef<number | null>(null);
+	const indexAbortControllerRef = useRef<AbortController | null>(null);
 	const chatLoadedRef = useRef(false);
 	const messagesRef = useRef<Message[]>([]);
 	const chatSessionsRef = useRef<ChatSession[]>([]);
@@ -336,7 +338,9 @@ export default function RepoPage({
 		if (!owner || !repo) return;
 		completedWhileHiddenRef.current = false;
 		indexStartTimeRef.current = Date.now();
+		setIsCancellingIndex(false);
 		const controller = new AbortController();
+		indexAbortControllerRef.current = controller;
 		const signal = controller.signal;
 		let aborted = false;
 
@@ -391,7 +395,14 @@ export default function RepoPage({
 					}
 				});
 			} catch (err) {
-				if (err instanceof IndexAbortError || aborted) return;
+				if (
+					err instanceof IndexAbortError
+					|| aborted
+					|| (err instanceof DOMException && err.name === "AbortError")
+					|| (err instanceof Error && err.name === "AbortError")
+				) {
+					return;
+				}
 				const errorMessage = err instanceof Error ? err.message : String(err);
 				if (shouldSuggestGitHubToken(errorMessage)) {
 					safeSetState(setShowTokenInput, true);
@@ -408,6 +419,9 @@ export default function RepoPage({
 
 		return () => {
 			aborted = true;
+			if (indexAbortControllerRef.current === controller) {
+				indexAbortControllerRef.current = null;
+			}
 			controller.abort();
 		};
 	}, [owner, repo, token, reindexKey]);
@@ -574,6 +588,21 @@ export default function RepoPage({
 			console.error("Failed to clear cache:", err);
 		}
 	}, [owner, repo]);
+
+	const handleCancelIndexing = useCallback(async () => {
+		if (isCancellingIndex) return;
+		setIsCancellingIndex(true);
+		indexAbortControllerRef.current?.abort();
+		storeRef.current.clear();
+		if (owner && repo) {
+			try {
+				await storeRef.current.clearPartialProgress(owner, repo);
+			} catch (e) {
+				console.warn("Failed to clear partial indexing progress:", e);
+			}
+		}
+		router.push("/");
+	}, [isCancellingIndex, owner, repo, router]);
 
 	const handleDeleteEmbeddings = useCallback(async () => {
 		if (!owner || !repo) return;
@@ -1137,6 +1166,8 @@ ${context}`,
 					onCreateChat={handleCreateChat}
 					onCollapse={() => setSidebarCollapsed((v) => !v)}
 					onRequestNotification={handleRequestNotificationPermission}
+					onCancelIndexing={handleCancelIndexing}
+					isCancellingIndex={isCancellingIndex}
 				/>
 
 				<main style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", background: "var(--bg-app)" }}>
@@ -1147,6 +1178,8 @@ ${context}`,
 							progressPercent={progressPercent}
 							timeRemaining={timeRemaining}
 							onRetry={() => { void handleClearCacheAndReindex(); }}
+							onCancel={handleCancelIndexing}
+							isCancelling={isCancellingIndex}
 						/>
 					)}
 
