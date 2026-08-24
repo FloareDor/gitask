@@ -589,13 +589,20 @@ export default function RepoPage({
 		}
 	}, [owner, repo]);
 
-	const handleCancelIndexing = useCallback(() => {
+	const handleCancelIndexing = useCallback(async () => {
 		if (isCancellingIndex) return;
 		setIsCancellingIndex(true);
-		storeRef.current.clear();
 		indexAbortControllerRef.current?.abort();
+		storeRef.current.clear();
+		if (owner && repo) {
+			try {
+				await storeRef.current.clearPartialProgress(owner, repo);
+			} catch (e) {
+				console.warn("Failed to clear partial indexing progress:", e);
+			}
+		}
 		router.push("/");
-	}, [isCancellingIndex, router]);
+	}, [isCancellingIndex, owner, repo, router]);
 
 	const handleDeleteEmbeddings = useCallback(async () => {
 		if (!owner || !repo) return;
