@@ -57,6 +57,50 @@ function headers(token?: string): HeadersInit {
 	return h;
 }
 
+/** True when a fetch/DOM abort was caused by an AbortSignal. */
+export function isAbortError(error: unknown): boolean {
+	return (
+		(error instanceof DOMException && error.name === "AbortError") ||
+		(error instanceof Error && error.name === "AbortError")
+	);
+}
+
+/**
+ * Combine an optional external AbortSignal with a timeout controller.
+ * Returns the signal to pass to fetch and a cleanup function.
+ */
+function combineAbortSignals(
+	external: AbortSignal | undefined,
+	timeoutController: AbortController
+): { signal: AbortSignal; cleanup: () => void } {
+	if (!external) {
+		return { signal: timeoutController.signal, cleanup: () => undefined };
+	}
+	if (typeof AbortSignal.any === "function") {
+		return {
+			signal: AbortSignal.any([external, timeoutController.signal]),
+			cleanup: () => undefined,
+		};
+	}
+	const combined = new AbortController();
+	const onAbort = () => {
+		if (!combined.signal.aborted) combined.abort();
+	};
+	if (external.aborted || timeoutController.signal.aborted) {
+		combined.abort();
+		return { signal: combined.signal, cleanup: () => undefined };
+	}
+	external.addEventListener("abort", onAbort);
+	timeoutController.signal.addEventListener("abort", onAbort);
+	return {
+		signal: combined.signal,
+		cleanup: () => {
+			external.removeEventListener("abort", onAbort);
+			timeoutController.signal.removeEventListener("abort", onAbort);
+		},
+	};
+}
+
 /**
  * Fetch the full recursive file tree for a repository.
  * Returns the default branch commit SHA + all blob entries for that commit tree.
@@ -64,11 +108,13 @@ function headers(token?: string): HeadersInit {
 export async function fetchRepoTree(
 	owner: string,
 	repo: string,
-	token?: string
+	token?: string,
+	signal?: AbortSignal
 ): Promise<TreeResponse> {
 	// 1. Get default branch SHA
 	const repoRes = await fetch(`${API_BASE}/repos/${owner}/${repo}`, {
 		headers: headers(token),
+		signal,
 	});
 	if (!repoRes.ok) {
 		const details = await readGitHubErrorMessage(repoRes);
@@ -89,7 +135,7 @@ export async function fetchRepoTree(
 	// 2. Resolve the default branch HEAD commit for a stable snapshot.
 	const commitRes = await fetch(
 		`${API_BASE}/repos/${owner}/${repo}/commits/${encodeURIComponent(defaultBranch)}`,
-		{ headers: headers(token) }
+		{ headers: headers(token), signal }
 	);
 	if (!commitRes.ok) {
 		const details = await readGitHubErrorMessage(commitRes);
@@ -118,7 +164,7 @@ export async function fetchRepoTree(
 	// 3. Get the tree recursively for that exact commit tree.
 	const treeRes = await fetch(
 		`${API_BASE}/repos/${owner}/${repo}/git/trees/${treeSha}?recursive=1`,
-		{ headers: headers(token) }
+		{ headers: headers(token), signal }
 	);
 	if (!treeRes.ok) {
 		const details = await readGitHubErrorMessage(treeRes);
@@ -162,11 +208,12 @@ export async function compareCommits(
 	repo: string,
 	baseSha: string,
 	headSha: string,
-	token?: string
+	token?: string,
+	signal?: AbortSignal
 ): Promise<CompareCommitsResult> {
 	const res = await fetch(
 		`${API_BASE}/repos/${owner}/${repo}/compare/${encodeURIComponent(baseSha)}...${encodeURIComponent(headSha)}`,
-		{ headers: headers(token) }
+		{ headers: headers(token), signal }
 	);
 	if (!res.ok) {
 		const details = await readGitHubErrorMessage(res);
@@ -226,27 +273,28 @@ export async function fetchFileContent(
 	repo: string,
 	path: string,
 	token?: string,
-	ref: string = "HEAD"
+	ref: string = "HEAD",
+	signal?: AbortSignal
 ): Promise<string> {
 	const encodedPath = path
 		.split("/")
 		.map((segment) => encodeURIComponent(segment))
 		.join("/");
 	const url = `https://raw.githubusercontent.com/${owner}/${repo}/${ref}/${encodedPath}`;
-	const controller = new AbortController();
-	const timeoutId = setTimeout(() => controller.abort(), RAW_FILE_FETCH_TIMEOUT_MS);
+	const timeoutController = new AbortController();
+	const timeoutId = setTimeout(() => timeoutController.abort(), RAW_FILE_FETCH_TIMEOUT_MS);
+	const { signal: fetchSignal, cleanup } = combineAbortSignals(signal, timeoutController);
 	try {
 		const res = await fetch(url, {
 			headers: headers(token),
-			signal: controller.signal,
+			signal: fetchSignal,
 		});
 		if (!res.ok) throw new Error(`Failed to fetch ${path}: ${res.status}`);
 		return res.text();
 	} catch (e) {
-		if (
-			e instanceof DOMException
-			&& e.name === "AbortError"
-		) {
+		if (isAbortError(e)) {
+			// External cancel should propagate as AbortError so callers can stop indexing.
+			if (signal?.aborted) throw e;
 			throw new Error(
 				`Timed out fetching ${path}. Check your connection and try again.`
 			);
@@ -254,6 +302,7 @@ export async function fetchFileContent(
 		throw e;
 	} finally {
 		clearTimeout(timeoutId);
+		cleanup();
 	}
 }
 
