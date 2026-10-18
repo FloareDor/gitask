@@ -4,6 +4,7 @@ import { useCallback, useMemo, useRef, useState } from "react";
 import type { CSSProperties } from "react";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { indexRepository, type IndexProgress } from "@/lib/indexer";
+import { embedText } from "@/lib/embedder";
 import { VectorStore } from "@/lib/vectorStore";
 import { getGeminiKeyScope } from "@/lib/llm";
 import { GEMINI_AGENT_MODEL } from "@/lib/agent/providers/gemini";
@@ -19,11 +20,12 @@ import {
 } from "@/lib/eval/harness";
 import { EVAL_SET, evalRepos, questionsForRepo, refForRepo } from "@/lib/eval/questions";
 import { disagreements, stopReasons, summaryTable } from "@/lib/eval/summary";
+import { runAblationForRepo, type AblationProgress, type AblationRow } from "@/lib/eval/ablation";
 
 /** A long run shouldn't be lost to a reload. Records are flushed here as they land. */
 const DRAFT_KEY = "gitask-eval-draft";
 
-type Phase = "idle" | "indexing" | "indexed" | "running" | "done" | "error";
+type Phase = "idle" | "indexing" | "indexed" | "running" | "ablating" | "done" | "error";
 
 function loadDraft(): EvalRecord[] {
   if (typeof window === "undefined") return [];
@@ -61,6 +63,8 @@ export default function EvalPage() {
   const [evalProgress, setEvalProgress] = useState<EvalProgress | null>(null);
   const [summaries, setSummaries] = useState<RepoSummary[]>([]);
   const [records, setRecords] = useState<EvalRecord[]>(loadDraft);
+  const [ablation, setAblation] = useState<AblationRow[]>([]);
+  const [ablationProgress, setAblationProgress] = useState<AblationProgress | null>(null);
 
   const storeRef = useRef(new VectorStore());
   const abortRef = useRef<AbortController | null>(null);
@@ -123,12 +127,31 @@ export default function EvalPage() {
     }
   }, [arms, questions, records, repo, runs, smoke]);
 
+  const handleAblation = useCallback(async () => {
+    setPhase("ablating");
+    setError(null);
+    const controller = new AbortController();
+    abortRef.current = controller;
+    try {
+      const rows = await runAblationForRepo(storeRef.current, repo, {
+        embedQuery: embedText,
+        onProgress: setAblationProgress,
+        signal: controller.signal,
+      });
+      setAblation((prev) => [...prev.filter((row) => row.repo !== repo), ...rows]);
+      setPhase("done");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+      setPhase("error");
+    }
+  }, [repo]);
+
   const handleStop = useCallback(() => {
     abortRef.current?.abort();
   }, []);
 
   const handleDownload = useCallback(() => {
-    const payload = buildExport({ model: GEMINI_AGENT_MODEL, runs, repos: summaries, records });
+    const payload = buildExport({ model: GEMINI_AGENT_MODEL, runs, repos: summaries, records, ablation });
     const blob = new Blob([JSON.stringify(payload, null, 1)], { type: "application/json" });
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
@@ -136,7 +159,7 @@ export default function EvalPage() {
     link.download = `gitask-eval-${new Date().toISOString().slice(0, 10)}.json`;
     link.click();
     URL.revokeObjectURL(url);
-  }, [records, runs, summaries]);
+  }, [ablation, records, runs, summaries]);
 
   const handleClear = useCallback(() => {
     setRecords([]);
@@ -144,7 +167,7 @@ export default function EvalPage() {
   }, []);
 
   const summary = summaries.find((s) => s.repo === repo);
-  const busy = phase === "indexing" || phase === "running";
+  const busy = phase === "indexing" || phase === "running" || phase === "ablating";
 
   return (
     <main style={styles.page}>
@@ -242,6 +265,9 @@ export default function EvalPage() {
             >
               run eval
             </button>
+            <button onClick={handleAblation} disabled={busy || !summary} style={styles.button}>
+              run ablation
+            </button>
             {busy && <button onClick={handleStop} style={styles.button}>stop</button>}
             <button onClick={handleDownload} disabled={records.length === 0} style={styles.button}>
               download json ({records.length} rows)
@@ -262,6 +288,12 @@ export default function EvalPage() {
           {phase === "running" && evalProgress && (
             <p style={styles.status}>
               {evalProgress.done}/{evalProgress.total} — {evalProgress.questionId} · {evalProgress.arm} · run {evalProgress.run}
+            </p>
+          )}
+
+          {phase === "ablating" && ablationProgress && (
+            <p style={styles.status}>
+              ablation — {ablationProgress.config}: {ablationProgress.done}/{ablationProgress.total}
             </p>
           )}
 
@@ -316,6 +348,40 @@ export default function EvalPage() {
                       <td style={styles.td}>{Math.round(cell.meanTokensOut)}</td>
                       <td style={styles.td}>{(cell.meanLatencyMs / 1000).toFixed(1)}s</td>
                       <td style={styles.td}>{cell.meanSteps === null ? "—" : cell.meanSteps.toFixed(1)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </section>
+        )}
+
+        {ablation.length > 0 && (
+          <section style={styles.panel}>
+            <h2 style={styles.h2}>Retrieval ablation, same questions</h2>
+            <div style={styles.scroll}>
+              <table style={styles.table}>
+                <thead>
+                  <tr>
+                    <th style={styles.th}>config</th>
+                    <th style={styles.th}>repo</th>
+                    <th style={styles.th}>q</th>
+                    <th style={styles.th}>Recall@5</th>
+                    <th style={styles.th}>MRR</th>
+                    <th style={styles.th}>NDCG@10</th>
+                    <th style={styles.th}>latency</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {ablation.map((row) => (
+                    <tr key={`${row.repo}-${row.config}`} title={row.description}>
+                      <td style={styles.td}>{row.config}</td>
+                      <td style={styles.td}>{row.repo}</td>
+                      <td style={styles.td}>{row.questions}</td>
+                      <td style={styles.td}>{pct(row.avgRecallAt5)}</td>
+                      <td style={styles.td}>{row.avgMRR.toFixed(3)}</td>
+                      <td style={styles.td}>{row.avgNdcgAt10.toFixed(3)}</td>
+                      <td style={styles.td}>{row.avgLatencyMs.toFixed(1)}ms</td>
                     </tr>
                   ))}
                 </tbody>

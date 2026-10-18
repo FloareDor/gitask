@@ -14,6 +14,7 @@
 import type { KeyScope } from "../agent/providers/gemini";
 import { EMBEDDING_MODEL_ID } from "../embedder";
 import type { VectorStore } from "../vectorStore";
+import type { AblationRow } from "./ablation";
 import { runArm, type Arm, type ArmRun } from "./arms";
 import { judgeAnswer, type Verdict } from "./judge";
 import { questionsForRepo, EVAL_SET } from "./questions";
@@ -181,6 +182,8 @@ export interface EvalExport {
 	runsPerQuestion: number;
 	repos: RepoSummary[];
 	records: EvalRecord[];
+	/** The retrieval ablation, run on these same questions. */
+	ablation: AblationRow[];
 }
 
 export function buildExport(options: {
@@ -188,6 +191,7 @@ export function buildExport(options: {
 	runs: number;
 	repos: RepoSummary[];
 	records: EvalRecord[];
+	ablation: AblationRow[];
 }): EvalExport {
 	return {
 		generatedAt: new Date().toISOString(),
@@ -198,5 +202,6 @@ export function buildExport(options: {
 		runsPerQuestion: options.runs,
 		repos: options.repos,
 		records: options.records,
+		ablation: options.ablation,
 	};
 }

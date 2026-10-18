@@ -1,6 +1,11 @@
-﻿/**
+/**
  * Ablation Study - Benchmarks the GitAsk retrieval pipeline
  * across configurations measuring Recall@5, MRR, NDCG@10, and latency.
+ *
+ * The configs themselves live in `ablationConfigs.ts` so the browser-side
+ * ablation in `eval/ablation.ts` runs the same code against a real index.
+ * The two configs below stay here because they call the embedder, which this
+ * file mocks out to replay precomputed query vectors.
  */
 
 import { describe, it, expect, vi } from "vitest";
@@ -11,25 +16,20 @@ import {
   REPO_EVAL_QUERIES,
   type EvalQuery,
 } from "./eval-data";
-import { cosineSimilarity } from "./quantize";
 import {
-  vectorSearch,
-  reciprocalRankFusion,
-  multiPathHybridSearch,
-  hybridSearch,
-} from "./search";
-import { bm25Search } from "./bm25";
-import { expandCandidatesWithGraph } from "./graphExpansion";
+  ABLATION_CONFIGS,
+  recallAtK,
+  meanReciprocalRank,
+  ndcgAtK,
+  type AblationSearchFn,
+} from "./ablationConfigs";
+import { multiPathHybridSearch } from "./search";
 import type { EmbeddedChunk } from "./embedder";
 import type { SearchResult } from "./vectorStore";
 import { VectorStore } from "./vectorStore";
 import { buildPageIndexTree } from "./pageIndexTree";
 import { pageIndexSearch } from "./pageIndexSearch";
 
-const COSINE_RERANK_WEIGHT = 0.7;
-const FUSED_PRIOR_WEIGHT = 1 - COSINE_RERANK_WEIGHT;
-const GRAPH_EXPANSION_SEED_COUNT = 20;
-const GRAPH_EXPANSION_WEIGHT = 0.5;
 const LATENCY_WARMUP_QUERIES = 5;
 const LATENCY_SAMPLES_PER_QUERY = 3;
 
@@ -40,184 +40,64 @@ vi.mock("./embedder", () => ({
 
 const storeCache = new WeakMap<EmbeddedChunk[], VectorStore>();
 
+/**
+ * The eval corpora are bare chunk lists with no import graph, so one is
+ * synthesised from chunk names to give graph expansion something to walk.
+ */
 function getStoreForChunks(chunks: EmbeddedChunk[]): VectorStore {
-	const cached = storeCache.get(chunks);
-	if (cached) return cached;
+  const cached = storeCache.get(chunks);
+  if (cached) return cached;
 
-	const store = new VectorStore();
-	store.insert(chunks);
-	const graph: Record<string, { imports: string[]; definitions: string[] }> = {};
-	for (const chunk of chunks) {
-		const current = graph[chunk.filePath] ?? { imports: [], definitions: [] };
-		if (chunk.name && !current.definitions.includes(chunk.name)) {
-			current.definitions.push(chunk.name);
-		}
-		graph[chunk.filePath] = current;
-	}
-	store.setGraph(graph);
-	storeCache.set(chunks, store);
-	return store;
-}
-
-async function searchFullPipeline(
-  chunks: EmbeddedChunk[],
-  queryEmb: number[],
-  queryText: string,
-  limit: number = 5
-): Promise<SearchResult[]> {
-  const store = getStoreForChunks(chunks);
-  return hybridSearch(store, queryEmb, queryText, {
-    limit,
-    coarseCandidates: 50,
-    rrfK: 60,
-  });
-}
-
-async function searchNoQuantization(
-  chunks: EmbeddedChunk[],
-  queryEmb: number[],
-  queryText: string,
-  limit: number = 5
-): Promise<SearchResult[]> {
-  const store = getStoreForChunks(chunks);
-  const cosScores = new Map<string, number>();
+  const store = new VectorStore();
+  store.insert(chunks);
+  const graph: Record<string, { imports: string[]; definitions: string[] }> = {};
   for (const chunk of chunks) {
-    const score = cosineSimilarity(queryEmb, chunk.embedding);
-    cosScores.set(chunk.id, score);
+    const current = graph[chunk.filePath] ?? { imports: [], definitions: [] };
+    if (chunk.name && !current.definitions.includes(chunk.name)) {
+      current.definitions.push(chunk.name);
+    }
+    graph[chunk.filePath] = current;
   }
-
-  const sparseScores = await bm25Search(chunks, queryText, { limit: 50 });
-  const fused = reciprocalRankFusion([cosScores, sparseScores], 60);
-  const candidates = [...fused.entries()].sort((a, b) => b[1] - a[1]).slice(0, 50);
-  const expanded = expandCandidatesWithGraph(store, candidates, {
-    seedCount: GRAPH_EXPANSION_SEED_COUNT,
-    expansionWeight: GRAPH_EXPANSION_WEIGHT,
-  });
-  const maxFusedScore = expanded.reduce((max, [, fusedScore]) => Math.max(max, fusedScore), 0);
-
-  const chunkMap = new Map(chunks.map((c) => [c.id, c]));
-  const reranked: SearchResult[] = [];
-  for (const [id, fusedScore] of expanded) {
-    const chunk = chunkMap.get(id);
-    if (!chunk) continue;
-    const cosineScore = cosineSimilarity(queryEmb, chunk.embedding);
-    const fusedPrior = maxFusedScore > 0 ? fusedScore / maxFusedScore : 0;
-    const score = cosineScore * COSINE_RERANK_WEIGHT + fusedPrior * FUSED_PRIOR_WEIGHT;
-    reranked.push({ chunk, score, embedding: chunk.embedding });
-  }
-  reranked.sort((a, b) => b.score - a.score);
-  return reranked.slice(0, limit);
+  store.setGraph(graph);
+  storeCache.set(chunks, store);
+  return store;
 }
 
-function searchVectorOnly(
-  chunks: EmbeddedChunk[],
-  queryEmb: number[],
-  _queryText: string,
-  limit: number = 5
-): SearchResult[] {
-  const store = getStoreForChunks(chunks);
-  const vectorScores = vectorSearch(chunks, queryEmb, 50, store.getAllBinaries());
-  const candidates = [...vectorScores.entries()]
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 50);
+/** These two baselines are measured without the import graph, as published. */
+const graphlessCache = new WeakMap<EmbeddedChunk[], VectorStore>();
 
-  const chunkMap = new Map(chunks.map((c) => [c.id, c]));
-  const reranked: SearchResult[] = [];
-  for (const [id] of candidates) {
-    const chunk = chunkMap.get(id);
-    if (!chunk) continue;
-    const score = cosineSimilarity(queryEmb, chunk.embedding);
-    reranked.push({ chunk, score, embedding: chunk.embedding });
-  }
-  reranked.sort((a, b) => b.score - a.score);
-  return reranked.slice(0, limit);
-}
-
-async function searchNoReranking(
-  chunks: EmbeddedChunk[],
-  queryEmb: number[],
-  queryText: string,
-  limit: number = 5
-): Promise<SearchResult[]> {
-  const store = getStoreForChunks(chunks);
-  const vectorScores = vectorSearch(chunks, queryEmb, 50, store.getAllBinaries());
-  const sparseScores = await bm25Search(chunks, queryText, { limit: 50 });
-  const fused = reciprocalRankFusion([vectorScores, sparseScores], 60);
-  const candidates = [...fused.entries()].sort((a, b) => b[1] - a[1]).slice(0, 50);
-  const expanded = expandCandidatesWithGraph(store, candidates, {
-    seedCount: GRAPH_EXPANSION_SEED_COUNT,
-    expansionWeight: GRAPH_EXPANSION_WEIGHT,
-  });
-  const top = expanded.sort((a, b) => b[1] - a[1]).slice(0, limit);
-
-  const chunkMap = new Map(chunks.map((c) => [c.id, c]));
-  const results: SearchResult[] = [];
-  for (const [id, score] of top) {
-    const chunk = chunkMap.get(id);
-    if (!chunk) continue;
-    results.push({ chunk, score, embedding: chunk.embedding });
-  }
-  return results;
-}
-
-async function searchCodeRagMultiPath(
-  chunks: EmbeddedChunk[],
-  queryEmb: number[],
-  queryText: string,
-  limit: number = 5
-): Promise<SearchResult[]> {
-  activeQueryEmbedding = queryEmb;
+function getGraphlessStore(chunks: EmbeddedChunk[]): VectorStore {
+  const cached = graphlessCache.get(chunks);
+  if (cached) return cached;
   const store = new VectorStore();
   store.insert(chunks);
   store.setGraph({});
-  const variants = [queryText];
-  return multiPathHybridSearch(store, variants, {
+  graphlessCache.set(chunks, store);
+  return store;
+}
+
+const searchCodeRagMultiPath: AblationSearchFn = (store, queryEmbedding, queryText, limit = 5) => {
+  activeQueryEmbedding = queryEmbedding;
+  return multiPathHybridSearch(getGraphlessStore(store.getAll()), [queryText], {
     limit,
     coarseCandidates: 50,
     rrfK: 60,
     preferenceAlpha: 0.7,
   });
-}
+};
 
-function recallAtK(results: SearchResult[], relevant: string[], k: number): number {
-  if (relevant.length === 0) return 0;
-  const topK = results.slice(0, k).map((r) => r.chunk.id);
-  const hits = relevant.filter((id) => topK.includes(id)).length;
-  return hits / relevant.length;
-}
+const searchPageIndexKeyword: AblationSearchFn = async (store, _queryEmbedding, queryText) => {
+  const graphless = getGraphlessStore(store.getAll());
+  const tree = buildPageIndexTree(graphless);
+  const { results } = await pageIndexSearch(tree, graphless, queryText, "mlc");
+  return results;
+};
 
-function meanReciprocalRank(results: SearchResult[], relevant: string[]): number {
-  for (let i = 0; i < results.length; i += 1) {
-    if (relevant.includes(results[i].chunk.id)) {
-      return 1 / (i + 1);
-    }
-  }
-  return 0;
-}
-
-function ndcgAtK(
-  results: SearchResult[],
-  relevanceScores: Record<string, number>,
-  k: number
-): number {
-  const dcg = results.slice(0, k).reduce((sum, result, index) => {
-    const rel = relevanceScores[result.chunk.id] ?? 0;
-    const gain = Math.pow(2, rel) - 1;
-    return sum + gain / Math.log2(index + 2);
-  }, 0);
-
-  const idealRelevances = Object.values(relevanceScores)
-    .filter((rel) => rel > 0)
-    .sort((a, b) => b - a)
-    .slice(0, k);
-
-  const idcg = idealRelevances.reduce((sum, rel, index) => {
-    const gain = Math.pow(2, rel) - 1;
-    return sum + gain / Math.log2(index + 2);
-  }, 0);
-
-  return idcg === 0 ? 0 : dcg / idcg;
-}
+const CONFIGS: { name: string; fn: AblationSearchFn }[] = [
+  ...ABLATION_CONFIGS.map((config) => ({ name: config.name, fn: config.run })),
+  { name: "CodeRAG Multi-Path", fn: searchCodeRagMultiPath },
+  { name: "PageIndex (Keyword)", fn: searchPageIndexKeyword },
+];
 
 export interface AblationResult {
   config: string;
@@ -234,58 +114,44 @@ export interface AblationResult {
   }[];
 }
 
-type SearchFn = (
-  chunks: EmbeddedChunk[],
-  queryEmb: number[],
-  queryText: string,
-  limit?: number
-) => SearchResult[] | Promise<SearchResult[]>;
-
 function median(values: number[]): number {
   if (values.length === 0) return 0;
   const sorted = [...values].sort((a, b) => a - b);
   const mid = Math.floor(sorted.length / 2);
-  if (sorted.length % 2 === 0) {
-    return (sorted[mid - 1] + sorted[mid]) / 2;
-  }
-  return sorted[mid];
+  return sorted.length % 2 === 0 ? (sorted[mid - 1] + sorted[mid]) / 2 : sorted[mid];
 }
 
 async function runBenchmark(
   name: string,
-  searchFn: SearchFn,
+  searchFn: AblationSearchFn,
   chunks: EmbeddedChunk[],
   queries: EvalQuery[]
 ): Promise<AblationResult> {
+  const store = getStoreForChunks(chunks);
   const perQuery: AblationResult["perQuery"] = [];
 
   // Warm up caches/JIT to reduce one-off latency spikes in reported metrics.
-  const warmupQueries = queries.slice(0, Math.min(LATENCY_WARMUP_QUERIES, queries.length));
-  for (const q of warmupQueries) {
+  for (const q of queries.slice(0, Math.min(LATENCY_WARMUP_QUERIES, queries.length))) {
     activeQueryEmbedding = q.queryEmbedding;
-    await searchFn(chunks, q.queryEmbedding, q.query, 10);
+    await searchFn(store, q.queryEmbedding, q.query, 10);
   }
 
   for (const q of queries) {
     const latencySamples: number[] = [];
-    let measuredResults: SearchResult[] | null = null;
+    let measuredResults: SearchResult[] = [];
 
-    for (let i = 0; i < LATENCY_SAMPLES_PER_QUERY; i++) {
+    for (let i = 0; i < LATENCY_SAMPLES_PER_QUERY; i += 1) {
       activeQueryEmbedding = q.queryEmbedding;
       const start = performance.now();
-      const results = await searchFn(chunks, q.queryEmbedding, q.query, 10);
-      const elapsed = (performance.now() - start) * 1000;
-      latencySamples.push(elapsed);
-      measuredResults = results;
+      measuredResults = await searchFn(store, q.queryEmbedding, q.query, 10);
+      latencySamples.push((performance.now() - start) * 1000);
     }
-
-    const results = measuredResults ?? [];
 
     perQuery.push({
       queryId: q.id,
-      recallAt5: recallAtK(results, q.relevantChunkIds, 5),
-      mrr: meanReciprocalRank(results, q.relevantChunkIds),
-      ndcgAt10: ndcgAtK(results, q.relevanceScores, 10),
+      recallAt5: recallAtK(measuredResults, q.relevantChunkIds, 5),
+      mrr: meanReciprocalRank(measuredResults, q.relevantChunkIds),
+      ndcgAt10: ndcgAtK(measuredResults, q.relevanceScores, 10),
       latencyUs: median(latencySamples),
     });
   }
@@ -302,42 +168,36 @@ async function runBenchmark(
   };
 }
 
-async function searchPageIndexKeyword(
-  chunks: EmbeddedChunk[],
-  _queryEmb: number[],
-  queryText: string,
-  _limit: number = 5
-): Promise<SearchResult[]> {
-  const store = new VectorStore();
-  store.insert(chunks);
-  store.setGraph({});
-  const tree = buildPageIndexTree(store);
-  const { results } = await pageIndexSearch(tree, store, queryText, "mlc");
-  return results;
+function printTable(title: string, results: AblationResult[]): void {
+  console.log(`\n${title}`);
+  console.log("Configuration | Recall@5 | MRR | NDCG@10 | Latency(us)");
+  console.log("--- | --- | --- | --- | ---");
+  for (const result of results) {
+    console.log([
+      result.config,
+      `${(result.avgRecallAt5 * 100).toFixed(1)}%`,
+      result.avgMRR.toFixed(4),
+      result.avgNdcgAt10.toFixed(4),
+      result.avgLatencyUs.toFixed(0),
+    ].join(" | "));
+  }
 }
 
-const CONFIGS: { name: string; fn: SearchFn }[] = [
-  { name: "Full Pipeline", fn: searchFullPipeline },
-  { name: "No Quantization", fn: searchNoQuantization },
-  { name: "Vector-Only", fn: searchVectorOnly },
-  { name: "No Reranking", fn: searchNoReranking },
-  { name: "CodeRAG Multi-Path", fn: searchCodeRagMultiPath },
-  { name: "PageIndex (Keyword)", fn: searchPageIndexKeyword },
-];
+function expectValidResult(result: AblationResult, queryCount: number): void {
+  expect(result.avgRecallAt5).toBeGreaterThanOrEqual(0);
+  expect(result.avgRecallAt5).toBeLessThanOrEqual(1);
+  expect(result.avgMRR).toBeGreaterThanOrEqual(0);
+  expect(result.avgMRR).toBeLessThanOrEqual(1);
+  expect(result.avgNdcgAt10).toBeGreaterThanOrEqual(0);
+  expect(result.avgNdcgAt10).toBeLessThanOrEqual(1);
+  expect(result.avgLatencyUs).toBeGreaterThan(0);
+  expect(result.perQuery.length).toBe(queryCount);
+}
 
 describe("Ablation Study", () => {
   for (const { name, fn } of CONFIGS) {
     it(`${name} - produces valid results`, { timeout: 60_000 }, async () => {
-      const result = await runBenchmark(name, fn, EVAL_CHUNKS, EVAL_QUERIES);
-
-      expect(result.avgRecallAt5).toBeGreaterThanOrEqual(0);
-      expect(result.avgRecallAt5).toBeLessThanOrEqual(1);
-      expect(result.avgMRR).toBeGreaterThanOrEqual(0);
-      expect(result.avgMRR).toBeLessThanOrEqual(1);
-      expect(result.avgNdcgAt10).toBeGreaterThanOrEqual(0);
-      expect(result.avgNdcgAt10).toBeLessThanOrEqual(1);
-      expect(result.avgLatencyUs).toBeGreaterThan(0);
-      expect(result.perQuery.length).toBe(EVAL_QUERIES.length);
+      expectValidResult(await runBenchmark(name, fn, EVAL_CHUNKS, EVAL_QUERIES), EVAL_QUERIES.length);
     });
   }
 
@@ -345,58 +205,28 @@ describe("Ablation Study", () => {
     const results = await Promise.all(
       CONFIGS.map(({ name, fn }) => runBenchmark(name, fn, EVAL_CHUNKS, EVAL_QUERIES))
     );
-
-    console.log("\nAblation Results");
-    console.log("Configuration | Recall@5 | MRR | NDCG@10 | Latency(us)");
-    console.log("--- | --- | --- | --- | ---");
-    for (const result of results) {
-      const recall = `${(result.avgRecallAt5 * 100).toFixed(1)}%`;
-      const mrr = result.avgMRR.toFixed(4);
-      const ndcg = result.avgNdcgAt10.toFixed(4);
-      const latency = result.avgLatencyUs.toFixed(0);
-      console.log(`${result.config} | ${recall} | ${mrr} | ${ndcg} | ${latency}`);
-    }
-
+    printTable("Ablation Results", results);
     console.log(`ABLATION_RESULTS_JSON=${JSON.stringify(results, null, 2)}`);
-
-    expect(results.length).toBe(6);
+    expect(results.length).toBe(CONFIGS.length);
   });
 });
 
 describe("Repo Eval Ablation", () => {
   for (const { name, fn } of CONFIGS) {
-    it(`${name} - produces valid results on repo corpus`, async () => {
-      const result = await runBenchmark(name, fn, REPO_EVAL_CHUNKS, REPO_EVAL_QUERIES);
-
-      expect(result.avgRecallAt5).toBeGreaterThanOrEqual(0);
-      expect(result.avgRecallAt5).toBeLessThanOrEqual(1);
-      expect(result.avgMRR).toBeGreaterThanOrEqual(0);
-      expect(result.avgMRR).toBeLessThanOrEqual(1);
-      expect(result.avgNdcgAt10).toBeGreaterThanOrEqual(0);
-      expect(result.avgNdcgAt10).toBeLessThanOrEqual(1);
-      expect(result.avgLatencyUs).toBeGreaterThan(0);
-      expect(result.perQuery.length).toBe(REPO_EVAL_QUERIES.length);
+    it(`${name} - produces valid results on repo corpus`, { timeout: 60_000 }, async () => {
+      expectValidResult(
+        await runBenchmark(name, fn, REPO_EVAL_CHUNKS, REPO_EVAL_QUERIES),
+        REPO_EVAL_QUERIES.length
+      );
     });
   }
 
-  it("prints summary table", async () => {
+  it("prints summary table", { timeout: 120_000 }, async () => {
     const results = await Promise.all(
       CONFIGS.map(({ name, fn }) => runBenchmark(name, fn, REPO_EVAL_CHUNKS, REPO_EVAL_QUERIES))
     );
-
-    console.log("\nRepo Eval Ablation Results (gitask src/lib/*.ts, manually annotated)");
-    console.log("Configuration | Recall@5 | MRR | NDCG@10 | Latency(us)");
-    console.log("--- | --- | --- | --- | ---");
-    for (const result of results) {
-      const recall = `${(result.avgRecallAt5 * 100).toFixed(1)}%`;
-      const mrr = result.avgMRR.toFixed(4);
-      const ndcg = result.avgNdcgAt10.toFixed(4);
-      const latency = result.avgLatencyUs.toFixed(0);
-      console.log(`${result.config} | ${recall} | ${mrr} | ${ndcg} | ${latency}`);
-    }
-
+    printTable("Repo Eval Ablation Results (gitask src/lib/*.ts, manually annotated)", results);
     console.log(`REPO_ABLATION_RESULTS_JSON=${JSON.stringify(results, null, 2)}`);
-
-    expect(results.length).toBe(6);
+    expect(results.length).toBe(CONFIGS.length);
   });
 });
