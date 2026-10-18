@@ -392,9 +392,9 @@ export default function EvalPage() {
                       <td style={styles.td}>{row.config}</td>
                       <td style={styles.td}>{row.repo}</td>
                       <td style={styles.td}>{row.questions}</td>
-                      <td style={styles.td}>{pct(row.avgRecallAt5)}</td>
-                      <td style={styles.td}>{row.avgMRR.toFixed(3)}</td>
-                      <td style={styles.td}>{row.avgNdcgAt10.toFixed(3)}</td>
+                      <td style={styles.td}>{pct(row.avgRecallAt5)} ± {pct(row.stderrRecallAt5)}</td>
+                      <td style={styles.td}>{row.avgMRR.toFixed(3)} ± {row.stderrMRR.toFixed(3)}</td>
+                      <td style={styles.td}>{row.avgNdcgAt10.toFixed(3)} ± {row.stderrNdcgAt10.toFixed(3)}</td>
                       <td style={styles.td}>{row.avgLatencyMs.toFixed(1)}ms</td>
                     </tr>
                   ))}

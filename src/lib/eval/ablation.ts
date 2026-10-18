@@ -25,6 +25,14 @@ export interface AblationRow {
 	avgMRR: number;
 	avgNdcgAt10: number;
 	avgLatencyMs: number;
+	/**
+	 * Standard error across questions. Retrieval is deterministic, so there is no
+	 * run-to-run variance to report — but 15 questions is a small sample and the
+	 * spread between them is the honest uncertainty on each mean.
+	 */
+	stderrRecallAt5: number;
+	stderrMRR: number;
+	stderrNdcgAt10: number;
 }
 
 export interface AblationProgress {
@@ -41,6 +49,17 @@ export interface RunAblationOptions {
 }
 
 const DEFAULT_LIMIT = 10;
+
+function mean(values: number[]): number {
+	return values.length === 0 ? 0 : values.reduce((a, b) => a + b, 0) / values.length;
+}
+
+function stderr(values: number[]): number {
+	if (values.length < 2) return 0;
+	const m = mean(values);
+	const variance = values.reduce((sum, v) => sum + (v - m) ** 2, 0) / (values.length - 1);
+	return Math.sqrt(variance / values.length);
+}
 
 export async function runAblationForRepo(
 	store: VectorStore,
@@ -88,16 +107,18 @@ export async function runAblationForRepo(
 			ndcgs.push(ndcgAtK(results, question.relevanceScores, 10));
 		}
 
-		const avg = (values: number[]) => values.length === 0 ? 0 : values.reduce((a, b) => a + b, 0) / values.length;
 		rows.push({
 			config: config.name,
 			description: config.description,
 			repo,
 			questions: prepared.length,
-			avgRecallAt5: avg(recalls),
-			avgMRR: avg(mrrs),
-			avgNdcgAt10: avg(ndcgs),
-			avgLatencyMs: avg(latencies),
+			avgRecallAt5: mean(recalls),
+			avgMRR: mean(mrrs),
+			avgNdcgAt10: mean(ndcgs),
+			avgLatencyMs: mean(latencies),
+			stderrRecallAt5: stderr(recalls),
+			stderrMRR: stderr(mrrs),
+			stderrNdcgAt10: stderr(ndcgs),
 		});
 	}
 
