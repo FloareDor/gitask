@@ -140,8 +140,8 @@ export default function RepoPage({
 
 	// Agent tools on window.gitask once there's an index to run them against.
 	useEffect(() => {
-		if (isIndexed) exposeAgentTools(storeRef.current);
-	}, [isIndexed]);
+		if (isIndexed) exposeAgentTools(storeRef.current, `${owner}/${repo}`);
+	}, [isIndexed, owner, repo]);
 
 	useEffect(() => {
 		return onStatusChange((s) => {
