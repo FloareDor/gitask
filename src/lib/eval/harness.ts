@@ -15,7 +15,7 @@ import type { KeyScope } from "../agent/providers/gemini";
 import { EMBEDDING_MODEL_ID } from "../embedder";
 import type { VectorStore } from "../vectorStore";
 import type { AblationRow } from "./ablation";
-import { runArm, type Arm, type ArmRun } from "./arms";
+import { runArm, type Arm, type ArmRun, type TraceStep } from "./arms";
 import { judgeAnswer, type Verdict } from "./judge";
 import { questionsForRepo, EVAL_SET } from "./questions";
 import { deriveRelevance, scoreCitations, type CitationScore } from "./scoring";
@@ -43,6 +43,8 @@ export interface EvalRecord {
 	steps?: number;
 	toolBytes?: number;
 	stopReason?: ArmRun["stopReason"];
+	/** Agent only: the per-step record Phase 5 buckets failures from. */
+	trace?: TraceStep[];
 	refused?: boolean;
 	error?: string;
 }
@@ -195,6 +197,7 @@ export async function runEvalForRepo(
 					steps: result.steps,
 					toolBytes: result.toolBytes,
 					stopReason: result.stopReason,
+					trace: result.trace,
 					refused: result.refused,
 					error: result.error,
 				};

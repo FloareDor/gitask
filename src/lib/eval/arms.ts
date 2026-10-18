@@ -20,6 +20,24 @@ import type { EvalQuestion } from "./types";
 
 export type Arm = "rag" | "agent";
 
+/**
+ * One tool call from an agent run, kept so Phase 5 can bucket failures.
+ *
+ * Aggregates alone can't tell "looped on a tool" from "read the wrong file"
+ * from "truncation hid the answer" — those need the per-step record, and the
+ * run is far too expensive to repeat just to recover it.
+ */
+export interface TraceStep {
+	step: number;
+	tool: string;
+	args: Record<string, unknown>;
+	bytes: number;
+	truncated: boolean;
+	duplicate: boolean;
+	isError: boolean;
+	elapsedMs: number;
+}
+
 export interface ArmRun {
 	arm: Arm;
 	answer: string;
@@ -31,6 +49,8 @@ export interface ArmRun {
 	steps?: number;
 	toolBytes?: number;
 	stopReason?: StopReason;
+	/** Agent only: what it actually did, step by step. */
+	trace?: TraceStep[];
 	/** The RAG arm refused rather than answering: injection block or no evidence. */
 	refused?: boolean;
 	/** The run threw. The harness keeps the row so failures are visible. */
@@ -149,7 +169,12 @@ export async function runAgentArm(
 		elapsedMs: 0,
 		steps: 0,
 		toolBytes: 0,
+		trace: [],
 	};
+	const trace = run.trace as TraceStep[];
+	// A call's args arrive with tool_call and its outcome with tool_result, so
+	// the two halves are stitched by id.
+	const pendingArgs = new Map<string, { step: number; args: Record<string, unknown> }>();
 
 	try {
 		for await (const event of runAgent(question.question, store, {
@@ -157,7 +182,22 @@ export async function runAgentArm(
 			repo: question.repo,
 			maxSteps: options.maxSteps,
 		})) {
-			if (event.type === "answer") {
+			if (event.type === "tool_call") {
+				pendingArgs.set(event.id, { step: event.step, args: event.args });
+			} else if (event.type === "tool_result") {
+				const call = pendingArgs.get(event.id);
+				trace.push({
+					step: call?.step ?? event.step,
+					tool: event.name,
+					args: call?.args ?? {},
+					bytes: event.bytes,
+					truncated: event.truncated,
+					duplicate: event.duplicate,
+					isError: event.isError,
+					elapsedMs: event.elapsedMs,
+				});
+				pendingArgs.delete(event.id);
+			} else if (event.type === "answer") {
 				run.answer = event.text;
 				run.citations = event.citations;
 				run.tokensIn = event.tokensIn;

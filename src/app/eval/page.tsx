@@ -18,7 +18,8 @@ import {
   type EvalRecord,
   type RepoSummary,
 } from "@/lib/eval/harness";
-import { EVAL_SET, evalRepos, questionsForRepo, refForRepo } from "@/lib/eval/questions";
+import { EVAL_QUESTIONS, EVAL_SET, evalRepos, questionsForRepo, refForRepo } from "@/lib/eval/questions";
+import { bucketCounts, classifyAll } from "@/lib/eval/failures";
 import { disagreements, stopReasons, summaryTable } from "@/lib/eval/summary";
 import { runAblationForRepo, type AblationProgress, type AblationRow } from "@/lib/eval/ablation";
 
@@ -74,6 +75,7 @@ export default function EvalPage() {
   const table = useMemo(() => summaryTable(records), [records]);
   const stops = useMemo(() => stopReasons(records), [records]);
   const splits = useMemo(() => disagreements(records), [records]);
+  const failures = useMemo(() => bucketCounts(classifyAll(records, EVAL_QUESTIONS)), [records]);
 
   const handleIndex = useCallback(async () => {
     const [owner, name] = repo.split("/");
@@ -396,6 +398,37 @@ export default function EvalPage() {
                       <td style={styles.td}>{row.avgMRR.toFixed(3)} ± {row.stderrMRR.toFixed(3)}</td>
                       <td style={styles.td}>{row.avgNdcgAt10.toFixed(3)} ± {row.stderrNdcgAt10.toFixed(3)}</td>
                       <td style={styles.td}>{row.avgLatencyMs.toFixed(1)}ms</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </section>
+        )}
+
+        {failures.length > 0 && (
+          <section style={styles.panel}>
+            <h2 style={styles.h2}>Why runs failed</h2>
+            <p style={styles.status}>
+              Every run the judge didn&apos;t call correct, bucketed. A failure usually
+              matches several buckets; <em>primary</em> is the one highest in the priority
+              order, <em>matched</em> counts every run it applied to at all.
+            </p>
+            <div style={styles.scroll}>
+              <table style={styles.table}>
+                <thead>
+                  <tr>
+                    <th style={styles.th}>bucket</th>
+                    <th style={styles.th}>primary</th>
+                    <th style={styles.th}>matched</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {failures.map((row) => (
+                    <tr key={row.bucket}>
+                      <td style={styles.td}>{row.bucket}</td>
+                      <td style={styles.td}>{row.primary}</td>
+                      <td style={styles.td}>{row.matched}</td>
                     </tr>
                   ))}
                 </tbody>
