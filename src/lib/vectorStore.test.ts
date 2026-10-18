@@ -66,6 +66,30 @@ describe("VectorStore", () => {
 		expect(store.getAllBinaries()).toHaveLength(0);
 	});
 
+	it("stores and removes raw file text alongside chunks", () => {
+		store.setFile("a.ts", "export const a = 1;");
+		store.setFiles({ "b.ts": "export const b = 2;" });
+
+		expect(store.getFile("a.ts")).toBe("export const a = 1;");
+		expect(store.getFile("b.ts")).toBe("export const b = 2;");
+		expect(store.getFile("missing.ts")).toBeUndefined();
+
+		store.removeChunksByFilePaths(["a.ts"]);
+		expect(store.getFile("a.ts")).toBeUndefined();
+		expect(store.getFile("b.ts")).toBe("export const b = 2;");
+
+		store.clear();
+		expect(store.getFiles()).toEqual({});
+	});
+
+	it("loads file text from a blob and tolerates blobs without it", () => {
+		store.setFromBlob({ chunks: [], graph: {}, files: { "a.ts": "x" } });
+		expect(store.getFile("a.ts")).toBe("x");
+
+		store.setFromBlob({ chunks: [], graph: {} });
+		expect(store.getFile("a.ts")).toBeUndefined();
+	});
+
 	it("treats only the active embedding model as cache-compatible", () => {
 		expect(isCompatibleEmbeddingModel(EMBEDDING_MODEL_ID)).toBe(true);
 		expect(isCompatibleEmbeddingModel("Xenova/all-MiniLM-L6-v2")).toBe(false);

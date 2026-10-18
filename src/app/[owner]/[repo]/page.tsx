@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { indexRepository, IndexAbortError, type IndexProgress, type AstNode } from "@/lib/indexer";
 import { VectorStore } from "@/lib/vectorStore";
 import { multiPathHybridSearch } from "@/lib/search";
@@ -55,6 +55,9 @@ export default function RepoPage({
 	params: Promise<{ owner: string; repo: string }>;
 }) {
 	const router = useRouter();
+	const searchParams = useSearchParams();
+	// Optional ?ref=<branch|tag|sha> pins the index to a specific commit (used by evals).
+	const ref = searchParams.get("ref") || undefined;
 	const [owner, setOwner] = useState("");
 	const [repo, setRepo] = useState("");
 
@@ -360,6 +363,7 @@ export default function RepoPage({
 					},
 					token || undefined,
 					signal,
+					ref,
 				);
 				if (aborted) return;
 				if (typeof document !== "undefined" && document.hidden) {
@@ -424,7 +428,7 @@ export default function RepoPage({
 			}
 			controller.abort();
 		};
-	}, [owner, repo, token, reindexKey]);
+	}, [owner, repo, token, reindexKey, ref]);
 
 	useEffect(() => {
 		if (!owner || !repo || !isIndexed || !indexedSha) return;
@@ -435,7 +439,7 @@ export default function RepoPage({
 
 		const checkForStaleContext = async () => {
 			try {
-				const latest = await fetchRepoTree(owner, repo, token || undefined);
+				const latest = await fetchRepoTree(owner, repo, token || undefined, undefined, ref);
 				if (cancelled) return;
 				consecutiveFailures = 0;
 				stalePollWarnShown = false;
@@ -459,7 +463,7 @@ export default function RepoPage({
 		void checkForStaleContext();
 		const intervalId = window.setInterval(() => { void checkForStaleContext(); }, 120_000);
 		return () => { cancelled = true; window.clearInterval(intervalId); };
-	}, [owner, repo, isIndexed, indexedSha, token]);
+	}, [owner, repo, isIndexed, indexedSha, token, ref]);
 
 	// ─── Handlers ─────────────────────────────────────────────────────────
 
