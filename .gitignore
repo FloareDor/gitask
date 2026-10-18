@@ -46,3 +46,8 @@ agent-context/
 .context/
 # SWE-QA splits + pinned source trees, fetched by scripts/download_sweqa.py
 scripts/sweqa/
+
+# local dev / smoke-run artifacts
+dev.log
+smoke.log
+smoke-eval*.png
