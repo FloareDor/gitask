@@ -1,0 +1,971 @@
+{
+ "name": "gitask agent eval v1",
+ "provenance": "30 questions from SWE-QA (Apache-2.0, swe-qa/SWE-QA-Benchmark) for flask and requests, pinned to the benchmark's own commits; question and gold answer verbatim, gold line spans transcribed from the gold answer's prose and verified against the pinned source. Caveat: SWE-QA gold answers were drafted by a RAG+LLM pipeline before human validation, so the judge may mildly favour RAG-shaped answers — that bias runs against the agent. The remaining 15 gitask questions and all 18 lookups are authored; lookups deliberately name a concrete symbol, which favours the RAG baseline.",
+ "questions": [
+  {
+   "id": "sweqa-flask-00",
+   "repo": "pallets/flask",
+   "ref": "85c5d93",
+   "source": "swe-qa",
+   "type": "multihop",
+   "question": "What is the relationship between the ASCII-only encoding control parameter in the framework's JSON serialization provider and Unicode character representation in serialized output?",
+   "goldAnswer": "The `ensure_ascii` attribute on `DefaultJSONProvider` (defaults to `True`) controls whether non-ASCII characters are escaped as Unicode escape sequences in JSON output.\n\nIn `src/flask/json/provider.py` (lines 144-148), `ensure_ascii` is documented as: \"Replace non-ASCII characters with escape sequences. This may be more compatible with some clients, but can be disabled for better performance and size.\"\n\nThe `dumps` method (lines 166-179) passes this attribute to Python's standard library `json.dumps()` via `kwargs.setdefault(\"ensure_ascii\", self.ensure_ascii)`.\n\nWhen `ensure_ascii=True` (default): non-ASCII characters are escaped as `\\uXXXX` sequences. For example, the snowman character (☃, U+2603) becomes `\"\\\\u2603\"`.\n\nWhen `ensure_ascii=False`: non-ASCII characters are kept as literal characters. The same snowman character becomes `\"\\u2603\"` (the actual character).\n\nThis is demonstrated in `tests/test_json.py` (lines 48-54): setting `app.json.ensure_ascii = True` produces `'\"\\\\u2603\"'`, while `False` produces `'\"\\u2603\"'`.\n\nThe relationship: `ensure_ascii` directly controls the Unicode representation strategy — escaping for ASCII compatibility when `True`, or preserving literal characters when `False`.",
+   "goldLocations": [
+    {
+     "path": "src/flask/json/provider.py",
+     "startLine": 144,
+     "endLine": 148
+    },
+    {
+     "path": "tests/test_json.py",
+     "startLine": 48,
+     "endLine": 54
+    }
+   ]
+  },
+  {
+   "id": "sweqa-flask-01",
+   "repo": "pallets/flask",
+   "ref": "85c5d93",
+   "source": "swe-qa",
+   "type": "multihop",
+   "question": "What is the purpose of the registration tracking flag in the blueprint collection class that prevents setup methods from being called after the blueprint has been registered once?",
+   "goldAnswer": "The registration tracking flag serves to enforce a critical constraint: once a blueprint has been registered with an application at least once, no setup methods can be called on that blueprint. This prevents inconsistent state propagation that would occur if routes, error handlers, or other blueprint configuration were added after the blueprint's deferred functions had already been executed during registration.\n\nThe flag is implemented as a class-level attribute `_got_registered_once` in the `Blueprint` class (defined in `src/flask/sansio/blueprints.py` at line 172), initialized to `False`. When the `register()` method is called (line 273), it sets this flag to `True` at line 320, immediately after adding the blueprint to the application's blueprints dictionary.\n\nAll setup methods in the Blueprint class (such as `add_url_rule`, `record`, `register_blueprint`, `before_app_request`, `app_errorhandler`, etc.) are decorated with `@setupmethod` (defined in `src/flask/sansio/scaffold.py` at line 42). This decorator wraps each method to call `_check_setup_finished()` before execution. The `_check_setup_finished()` method (lines 213-221 in `blueprints.py`) checks if `_got_registered_once` is `True`, and if so, raises an `AssertionError` with a message explaining that the setup method can no longer be called because the blueprint has already been registered and changes would not be applied consistently.\n\nThis mechanism reconciles the deferred registration pattern (where blueprint operations are recorded as deferred functions in `self.deferred_functions` and executed later during registration) with the requirement that all blueprint configuration must be complete before registration. Once a blueprint is registered, its deferred functions are executed (line 334-335), and any subsequent modifications would create inconsistent state because those changes wouldn't be included in the already-executed deferred function list.\n\nThe flag ensures that blueprint setup is atomic and complete before registration, preventing scenarios where some routes or handlers might be registered while others added later would be missed, which would lead to unpredictable application behavior.",
+   "goldLocations": [
+    {
+     "path": "src/flask/sansio/blueprints.py",
+     "startLine": 172,
+     "endLine": 172
+    },
+    {
+     "path": "src/flask/sansio/scaffold.py",
+     "startLine": 42,
+     "endLine": 42
+    }
+   ]
+  },
+  {
+   "id": "sweqa-flask-05",
+   "repo": "pallets/flask",
+   "ref": "85c5d93",
+   "source": "swe-qa",
+   "type": "multihop",
+   "question": "What mechanisms ensure that template processing functions registered during modular component registration are accessible when templates are rendered using the shared template environment?",
+   "goldAnswer": "The mechanisms that ensure template processing functions registered during modular component registration are accessible during template rendering rely on Flask's deferred registration pattern and direct modification of the shared Jinja environment.\n\n**Deferred Registration Pattern:**\nWhen a template filter is registered on a blueprint using `add_app_template_filter()` (located in `./src/flask/sansio/blueprints.py` lines 461-475), the blueprint doesn't immediately register the filter. Instead, it creates a deferred function that is stored in the blueprint's `deferred_functions` list:\n\n```python\ndef register_template(state: BlueprintSetupState) -> None:\n    state.app.jinja_env.filters[name or f.__name__] = f\n\nself.record_once(register_template)\n```\n\n**Registration Phase:**\nWhen the blueprint is registered with the application via `register_blueprint()`, the blueprint's `register()` method (lines 273-377 in `blueprints.py`) creates a `BlueprintSetupState` object that provides access to the application instance. All deferred functions are then executed with this state object:\n\n```python\nstate = self.make_setup_state(app, options, first_bp_registration)\n# ...\nfor deferred in self.deferred_functions:\n    deferred(state)\n```\n\n**Direct Environment Modification:**\nThe deferred function directly modifies the application's Jinja environment dictionary: `state.app.jinja_env.filters[name or f.__name__] = f`. This happens during blueprint registration, before any templates are rendered.\n\n**Rendering Phase:**\nDuring template rendering, `render_template()` (in `./src/flask/templating.py` lines 138-150) accesses the application's Jinja environment through `current_app.jinja_env`:\n\n```python\napp = current_app._get_current_object()\ntemplate = app.jinja_env.get_or_select_template(template_name_or_list)\nreturn _render(app, template, context)\n```\n\nSince the filters were already registered in `app.jinja_env.filters` during blueprint registration, they are immediately available when Jinja2 resolves filter names during template rendering. The Jinja environment is shared across all templates, so filters registered by any blueprint are accessible to all templates rendered by the application.\n\n**Key Architectural Points:**\n1. **Decoupling**: Filter definition (blueprint creation time) is separated from filter registration (blueprint registration time) and filter usage (template rendering time)\n2. **Shared Environment**: All blueprints register filters into the same `app.jinja_env.filters` dictionary, ensuring global availability\n3. **Deferred Execution**: The `record_once()` method ensures filters are only registered once, even if a blueprint is registered multiple times\n4. **No Runtime Resolution**: Filters don't need special resolution logic during rendering because they're already in the environment's filter dictionary\n\nThis architecture ensures that template processing functions defined at the blueprint level are properly integrated into the application's template system without requiring blueprint-specific context during template rendering.",
+   "goldLocations": [
+    {
+     "path": "src/flask/sansio/blueprints.py",
+     "startLine": 461,
+     "endLine": 475
+    },
+    {
+     "path": "src/flask/templating.py",
+     "startLine": 138,
+     "endLine": 150
+    }
+   ]
+  },
+  {
+   "id": "sweqa-flask-11",
+   "repo": "pallets/flask",
+   "ref": "85c5d93",
+   "source": "swe-qa",
+   "type": "multihop",
+   "question": "What hidden coupling exists between the decorator's state management and response lifecycle that causes issues with nested or conditional registration?",
+   "goldAnswer": "The hidden coupling is between the decorator's direct access to the request context via context variables and the response processing lifecycle. The decorator (`after_this_request` in `src/flask/ctx.py`, lines 117-149) retrieves the current request context using `_cv_request.get(None)` and appends functions to `ctx._after_request_functions`, a list stored in the `RequestContext` instance (initialized at line 331).\n\nThis creates several coupling issues:\n\n1. **Tight binding to context lifecycle**: The decorator requires an active request context at registration time. If called outside a request context, it raises a `RuntimeError` (lines 142-146). This couples registration timing to the request lifecycle.\n\n2. **Shared mutable state**: All registered functions are appended to the same `_after_request_functions` list in the `RequestContext` (line 148), regardless of where or when they're registered. Nested handlers (one handler registering another) or conditionally registered handlers all modify the same shared list, creating implicit dependencies.\n\n3. **Execution order dependency**: Functions execute in registration order (FIFO) during `process_response` in `src/flask/app.py` (lines 1313-1314). The order depends on when each decorator is called during request handling, not on explicit dependencies. This can cause issues if handlers are conditionally registered or nested, as the execution order may not match logical dependencies.\n\n4. **No explicit clearing**: The list is not explicitly cleared after execution; it relies on `RequestContext` destruction when the context is popped. If the context is copied (via `RequestContext.copy()` at line 337), the new context has an empty list, losing any previously registered functions.\n\n5. **Response object chaining**: Each function receives the response object and must return it (or a new one), creating a chain where each function modifies the response before passing it to the next. This chain is implicit and depends on registration order, not explicit dependencies.\n\nThe mechanism maintains its dependency chain through sequential execution in registration order, with each function receiving and returning the response object, but this creates hidden coupling between registration timing, context state, and execution order that can break with nested or conditional registration patterns.",
+   "goldLocations": [
+    {
+     "path": "src/flask/ctx.py",
+     "startLine": 117,
+     "endLine": 149
+    },
+    {
+     "path": "src/flask/app.py",
+     "startLine": 1313,
+     "endLine": 1314
+    }
+   ]
+  },
+  {
+   "id": "sweqa-flask-19",
+   "repo": "pallets/flask",
+   "ref": "85c5d93",
+   "source": "swe-qa",
+   "type": "multihop",
+   "question": "How does the callback-based modification tracking in the session class that inherits from CallbackDict ensure consistency between in-memory session state and persisted cookie data across concurrent requests?",
+   "goldAnswer": "The callback-based modification tracking ensures consistency between in-memory session state and persisted cookie data across concurrent requests through the following mechanism:\n\n1. **Callback Registration**: The session class (defined in `src/flask/sessions.py` lines 52-82) inherits from `CallbackDict` and registers an `on_update` callback in its `__init__` method (lines 78-80). This callback automatically sets `self.modified = True` and `self.accessed = True` whenever the dictionary is modified through operations like `__setitem__`, `__delitem__`, `update`, etc.\n\n2. **Per-Request Session Isolation**: Each request receives its own isolated session instance. The session is opened at the start of each request in `RequestContext.push` (see `src/flask/ctx.py` lines 384-389) via `session_interface.open_session()`, which creates a new instance of the session class. This isolation ensures that concurrent requests do not interfere with each other's in-memory session state.\n\n3. **Automatic Modification Detection**: The `CallbackDict` parent class automatically invokes the `on_update` callback whenever the session dictionary is modified. This means any change to the session (setting, deleting, or updating values) automatically sets the `modified` flag to `True` without requiring manual intervention.\n\n4. **Conditional Cookie Persistence**: The `modified` flag is checked in the `should_set_cookie` method (lines 247-261 in `src/flask/sessions.py`) to determine whether the cookie should be saved. The session is only persisted to the cookie if `session.modified` is `True` or if the session is permanent and `SESSION_REFRESH_EACH_REQUEST` is enabled.\n\n5. **Synchronized Save Operation**: At the end of each request, `Flask.process_response` (line 1322 in `src/flask/app.py`) calls `save_session`, which checks the `modified` flag via `should_set_cookie` (line 383 in `src/flask/sessions.py`). If the flag is set, the entire session dictionary is serialized and written to the cookie (lines 387-398). If the session was modified to be empty, the cookie is deleted (lines 368-379).\n\n6. **Concurrent Request Handling**: As documented in `SessionInterface` (lines 141-146 in `src/flask/sessions.py`), multiple requests with the same session may be handled concurrently. Each request has its own isolated session instance loaded from the cookie at the start, modified independently in memory, and saved back to the cookie at the end. The callback mechanism ensures that modifications are accurately tracked per request, and only modified sessions trigger cookie updates, preventing unnecessary writes and maintaining consistency.\n\nThis design ensures that: (a) modifications are automatically detected without manual flag management, (b) each request's session state is isolated, (c) only modified sessions trigger cookie persistence, and (d) the in-memory state accurately reflects what gets persisted, maintaining consistency across concurrent requests.",
+   "goldLocations": [
+    {
+     "path": "src/flask/sessions.py",
+     "startLine": 52,
+     "endLine": 82
+    },
+    {
+     "path": "src/flask/ctx.py",
+     "startLine": 384,
+     "endLine": 389
+    }
+   ]
+  },
+  {
+   "id": "sweqa-flask-20",
+   "repo": "pallets/flask",
+   "ref": "85c5d93",
+   "source": "swe-qa",
+   "type": "multihop",
+   "question": "How does the namespace object that stores application-level data during an application context maintain thread-safety and context isolation when accessed concurrently through the contextvars mechanism?",
+   "goldAnswer": "The namespace object (`_AppCtxGlobals`) does not maintain thread-safety or context isolation itself. It is a plain object that stores data in its `__dict__` attribute (see `src/flask/ctx.py` lines 29-115). Thread-safety and context isolation come from Python's `contextvars` mechanism.\n\n**Architecture:**\n1. Each `AppContext` instance creates its own `_AppCtxGlobals` instance in its `__init__` method (line 248: `self.g: _AppCtxGlobals = app.app_ctx_globals_class()`).\n2. The `AppContext` is stored in a `ContextVar` named `_cv_app` (defined in `src/flask/globals.py` line 24: `_cv_app: ContextVar[AppContext] = ContextVar(\"flask.app_ctx\")`).\n3. The `g` proxy is a `LocalProxy` that accesses `_cv_app` and then retrieves the `.g` attribute (lines 31-33 in `globals.py`).\n\n**How context isolation works:**\n- When `AppContext.push()` is called, it uses `_cv_app.set(self)` which returns a token (line 253 in `ctx.py`). This token is stored in `_cv_tokens` list (line 249).\n- When `AppContext.pop()` is called, it uses `_cv_app.reset(token)` to restore the previous context value (line 265).\n- `ContextVar` provides automatic per-context isolation: each execution context (thread, async task, greenlet, etc.) maintains its own independent value for the same `ContextVar`.\n\n**Concurrent access:**\nWhen multiple application contexts are active concurrently (e.g., in different threads or async tasks), each execution context sees its own `AppContext` instance through `_cv_app.get()`. Since each `AppContext` has its own `_AppCtxGlobals` instance, concurrent access is automatically isolated—each thread/task accesses its own namespace object without interference.\n\n**Documentation reference:**\nAs documented in `docs/reqcontext.rst` lines 44-47: \"Context locals are implemented using Python's `contextvars` and Werkzeug's `LocalProxy`. Python manages the lifetime of context vars automatically, and local proxy wraps that low-level interface to make the data easier to work with.\"\n\nIn summary, thread-safety and context isolation are provided by `ContextVar`, not by `_AppCtxGlobals` itself. The namespace object is just a data container; the `ContextVar` mechanism ensures each execution context has its own isolated instance.",
+   "goldLocations": [
+    {
+     "path": "src/flask/ctx.py",
+     "startLine": 29,
+     "endLine": 115
+    },
+    {
+     "path": "src/flask/globals.py",
+     "startLine": 24,
+     "endLine": 24
+    }
+   ]
+  },
+  {
+   "id": "sweqa-flask-39",
+   "repo": "pallets/flask",
+   "ref": "85c5d93",
+   "source": "swe-qa",
+   "type": "multihop",
+   "question": "Where is the control flow determining whether a routing rule receives OPTIONS, including branches evaluating the automatic options flag and the application configuration setting?",
+   "goldAnswer": "The complete control flow path that determines whether a routing rule receives the OPTIONS method is located in two main locations:\n\n**1. URL Rule Registration Phase** (`src/flask/sansio/app.py`, `add_url_rule` method, lines 635-651):\n\nThe decision logic follows this sequence:\n- **Lines 635-638**: If the `provide_automatic_options` parameter is `None`, Flask attempts to retrieve it from the view function's `provide_automatic_options` attribute using `getattr(view_func, \"provide_automatic_options\", None)`.\n- **Lines 640-645**: If `provide_automatic_options` is still `None` after the above check, Flask evaluates a conditional branch:\n  - **Line 641**: Checks if `\"OPTIONS\"` is not already in the methods set AND `self.config[\"PROVIDE_AUTOMATIC_OPTIONS\"]` is `True`\n  - **Lines 642-643**: If both conditions are true, sets `provide_automatic_options = True` and adds `\"OPTIONS\"` to the `required_methods` set\n  - **Line 645**: Otherwise, sets `provide_automatic_options = False`\n- **Line 651**: The determined value is assigned to the rule object: `rule_obj.provide_automatic_options = provide_automatic_options`\n\n**2. Request Handling Phase** (`src/flask/app.py`, `dispatch_request` method, lines 895-899):\n\nWhen a request is dispatched:\n- **Lines 896-897**: Checks if `getattr(rule, \"provide_automatic_options\", False)` returns `True` AND the request method is `\"OPTIONS\"`\n- **Line 899**: If both conditions are true, returns `self.make_default_options_response()` instead of dispatching to the view function\n\n**Configuration Default** (`src/flask/app.py`, line 208):\nThe default value for `PROVIDE_AUTOMATIC_OPTIONS` in the application configuration is `True`.\n\n**Additional Context**:\n- View classes can set `provide_automatic_options` as a class attribute (`src/flask/views.py`, line 56), which is then transferred to the generated view function (line 134)\n- The flag can also be passed as a keyword argument to `add_url_rule` or set as an attribute on the view function itself\n\nThe control flow ensures that OPTIONS is automatically added to routing rules when: (1) OPTIONS is not explicitly in the methods list, (2) the application configuration allows it, and (3) no explicit override is provided via the parameter or view function attribute.",
+   "goldLocations": [
+    {
+     "path": "src/flask/app.py",
+     "startLine": 208,
+     "endLine": 208
+    },
+    {
+     "path": "src/flask/views.py",
+     "startLine": 56,
+     "endLine": 56
+    }
+   ]
+  },
+  {
+   "id": "sweqa-flask-40",
+   "repo": "pallets/flask",
+   "ref": "85c5d93",
+   "source": "swe-qa",
+   "type": "multihop",
+   "question": "Where in the error handler resolution method does the lookup sequence traverse blueprint scopes then HTTP status codes then exception class method resolution order?",
+   "goldAnswer": "The lookup sequence occurs within the `_find_error_handler` method in `./src/flask/sansio/app.py` (lines 823-846). The method performs a three-level nested traversal:\n\n**First Level: HTTP Status Code Priority**\nThe method first determines the exception class and HTTP status code using `_get_exc_class_and_code(type(e))`. It then iterates through codes in priority order: first the specific HTTP status code (if the exception has one), then `None` for non-HTTP exceptions or as a fallback. This is implemented in line 834: `for c in (code, None) if code is not None else (None,)`.\n\n**Second Level: Blueprint Scope Priority**\nFor each code, the method iterates through blueprint names, checking blueprint-specific handlers first, then application-wide handlers. The `names` tuple is constructed as `(*blueprints, None)` on line 832, where `None` represents the application-level scope. This means blueprint handlers take precedence over application handlers for the same code and exception class.\n\n**Third Level: Exception Class Method Resolution Order**\nFor each scope (blueprint or app) and code combination, the method accesses `error_handler_spec[name][c]` to get the handler map (line 836). It then traverses the exception's Method Resolution Order (`exc_class.__mro__`) on line 841, checking each class in the inheritance hierarchy from most specific to most general. The first matching handler found in the MRO is returned (lines 842-845).\n\n**Data Structure Structure**\nThe `error_handler_spec` is a nested dictionary with the structure `{blueprint_name: {code: {exception_class: handler}}}` as defined in `./src/flask/sansio/scaffold.py` (lines 123-126). This structure allows the three-level lookup: first by blueprint scope, then by HTTP status code, then by exception class.\n\n**Interaction Between Exception Hierarchy and HTTP Status Codes**\nWhen an HTTP exception is raised, `_get_exc_class_and_code` returns both the exception class and its associated status code. The lookup first tries to find a handler registered for that specific code, then falls back to handlers registered with `code=None`. Within each code level, the exception's MRO is traversed, allowing handlers registered for parent classes to catch exceptions from child classes if no more specific handler exists. This means a handler registered for `HTTPException` with `code=None` will catch all HTTP exceptions, but a handler registered for `code=404` will take precedence for 404 errors, and a handler registered for a specific exception class like `NotFound` will take precedence over both.\n\nThe exact sequence is: (1) try specific code, then None; (2) for each code, try blueprints in order, then app-level; (3) for each scope+code combination, traverse MRO from most specific to most general exception class.",
+   "goldLocations": [
+    {
+     "path": "src/flask/sansio/app.py",
+     "startLine": 823,
+     "endLine": 846
+    },
+    {
+     "path": "src/flask/sansio/scaffold.py",
+     "startLine": 123,
+     "endLine": 126
+    }
+   ]
+  },
+  {
+   "id": "sweqa-flask-45",
+   "repo": "pallets/flask",
+   "ref": "85c5d93",
+   "source": "swe-qa",
+   "type": "multihop",
+   "question": "Where in the request processing flow does the orchestration between the method that loads session data at request start and the method that persists session data at request end occur to handle concurrent requests with potential race conditions?",
+   "goldAnswer": "The orchestration occurs at two points in the request processing flow:\n\n1. Session loading (open_session): In `RequestContext.push()` in `src/flask/ctx.py` (lines 380-389). Called when the request context is pushed at the start of handling, after the application context is established and before URL matching. The code shows:\n   ```python\n   if self.session is None:\n       session_interface = self.app.session_interface\n       self.session = session_interface.open_session(self.app, self.request)\n   ```\n   This happens in `Flask.wsgi_app()` (line 1510 in `src/flask/app.py`) when `ctx.push()` is called.\n\n2. Session saving (save_session): In `Flask.process_response()` in `src/flask/app.py` (lines 1321-1322). Called after response generation, after `after_request` functions, and before the request context is popped. The code shows:\n   ```python\n   if not self.session_interface.is_null_session(ctx.session):\n       self.session_interface.save_session(self, ctx.session, response)\n   ```\n   This is invoked from `Flask.finalize_request()` (line 941), which is called after `full_dispatch_request()` completes.\n\nThe lifecycle documentation (`docs/lifecycle.rst`, lines 127-128 and 147-148) confirms:\n- Step 6: \"The session is opened, loading any existing session data using the app's session_interface\"\n- Step 15: \"The session is saved, persisting any modified session data using the app's session_interface\"\n\nRegarding concurrent requests and race conditions, `SessionInterface` documentation (`src/flask/sessions.py`, lines 141-146) states: \"Multiple requests with the same session may be sent and handled concurrently. When implementing a new session interface, consider whether reads or writes to the backing store must be synchronized. There is no guarantee on the order in which the session for each request is opened or saved, it will occur in the order that requests begin and end processing.\"\n\nThe orchestration relies on per-request context isolation (via `contextvars`) so each request has its own session instance. Synchronization for concurrent access to shared session storage is the responsibility of the `SessionInterface` implementation.",
+   "goldLocations": [
+    {
+     "path": "src/flask/ctx.py",
+     "startLine": 380,
+     "endLine": 389
+    },
+    {
+     "path": "src/flask/app.py",
+     "startLine": 1321,
+     "endLine": 1322
+    },
+    {
+     "path": "src/flask/sessions.py",
+     "startLine": 141,
+     "endLine": 146
+    }
+   ]
+  },
+  {
+   "id": "sweqa-requests-01",
+   "repo": "psf/requests",
+   "ref": "46e939b",
+   "source": "swe-qa",
+   "type": "multihop",
+   "question": "What assumptions about encoding representation does the test_pragmas method enforce when validating that get_encodings_from_content correctly extracts and normalizes character encoding declarations from HTTP content headers?",
+   "goldAnswer": "The test enforces that encoding names preserve their original case representation and are not normalized to lowercase.\n\nThe test (in `tests/test_utils.py`, lines 381-384) uses parametrized content with \"UTF-8\" in uppercase across HTML5 meta charset attributes, HTML4 pragma directives, XHTML declarations, and XML encoding declarations. It asserts that the extracted encoding is exactly `\"UTF-8\"` (uppercase), not `\"utf-8\"` or any other case variant.\n\nThe underlying function (`get_encodings_from_content` in `src/requests/utils.py`, lines 479-501) uses case-insensitive regex patterns (`re.I` flag) to find encoding declarations, but extracts the encoding value as it appears in the content without case normalization. The test enforces that this case-preserving behavior is maintained, ensuring that encoding names retain their original representation from the source content rather than being normalized to a standard case format.",
+   "goldLocations": [
+    {
+     "path": "tests/test_utils.py",
+     "startLine": 381,
+     "endLine": 384
+    },
+    {
+     "path": "src/requests/utils.py",
+     "startLine": 479,
+     "endLine": 501
+    }
+   ]
+  },
+  {
+   "id": "sweqa-requests-03",
+   "repo": "psf/requests",
+   "ref": "46e939b",
+   "source": "swe-qa",
+   "type": "multihop",
+   "question": "What is the dependency chain between the TestRequests class and the requests library's exception hierarchy, and how do these exception types interact with the error-handling mechanisms in redirect and authentication scenarios?",
+   "goldAnswer": "The dependency relationship is:\n\n1. **Import dependency**: The test class (`TestRequests` in `tests/test_requests.py`, line 82) imports exception classes from `requests.exceptions` (lines 33-49), including `TooManyRedirects`, `RequestException`, `ConnectionError`, `HTTPError`, `InvalidURL`, and others.\n\n2. **Exception hierarchy structure**: Exceptions are defined in `src/requests/exceptions.py`:\n   - Base: `RequestException` (inherits from `IOError`, line 12)\n   - Redirect-related: `TooManyRedirects(RequestException)` (line 95)\n   - Other subclasses: `HTTPError`, `ConnectionError`, `Timeout`, etc.\n\n3. **Usage in redirect error handling**: In `src/requests/sessions.py`, `resolve_redirects` (line 159) raises `TooManyRedirects` when the redirect limit is exceeded (lines 191-193). The test class verifies this in methods like `test_HTTP_302_TOO_MANY_REDIRECTS` (line 241), which catches and asserts `TooManyRedirects` attributes.\n\n4. **Usage in authentication error handling**: During redirects, `rebuild_auth` (line 282) manages authentication headers. The test class includes tests like `test_auth_is_stripped_on_http_downgrade` (line 1882) and `test_auth_is_retained_for_redirect_on_host` (line 1894) that verify authentication behavior, though these don't directly raise exceptions; they test the authentication logic that runs during redirect processing.\n\n5. **Export chain**: Exceptions are exported from `src/requests/__init__.py` (lines 165-176), making them available to both the library code and the test suite.\n\nThe dependency flows: Test class → imports from `requests.exceptions` → uses exceptions to verify behavior → library code (`sessions.py`) raises these exceptions → test class catches and validates them.",
+   "goldLocations": [
+    {
+     "path": "tests/test_requests.py",
+     "startLine": 82,
+     "endLine": 82
+    },
+    {
+     "path": "src/requests/__init__.py",
+     "startLine": 165,
+     "endLine": 176
+    }
+   ]
+  },
+  {
+   "id": "sweqa-requests-09",
+   "repo": "psf/requests",
+   "ref": "46e939b",
+   "source": "swe-qa",
+   "type": "multihop",
+   "question": "What is the architectural design in RequestException that leverages conditional request object resolution through response introspection to maintain backward compatibility while managing the control flow of exception initialization across the requests library's exception hierarchy?",
+   "goldAnswer": "The architectural design in the base exception class (`RequestException`) implements conditional request resolution through response attribute inspection in its `__init__` method (located in `src/requests/exceptions.py`, lines 17-24). \n\nThe implementation works as follows:\n\n1. **Conditional Resolution Logic**: The `__init__` method first extracts the `request` parameter from kwargs (line 21). If `request` is not explicitly provided, but a `response` parameter is provided, the code checks whether the response object has a `request` attribute using `hasattr(response, \"request\")` (line 22).\n\n2. **Response Attribute Inspection**: If the response object contains a `request` attribute, the code automatically assigns `self.response.request` to `self.request` (line 23). This allows the exception to access the original request object that generated the response.\n\n3. **Backward Compatibility**: This design maintains backward compatibility by allowing exceptions to be raised with only the `response` parameter. For example, in `src/requests/models.py` (line 1026), `HTTPError` is raised as `raise HTTPError(http_error_msg, response=self)`, where only the response is passed. The request object is automatically extracted from the response, eliminating the need to pass it explicitly.\n\n4. **Control Flow Management**: This conditional logic manages the control flow of exception initialization across the entire exception hierarchy. Since all exceptions in the requests library inherit from `RequestException` (including `HTTPError`, `ConnectionError`, `Timeout`, `SSLError`, `ProxyError`, and others), they all benefit from this automatic request resolution mechanism.\n\n5. **Response-Request Relationship**: The response object's `request` attribute is set during response processing. In `src/requests/adapters.py` (line 368), when a response is built, it receives a reference to the request: `response.request = req`. This establishes the relationship that the exception initialization logic leverages.\n\nThis architectural pattern ensures that exception objects always have access to both request and response context for debugging and error handling, while providing flexibility in how exceptions are instantiated throughout the codebase.",
+   "goldLocations": [
+    {
+     "path": "src/requests/exceptions.py",
+     "startLine": 17,
+     "endLine": 24
+    },
+    {
+     "path": "src/requests/models.py",
+     "startLine": 1026,
+     "endLine": 1026
+    },
+    {
+     "path": "src/requests/adapters.py",
+     "startLine": 368,
+     "endLine": 368
+    }
+   ]
+  },
+  {
+   "id": "sweqa-requests-11",
+   "repo": "psf/requests",
+   "ref": "46e939b",
+   "source": "swe-qa",
+   "type": "multihop",
+   "question": "What is the data integrity mechanism in the PreparedRequest class that maintains header normalization when CaseInsensitiveDict and to_native_string transformations are applied to heterogeneous input headers?",
+   "goldAnswer": "The data integrity mechanism in request preparation that maintains header normalization when case-insensitive dictionary and string normalization are applied to heterogeneous input headers is implemented in the `prepare_headers` method of the PreparedRequest class (located in `src/requests/models.py`, lines 483-492).\n\nThe mechanism works through a coordinated three-step process:\n\n1. **Header Validation**: Each header from the heterogeneous input (which may contain headers with different cases, string types, or byte types) is first validated using `check_header_validity()` (defined in `src/requests/utils.py`, lines 1024-1032). This function validates that header names and values conform to HTTP specifications by checking for invalid characters, leading whitespace, or return characters using regex validators.\n\n2. **String Normalization**: The header name is then normalized using `to_native_string()` (defined in `src/requests/_internal_utils.py`, lines 25-35), which converts the header name to the native string type (ensuring consistent encoding, defaulting to ASCII). This handles heterogeneous input types (str, bytes) by converting them to a uniform native string representation.\n\n3. **Case-Insensitive Storage**: The normalized header name is stored in a `CaseInsensitiveDict` instance (defined in `src/requests/structures.py`, lines 13-80). This dictionary maintains data integrity through its internal `_store` OrderedDict that maps lowercase keys to tuples of `(original_key, value)`. When a header is set using `self.headers[to_native_string(name)] = value`, the CaseInsensitiveDict:\n   - Uses the lowercase version of the key for lookups (`key.lower()`)\n   - Stores the original case of the last key set alongside the value\n   - Preserves the case of the most recently set key while allowing case-insensitive retrieval\n\nThe data integrity is maintained because:\n- All header names are normalized to native strings before storage, ensuring type consistency\n- Case-insensitive lookup works correctly regardless of input case variations\n- The original case of headers is preserved (the last case used) for proper HTTP header formatting\n- Invalid headers are rejected before normalization, preventing corrupted data from entering the system\n- The mechanism handles heterogeneous inputs (mixed str/bytes, different cases) uniformly while maintaining referential integrity\n\nThis ensures that headers like `{\"Content-Type\": \"application/json\"}`, `{\"content-type\": \"application/json\"}`, or `{b\"Content-Type\": b\"application/json\"}` are all normalized and stored consistently, while maintaining the ability to retrieve them case-insensitively and preserve the original case for transmission.",
+   "goldLocations": [
+    {
+     "path": "src/requests/models.py",
+     "startLine": 483,
+     "endLine": 492
+    },
+    {
+     "path": "src/requests/utils.py",
+     "startLine": 1024,
+     "endLine": 1032
+    },
+    {
+     "path": "src/requests/_internal_utils.py",
+     "startLine": 25,
+     "endLine": 35
+    },
+    {
+     "path": "src/requests/structures.py",
+     "startLine": 13,
+     "endLine": 80
+    }
+   ]
+  },
+  {
+   "id": "sweqa-requests-24",
+   "repo": "psf/requests",
+   "ref": "46e939b",
+   "source": "swe-qa",
+   "type": "multihop",
+   "question": "Why does the `prepare()` method enforce a strict ordering where `prepare_auth()` must be called after `prepare_body()` and `prepare_hooks()` must be called after `prepare_auth()`, rather than allowing these steps to be reordered or parallelized?",
+   "goldAnswer": "The authentication preparation step must follow the body preparation step because authentication schemes (particularly OAuth) require access to the fully prepared request body to generate cryptographic signatures.\n\nIn the `prepare()` method of the `PreparedRequest` class (located in `src/requests/models.py`, lines 351-377), the execution order is:\n\n1. `prepare_body(data, files, json)` (line 370) - This method:\n   - Encodes the request body (JSON, form data, or multipart)\n   - Sets the `Content-Type` header\n   - Sets the `Content-Length` header based on the body\n   - Stores the final body in `self.body`\n\n2. `prepare_auth(auth, url)` (line 371) - This method:\n   - Calls the authentication handler via `auth(self)` (line 602), passing the fully prepared request\n   - Allows the auth handler to modify the request (e.g., add Authorization headers)\n   - Recomputes `Content-Length` after auth modifications (line 608)\n\nThe code comment on lines 373-374 explicitly states: \"Note that prepare_auth must be last to enable authentication schemes such as OAuth to work on a fully prepared request.\"\n\nOAuth and similar signature-based authentication schemes need:\n- The complete request body to compute message signatures\n- The final headers (including Content-Type and Content-Length) to include in signature calculations\n- The ability to modify headers (like adding Authorization) after computing signatures\n\nIf authentication ran before body preparation, auth handlers would not have access to the final body content or headers, making it impossible to generate correct signatures. Additionally, `prepare_auth()` calls `prepare_content_length()` again after auth modifications (line 608), ensuring Content-Length remains accurate if the auth handler modifies the request body.\n\nThere is also a secondary ordering constraint: `prepare_hooks()` must follow `prepare_auth()` because authenticators can register hooks during their execution (as seen in `HTTPDigestAuth.__call__()` in `src/requests/auth.py`, line 299, which registers response hooks). If hooks were prepared before authentication, these auth-registered hooks would be lost.",
+   "goldLocations": [
+    {
+     "path": "src/requests/models.py",
+     "startLine": 351,
+     "endLine": 377
+    },
+    {
+     "path": "src/requests/auth.py",
+     "startLine": 299,
+     "endLine": 299
+    }
+   ]
+  },
+  {
+   "id": "sweqa-requests-28",
+   "repo": "psf/requests",
+   "ref": "46e939b",
+   "source": "swe-qa",
+   "type": "multihop",
+   "question": "Why does the guess_filename function's validation logic prevent security vulnerabilities when extracting filenames from file-like objects in multipart form data handling?",
+   "goldAnswer": "The validation logic in the function that extracts filenames from file-like objects (located in `src/requests/utils.py` at lines 251-255) prevents security vulnerabilities through three checks:\n\n1. **Type validation**: It verifies that the `name` attribute exists and is a string type (`isinstance(name, basestring)`). This prevents non-string values from being used as filenames.\n\n2. **Angle bracket filtering**: The critical security check is `name[0] != \"<\" and name[-1] != \">\"`, which rejects any name that starts with \"<\" and ends with \">\". This prevents accepting special file descriptors like `<stdin>`, `<stderr>`, `<stdout>`, or other file-like objects that have names wrapped in angle brackets.\n\n3. **Path sanitization**: If validation passes, it uses `os.path.basename(name)` to extract only the filename component, preventing path traversal attacks.\n\nWhen this function is used in multipart form data handling (as seen in `src/requests/models.py` line 185: `fn = guess_filename(v) or k`), the validation ensures that:\n- Malicious file-like objects cannot exfiltrate data from standard streams by using names like `<stdin>`\n- Path traversal attacks are mitigated by extracting only the basename\n- Invalid or malicious filename values are rejected, falling back to the field key instead\n\nWithout this validation, an attacker could potentially submit file-like objects with names like `<stdin>` or `<stderr>` in multipart form data, which could lead to data exfiltration or other security issues when the filename is used in HTTP headers or server-side processing.",
+   "goldLocations": [
+    {
+     "path": "src/requests/utils.py",
+     "startLine": 251,
+     "endLine": 255
+    },
+    {
+     "path": "src/requests/models.py",
+     "startLine": 185,
+     "endLine": 185
+    }
+   ]
+  },
+  {
+   "id": "sweqa-requests-35",
+   "repo": "psf/requests",
+   "ref": "46e939b",
+   "source": "swe-qa",
+   "type": "multihop",
+   "question": "Why does the test_transfer_enc_removal_on_redirect method specifically verify that Transfer-Encoding and Content-Type headers are removed during redirect resolution, and what would be the security or protocol implications if these headers persisted through a POST-to-GET redirect transition?",
+   "goldAnswer": "The test method verifies that Transfer-Encoding and Content-Type headers are removed during redirect resolution to ensure compliance with HTTP standards when POST requests are converted to GET.\n\nIn the `resolve_redirects` method in `src/requests/sessions.py` (lines 223-232), when a redirect status code is NOT 307 (temporary_redirect) or 308 (permanent_redirect), the code removes Content-Length, Content-Type, and Transfer-Encoding headers and sets the request body to None:\n\n```python\nif resp.status_code not in (\n    codes.temporary_redirect,\n    codes.permanent_redirect,\n):\n    # https://github.com/psf/requests/issues/3490\n    purged_headers = (\"Content-Length\", \"Content-Type\", \"Transfer-Encoding\")\n    for header in purged_headers:\n        prepared_request.headers.pop(header, None)\n    prepared_request.body = None\n```\n\nThis removal is necessary because:\n\n1. **Method conversion**: For 301, 302, and 303 redirects, the `rebuild_method` function (lines 333-353) converts POST requests to GET requests, following RFC 7231 and browser behavior. GET requests must not have a request body per HTTP standards.\n\n2. **Header semantics**: Transfer-Encoding (specifically \"chunked\") indicates that the body is streamed in chunks when the length is unknown. Content-Type describes the media type of the request body. When the body is removed (set to None), these headers become meaningless and misleading.\n\n3. **Protocol compliance**: Sending body-related headers with a GET request (which has no body) violates HTTP semantics and can cause issues with servers, proxies, and HTTP libraries that expect GET requests to not have body-related headers.\n\n4. **Test context**: The test specifically uses a generator body (`data=(b\"x\" for x in range(1))`) which causes Transfer-Encoding: chunked to be set instead of Content-Length (as seen in `src/requests/models.py` lines 548-551). This tests the edge case where chunked encoding is used, ensuring it's properly removed during redirects.\n\nThe test verifies this behavior to ensure that when POST requests with chunked bodies are redirected and converted to GET, all body-related headers are properly cleaned up, maintaining HTTP protocol correctness.",
+   "goldLocations": [
+    {
+     "path": "src/requests/sessions.py",
+     "startLine": 223,
+     "endLine": 232
+    },
+    {
+     "path": "src/requests/models.py",
+     "startLine": 548,
+     "endLine": 551
+    }
+   ]
+  },
+  {
+   "id": "sweqa-requests-41",
+   "repo": "psf/requests",
+   "ref": "46e939b",
+   "source": "swe-qa",
+   "type": "multihop",
+   "question": "Where is the to_native_string function implementation located that test_to_native_string delegates to for performing the actual string conversion logic?",
+   "goldAnswer": "The function that converts string objects to native string type is located in `src/requests/_internal_utils.py` at line 25.\n\nThe implementation is:\n\n```python\ndef to_native_string(string, encoding=\"ascii\"):\n    \"\"\"Given a string object, regardless of type, returns a representation of\n    that string in the native string type, encoding and decoding where\n    necessary. This assumes ASCII unless told otherwise.\n    \"\"\"\n    if isinstance(string, builtin_str):\n        out = string\n    else:\n        out = string.decode(encoding)\n\n    return out\n```\n\nThe parametrized test validating string conversion behavior (`test_to_native_string`) is located in `tests/test_utils.py` at line 712. The test imports `to_native_string` from `requests.utils` (line 41 of `test_utils.py`), which re-exports it from `_internal_utils` for backwards compatibility (as documented in `src/requests/utils.py` at line 27: \"to_native_string is unused here, but imported here for backwards compatibility\").\n\nWhile the test imports the function through the `utils` module, the actual implementation that performs the string conversion logic is defined in `_internal_utils.py`. This module contains internal utility functions that depend on few external helpers and is used throughout the requests library for string conversion operations in modules like `sessions.py`, `cookies.py`, `models.py`, and `auth.py`.",
+   "goldLocations": [
+    {
+     "path": "src/requests/_internal_utils.py",
+     "startLine": 25,
+     "endLine": 25
+    },
+    {
+     "path": "tests/test_utils.py",
+     "startLine": 712,
+     "endLine": 712
+    },
+    {
+     "path": "src/requests/utils.py",
+     "startLine": 27,
+     "endLine": 27
+    }
+   ]
+  },
+  {
+   "id": "sweqa-requests-45",
+   "repo": "psf/requests",
+   "ref": "46e939b",
+   "source": "swe-qa",
+   "type": "multihop",
+   "question": "Where in the codebase is the TooManyRedirects exception raised and what is the call chain that leads to its instantiation from the redirect handling logic?",
+   "goldAnswer": "The exception for exceeding the maximum redirect count is raised in the `resolve_redirects` method of the `SessionRedirectMixin` class, located in `src/requests/sessions.py` at line 191.\n\nThe call chain leading to its instantiation from redirect handling logic is:\n\n1. **Entry point**: When a user makes a request via `requests.get()`, `requests.post()`, or similar functions in `src/requests/api.py`, these functions create a `Session` instance and call `session.request()`.\n\n2. **Request preparation and sending**: `Session.request()` (line 500 in `sessions.py`) prepares the request and calls `Session.send()` (line 673).\n\n3. **Redirect handling check**: In `Session.send()`, if `allow_redirects=True` (line 721), the method calls `self.resolve_redirects(r, request, **kwargs)` (line 723).\n\n4. **Redirect processing loop**: `resolve_redirects()` (line 159) is a generator method in `SessionRedirectMixin` that processes redirects in a `while url:` loop (line 177). For each redirect:\n   - It tracks redirect history in a `hist` list (line 173)\n   - Updates `resp.history` with the accumulated redirects (line 183)\n   - Checks if the redirect count exceeds the limit: `if len(resp.history) >= self.max_redirects:` (line 190)\n\n5. **Exception instantiation**: When the redirect count reaches or exceeds `self.max_redirects` (defaults to 30, defined as `DEFAULT_REDIRECT_LIMIT` in `src/requests/models.py`), the exception is raised at line 191-193:\n   ```python\n   raise TooManyRedirects(\n       f\"Exceeded {self.max_redirects} redirects.\", response=resp\n   )\n   ```\n\nThe exception is instantiated with a message indicating the number of redirects exceeded and includes the response object in the exception for debugging purposes. The `TooManyRedirects` exception class itself is defined in `src/requests/exceptions.py` at line 95, inheriting from `RequestException`.",
+   "goldLocations": [
+    {
+     "path": "src/requests/sessions.py",
+     "startLine": 191,
+     "endLine": 191
+    },
+    {
+     "path": "src/requests/exceptions.py",
+     "startLine": 95,
+     "endLine": 95
+    }
+   ]
+  },
+  {
+   "id": "flask-l1",
+   "repo": "pallets/flask",
+   "ref": "85c5d93",
+   "source": "authored",
+   "type": "lookup",
+   "question": "What does send_from_directory do, and how does it stop a client-supplied path from escaping the directory?",
+   "goldAnswer": "`send_from_directory` is a thin wrapper around `werkzeug.utils.send_from_directory` that forwards the Flask-specific keyword arguments through `_prepare_send_file_kwargs`. Path safety is not implemented in Flask: Werkzeug uses `safe_join` so a path coming from the client cannot be crafted to point outside `directory`. If the resulting path is not an existing regular file, a 404 `NotFound` is raised. The docstring is explicit that `directory` must not be a client-supplied value.",
+   "goldLocations": [
+    {
+     "path": "src/flask/helpers.py",
+     "startLine": 526,
+     "endLine": 567
+    }
+   ]
+  },
+  {
+   "id": "flask-l2",
+   "repo": "pallets/flask",
+   "ref": "85c5d93",
+   "source": "authored",
+   "type": "lookup",
+   "question": "How does Config.from_prefixed_env decide which environment variables to load, and how does it set nested keys?",
+   "goldAnswer": "`Config.from_prefixed_env` builds `prefix = f\"{prefix}_\"` (default `FLASK_`) and walks `sorted(os.environ)`, skipping any key that does not start with it. The prefix is stripped with `removeprefix`, then the value is passed through `loads` (default `json.loads`); if that raises, the exception is swallowed and the value stays a string. A key with no `__` in it is assigned directly. A key containing `__` is split on it, and the leading parts are walked as nested dicts — any missing intermediate key is initialised to `{}` — with the final part assigned on the innermost dict. It always returns True.",
+   "goldLocations": [
+    {
+     "path": "src/flask/config.py",
+     "startLine": 126,
+     "endLine": 185
+    }
+   ]
+  },
+  {
+   "id": "flask-l3",
+   "repo": "pallets/flask",
+   "ref": "85c5d93",
+   "source": "authored",
+   "type": "lookup",
+   "question": "What does SecureCookieSessionInterface.get_signing_serializer return when the app has no secret key, and how are fallback keys ordered?",
+   "goldAnswer": "`get_signing_serializer` returns `None` when `app.secret_key` is falsy, which is how the session interface detects a null session. Otherwise it builds a key list from `app.config[\"SECRET_KEY_FALLBACKS\"]` first and appends `app.secret_key` last, with the comment that itsdangerous expects the current key at the top. It returns a `URLSafeTimedSerializer` over those keys with `salt=self.salt`, `serializer=self.serializer`, and `signer_kwargs` carrying `key_derivation` and `digest_method`.",
+   "goldLocations": [
+    {
+     "path": "src/flask/sessions.py",
+     "startLine": 317,
+     "endLine": 335
+    }
+   ]
+  },
+  {
+   "id": "flask-l4",
+   "repo": "pallets/flask",
+   "ref": "85c5d93",
+   "source": "authored",
+   "type": "lookup",
+   "question": "What does flask.abort do differently from werkzeug's abort?",
+   "goldAnswer": "`abort` first checks `current_app`. If an application context is active it calls `current_app.aborter(code, *args, **kwargs)`, which lets an app register its own exceptions for a status code. It then falls through to Werkzeug's `abort` (imported as `_wz_abort`), which is the only path taken when no app is available. It is annotated `-> t.NoReturn` because both branches raise.",
+   "goldLocations": [
+    {
+     "path": "src/flask/helpers.py",
+     "startLine": 266,
+     "endLine": 287
+    }
+   ]
+  },
+  {
+   "id": "flask-l5",
+   "repo": "pallets/flask",
+   "ref": "85c5d93",
+   "source": "authored",
+   "type": "lookup",
+   "question": "How does MethodView populate its methods attribute, and what happens on a HEAD request with no head handler?",
+   "goldAnswer": "`MethodView.__init_subclass__` runs on each subclass. If `methods` is not set in the subclass's own `__dict__`, it unions `methods` from every base that has one, then adds the upper-cased name of each attribute in `http_method_funcs` that the class actually defines, and assigns the result to `cls.methods` only if non-empty. `dispatch_request` looks up `getattr(self, request.method.lower(), None)`; when that is `None` and the method is HEAD it retries with `get`. It then asserts the handler exists and calls it through `current_app.ensure_sync`.",
+   "goldLocations": [
+    {
+     "path": "src/flask/views.py",
+     "startLine": 138,
+     "endLine": 192
+    }
+   ]
+  },
+  {
+   "id": "flask-l6",
+   "repo": "pallets/flask",
+   "ref": "85c5d93",
+   "source": "authored",
+   "type": "lookup",
+   "question": "Which Flask config key controls whether an OPTIONS handler is added automatically, and what is its default?",
+   "goldAnswer": "`PROVIDE_AUTOMATIC_OPTIONS` defaults to `True` in the default config dict in `src/flask/app.py`. The per-view override lives on the view class as `provide_automatic_options: t.ClassVar[bool | None] = None`, so a view that leaves it `None` inherits the app-level setting.",
+   "goldLocations": [
+    {
+     "path": "src/flask/app.py",
+     "startLine": 208,
+     "endLine": 208
+    },
+    {
+     "path": "src/flask/views.py",
+     "startLine": 56,
+     "endLine": 56
+    }
+   ]
+  },
+  {
+   "id": "req-l1",
+   "repo": "psf/requests",
+   "ref": "46e939b",
+   "source": "authored",
+   "type": "lookup",
+   "question": "How does super_len determine the length of a request body, and what does it return when it cannot?",
+   "goldAnswer": "`super_len` tries, in order: `len(o)`, then `o.len`, then `os.fstat(o.fileno()).st_size`. On urllib3 2.x a `str` is encoded to utf-8 first, because urllib3 2.x treats strings as utf-8 rather than latin-1. The fstat branch warns with `FileModeWarning` if the file was opened without `'b'` in its mode, since a text-mode length may be wrong. It then subtracts the current position from `o.tell()` where available, falling back to seeking to the end and back for objects like StringIO that have `seek` but no usable fileno. If nothing worked `total_length` is 0, and the function returns `max(0, total_length - current_position)` so it never returns a negative length.",
+   "goldLocations": [
+    {
+     "path": "src/requests/utils.py",
+     "startLine": 136,
+     "endLine": 203
+    }
+   ]
+  },
+  {
+   "id": "req-l2",
+   "repo": "psf/requests",
+   "ref": "46e939b",
+   "source": "authored",
+   "type": "lookup",
+   "question": "How does guess_json_utf detect the encoding of a JSON payload?",
+   "goldAnswer": "`guess_json_utf` looks only at `data[:4]`. It first checks for a BOM: UTF-32 LE/BE on the full four bytes, UTF-8 on the first three (returned as `utf-8-sig`), UTF-16 LE/BE on the first two. With no BOM it counts null bytes in the sample, relying on JSON always starting with two ASCII characters. Zero nulls means `utf-8`. Two nulls means UTF-16, big- or little-endian depending on whether the 1st and 3rd or the 2nd and 4th bytes are null. Three nulls means UTF-32, again disambiguated by null position. Anything else falls through to `None`.",
+   "goldLocations": [
+    {
+     "path": "src/requests/utils.py",
+     "startLine": 947,
+     "endLine": 978
+    }
+   ]
+  },
+  {
+   "id": "req-l3",
+   "repo": "psf/requests",
+   "ref": "46e939b",
+   "source": "authored",
+   "type": "lookup",
+   "question": "Which headers does default_headers set on a new Session?",
+   "goldAnswer": "`default_headers` returns a `CaseInsensitiveDict` with four entries: `User-Agent` from `default_user_agent()`, `Accept-Encoding` from the module-level `DEFAULT_ACCEPT_ENCODING`, `Accept` set to `*/*`, and `Connection` set to `keep-alive`.",
+   "goldLocations": [
+    {
+     "path": "src/requests/utils.py",
+     "startLine": 890,
+     "endLine": 901
+    }
+   ]
+  },
+  {
+   "id": "req-l4",
+   "repo": "psf/requests",
+   "ref": "46e939b",
+   "source": "authored",
+   "type": "lookup",
+   "question": "What does requote_uri do when the URI cannot be unquoted?",
+   "goldAnswer": "`requote_uri` normally runs the URI through `unquote_unreserved` and then `quote` with `safe_with_percent = \"!#$%&'()*+,/:;=?@[]~\"`, so reserved, unreserved and already-escaped `%` sequences survive untouched. If `unquote_unreserved` raises `InvalidURL`, it falls back to quoting the raw URI with `safe_without_percent`, which drops `%` from the safe set so any stray unquoted percent signs get escaped rather than left to break something downstream.",
+   "goldLocations": [
+    {
+     "path": "src/requests/utils.py",
+     "startLine": 650,
+     "endLine": 670
+    }
+   ]
+  },
+  {
+   "id": "req-l5",
+   "repo": "psf/requests",
+   "ref": "46e939b",
+   "source": "authored",
+   "type": "lookup",
+   "question": "How does Session.mount keep transport adapters in the right order?",
+   "goldAnswer": "`mount` assigns `self.adapters[prefix] = adapter`, then collects every existing key shorter than the new prefix and pops and re-inserts each one. Because the adapter dict preserves insertion order, re-inserting the shorter keys after the new one leaves the adapters sorted in descending order by prefix length, so the longest matching prefix is found first.",
+   "goldLocations": [
+    {
+     "path": "src/requests/sessions.py",
+     "startLine": 799,
+     "endLine": 808
+    }
+   ]
+  },
+  {
+   "id": "req-l6",
+   "repo": "psf/requests",
+   "ref": "46e939b",
+   "source": "authored",
+   "type": "lookup",
+   "question": "What does extract_cookies_to_jar need from the response object, and what does it do if that is missing?",
+   "goldAnswer": "`extract_cookies_to_jar` requires `response._original_response` — the wrapped httplib `HTTPResponse` — and returns immediately if the attribute is absent or falsy. Otherwise it wraps the requests `Request` in a `MockRequest` and the original response's `msg` headers in a `MockResponse`, then calls `jar.extract_cookies(res, req)`, since `http.cookiejar` expects urllib-shaped objects rather than requests' own.",
+   "goldLocations": [
+    {
+     "path": "src/requests/cookies.py",
+     "startLine": 124,
+     "endLine": 137
+    }
+   ]
+  },
+  {
+   "id": "gitask-l1",
+   "repo": "FloareDor/gitask",
+   "ref": "51c4ec2",
+   "source": "authored",
+   "type": "lookup",
+   "question": "How does binarize turn an embedding into a bit vector?",
+   "goldAnswer": "`binarize` packs each dimension of the vector into one bit of a `Uint32Array`, setting the bit when the component is greater than zero. The output length is `ceil(dim / 32)` words, which is what makes the coarse retrieval stage 32x smaller than the float vectors.",
+   "goldLocations": [
+    {
+     "path": "src/lib/quantize.ts",
+     "startLine": 13,
+     "endLine": 27
+    }
+   ]
+  },
+  {
+   "id": "gitask-l2",
+   "repo": "FloareDor/gitask",
+   "ref": "51c4ec2",
+   "source": "authored",
+   "type": "lookup",
+   "question": "How is Hamming distance computed between two quantized vectors?",
+   "goldAnswer": "`hammingDistance` XORs the two `Uint32Array`s word by word and counts the set bits in each result with a popcount, summing to the total number of differing dimensions. It is the distance used for the coarse retrieval pass before the cosine rerank.",
+   "goldLocations": [
+    {
+     "path": "src/lib/quantize.ts",
+     "startLine": 34,
+     "endLine": 48
+    }
+   ]
+  },
+  {
+   "id": "gitask-l3",
+   "repo": "FloareDor/gitask",
+   "ref": "51c4ec2",
+   "source": "authored",
+   "type": "lookup",
+   "question": "What does reciprocalRankFusion do with the ranked lists it is given?",
+   "goldAnswer": "`reciprocalRankFusion` scores each document by summing `1 / (k + rank)` over every input list it appears in, with the usual RRF constant, then sorts by the fused score. It is what merges the dense and BM25 result lists without needing their scores to be on the same scale.",
+   "goldLocations": [
+    {
+     "path": "src/lib/search.ts",
+     "startLine": 29,
+     "endLine": 45
+    }
+   ]
+  },
+  {
+   "id": "gitask-l4",
+   "repo": "FloareDor/gitask",
+   "ref": "51c4ec2",
+   "source": "authored",
+   "type": "lookup",
+   "question": "How does classifyInjectionRisk decide between low, medium and high risk?",
+   "goldAnswer": "`classifyInjectionRisk` counts matches of the prompt-injection patterns in the text and maps the count onto a level, returning the level together with the names of the signals that fired. The level is what `scanChunksForInjection` aggregates across the retrieved chunks and what the chat path uses to decide between sanitizing and blocking outright.",
+   "goldLocations": [
+    {
+     "path": "src/lib/promptSafety.ts",
+     "startLine": 71,
+     "endLine": 95
+    }
+   ]
+  },
+  {
+   "id": "gitask-l5",
+   "repo": "FloareDor/gitask",
+   "ref": "51c4ec2",
+   "source": "authored",
+   "type": "lookup",
+   "question": "What does extractEvidenceTerms strip out of a query?",
+   "goldAnswer": "`extractEvidenceTerms` lowercases the query, splits it into word tokens, and drops anything in `EVIDENCE_STOP_WORDS` as well as very short tokens. What is left is the set of terms that citation grounding checks for inside the retrieved chunks.",
+   "goldLocations": [
+    {
+     "path": "src/lib/citationUtils.ts",
+     "startLine": 3,
+     "endLine": 19
+    }
+   ]
+  },
+  {
+   "id": "gitask-l6",
+   "repo": "FloareDor/gitask",
+   "ref": "51c4ec2",
+   "source": "authored",
+   "type": "lookup",
+   "question": "What does expandQuery produce from a single user message?",
+   "goldAnswer": "`expandQuery` is the non-LLM fallback for multi-query retrieval: it derives a small list of query variants from the user message with string rules rather than a model call, which is the path taken when the provider is the local MLC model or query expansion is switched off.",
+   "goldLocations": [
+    {
+     "path": "src/lib/queryExpansion.ts",
+     "startLine": 72,
+     "endLine": 87
+    }
+   ]
+  },
+  {
+   "id": "gitask-m1",
+   "repo": "FloareDor/gitask",
+   "ref": "51c4ec2",
+   "source": "authored",
+   "type": "multihop",
+   "question": "Trace a chat question from the input box to a ranked list of chunks. Which functions run, and in what order?",
+   "goldAnswer": "The chat path first expands the question into variants — `generateQueryVariants` when a hosted provider is configured, otherwise the rule-based `expandQuery`. The variants go into `multiPathHybridSearch`, which runs `hybridSearch` per variant and fuses the per-variant results. Each `hybridSearch` call is itself a fusion: a dense pass and a BM25 pass combined by `reciprocalRankFusion`, followed by graph expansion and a cosine rerank.",
+   "goldLocations": [
+    {
+     "path": "src/lib/queryExpansion.ts",
+     "startLine": 72,
+     "endLine": 87
+    },
+    {
+     "path": "src/lib/queryExpansion.ts",
+     "startLine": 98,
+     "endLine": 153
+    },
+    {
+     "path": "src/lib/search.ts",
+     "startLine": 269,
+     "endLine": 348
+    },
+    {
+     "path": "src/lib/search.ts",
+     "startLine": 151,
+     "endLine": 208
+    }
+   ]
+  },
+  {
+   "id": "gitask-m2",
+   "repo": "FloareDor/gitask",
+   "ref": "51c4ec2",
+   "source": "authored",
+   "type": "multihop",
+   "question": "Where does binary quantization get used during retrieval, and where do the full-precision vectors come back?",
+   "goldAnswer": "`binarize` packs each embedding into a bit vector at index time, and `hammingDistance` scores those bit vectors in the coarse pass inside `vectorSearch`. The full-precision embeddings are not discarded: `vectorSearch` reranks the coarse candidates with `cosineSimilarity` over the original float vectors, so quantization only narrows the candidate set and never decides the final order.",
+   "goldLocations": [
+    {
+     "path": "src/lib/quantize.ts",
+     "startLine": 13,
+     "endLine": 27
+    },
+    {
+     "path": "src/lib/quantize.ts",
+     "startLine": 34,
+     "endLine": 48
+    },
+    {
+     "path": "src/lib/quantize.ts",
+     "startLine": 54,
+     "endLine": 68
+    },
+    {
+     "path": "src/lib/search.ts",
+     "startLine": 113,
+     "endLine": 142
+    }
+   ]
+  },
+  {
+   "id": "gitask-m3",
+   "repo": "FloareDor/gitask",
+   "ref": "51c4ec2",
+   "source": "authored",
+   "type": "multihop",
+   "question": "What stops a file in an indexed repository from hijacking the assistant with instructions in a comment?",
+   "goldAnswer": "Retrieved chunks are scanned before they ever reach the prompt. `scanChunksForInjection` runs `classifyInjectionRisk` over every chunk and reports an aggregate level plus the chunk ids that looked risky. `buildSafeContext` then redacts or excludes those chunks when assembling the context, and the chat path blocks the answer entirely when the level is high or risky chunks dominate the result set.",
+   "goldLocations": [
+    {
+     "path": "src/lib/promptSafety.ts",
+     "startLine": 71,
+     "endLine": 95
+    },
+    {
+     "path": "src/lib/promptSafety.ts",
+     "startLine": 97,
+     "endLine": 132
+    },
+    {
+     "path": "src/lib/promptSafety.ts",
+     "startLine": 177,
+     "endLine": 226
+    },
+    {
+     "path": "src/app/[owner]/[repo]/page.tsx",
+     "startLine": 749,
+     "endLine": 767
+    }
+   ]
+  },
+  {
+   "id": "gitask-m4",
+   "repo": "FloareDor/gitask",
+   "ref": "51c4ec2",
+   "source": "authored",
+   "type": "multihop",
+   "question": "How is BM25 scoring kept off the main thread, and what happens when the worker fails?",
+   "goldAnswer": "`bm25Search` prefers a worker: `getOrCreateWorker` lazily spawns `src/workers/bm25-worker.ts` and `scoreWithWorker` posts the documents and query across and waits for the scores. Failure is handled rather than fatal — `disposeBM25Worker` tears the worker down and rejects the pending requests, and scoring falls back to the synchronous path in the same module.",
+   "goldLocations": [
+    {
+     "path": "src/lib/bm25.ts",
+     "startLine": 217,
+     "endLine": 235
+    },
+    {
+     "path": "src/lib/bm25.ts",
+     "startLine": 111,
+     "endLine": 148
+    },
+    {
+     "path": "src/lib/bm25.ts",
+     "startLine": 96,
+     "endLine": 105
+    },
+    {
+     "path": "src/lib/bm25.ts",
+     "startLine": 167,
+     "endLine": 211
+    },
+    {
+     "path": "src/workers/bm25-worker.ts",
+     "startLine": 28,
+     "endLine": 66
+    }
+   ]
+  },
+  {
+   "id": "gitask-m5",
+   "repo": "FloareDor/gitask",
+   "ref": "51c4ec2",
+   "source": "authored",
+   "type": "multihop",
+   "question": "How does graph expansion decide which extra files to pull into a result set?",
+   "goldAnswer": "`expandCandidatesWithGraph` takes the top retrieval hits and follows the import/definition graph out from their files, adding chunks from the neighbours. Resolving an import string to a real indexed path is `resolveImport`'s job, which handles relative specifiers, extension guessing and index files against the set of known paths that the store hands over through `getResolveFileData`.",
+   "goldLocations": [
+    {
+     "path": "src/lib/graphExpansion.ts",
+     "startLine": 101,
+     "endLine": 145
+    },
+    {
+     "path": "src/lib/graphExpansion.ts",
+     "startLine": 40,
+     "endLine": 95
+    },
+    {
+     "path": "src/lib/vectorStore.ts",
+     "startLine": 128,
+     "endLine": 147
+    }
+   ]
+  },
+  {
+   "id": "gitask-m6",
+   "repo": "FloareDor/gitask",
+   "ref": "51c4ec2",
+   "source": "authored",
+   "type": "multihop",
+   "question": "What does the CoVe pass do after an answer is generated, and what does it re-retrieve?",
+   "goldAnswer": "`verifyAndRefine` runs after the first answer: it asks the model to pull out the checkable claims, re-runs retrieval for those claims through the hybrid search path, and then asks for a revised answer given what came back. The point is that verification uses fresh retrieval rather than the original context, which is why it can catch a claim the first context never supported.",
+   "goldLocations": [
+    {
+     "path": "src/lib/cove.ts",
+     "startLine": 23,
+     "endLine": 81
+    },
+    {
+     "path": "src/lib/search.ts",
+     "startLine": 269,
+     "endLine": 348
+    }
+   ]
+  },
+  {
+   "id": "gitask-m7",
+   "repo": "FloareDor/gitask",
+   "ref": "51c4ec2",
+   "source": "authored",
+   "type": "multihop",
+   "question": "How is an index restored from cache, and what makes a cached index unusable?",
+   "goldAnswer": "`loadFromCache` reads the stored blob out of IndexedDB and hands it to `setFromBlob`, which repopulates the chunks, binaries, graph and raw file text in one go. A cache entry is only accepted when its embedding model matches: `isCompatibleEmbeddingModel` compares the stored value against `EMBEDDING_MODEL_ID`, so changing the embedding model invalidates every cached index rather than silently mixing vector spaces.",
+   "goldLocations": [
+    {
+     "path": "src/lib/vectorStore.ts",
+     "startLine": 415,
+     "endLine": 463
+    },
+    {
+     "path": "src/lib/vectorStore.ts",
+     "startLine": 221,
+     "endLine": 237
+    },
+    {
+     "path": "src/lib/vectorStore.ts",
+     "startLine": 65,
+     "endLine": 67
+    },
+    {
+     "path": "src/lib/embedder.ts",
+     "startLine": 22,
+     "endLine": 22
+    }
+   ]
+  },
+  {
+   "id": "gitask-m8",
+   "repo": "FloareDor/gitask",
+   "ref": "51c4ec2",
+   "source": "authored",
+   "type": "multihop",
+   "question": "How does the context sent to the LLM stay inside a provider's budget?",
+   "goldAnswer": "`defaultLimitsForProvider` picks the budget from the configured provider, so a local MLC model gets a much smaller allowance than a hosted one. `buildScopedContext` renders the candidate chunks and, if the rendered text is already within budget, returns it untouched. When it is not, it degrades in stages — compacting the overflowing files first via `compactOverflowFiles`, then directories, then the repo — and records which stage it reached in the returned meta.",
+   "goldLocations": [
+    {
+     "path": "src/lib/contextAssembly.ts",
+     "startLine": 26,
+     "endLine": 47
+    },
+    {
+     "path": "src/lib/contextAssembly.ts",
+     "startLine": 57,
+     "endLine": 109
+    },
+    {
+     "path": "src/lib/contextAssembly.ts",
+     "startLine": 145,
+     "endLine": 197
+    },
+    {
+     "path": "src/app/[owner]/[repo]/page.tsx",
+     "startLine": 681,
+     "endLine": 681
+    }
+   ]
+  },
+  {
+   "id": "gitask-m9",
+   "repo": "FloareDor/gitask",
+   "ref": "51c4ec2",
+   "source": "authored",
+   "type": "multihop",
+   "question": "How does a citation shown under an answer get tied back to the chunks that were retrieved?",
+   "goldAnswer": "Citations are built twice. Before generation, `buildGroundedCitationResults` keeps only the retrieved chunks that actually contain the query's evidence terms, so a citation is never shown for a chunk that has nothing to do with the question. After the answer streams in, `buildCorrelatedCitationResults` re-selects chunks by correlating them against the generated text. `evaluateEvidenceCoverage` scores how much of the evidence the results covered at all, and the chat path uses a weak score to refuse to answer rather than cite something unsupported.",
+   "goldLocations": [
+    {
+     "path": "src/lib/citationUtils.ts",
+     "startLine": 26,
+     "endLine": 37
+    },
+    {
+     "path": "src/lib/citationUtils.ts",
+     "startLine": 47,
+     "endLine": 87
+    },
+    {
+     "path": "src/lib/citationUtils.ts",
+     "startLine": 89,
+     "endLine": 109
+    },
+    {
+     "path": "src/app/[owner]/[repo]/page.tsx",
+     "startLine": 771,
+     "endLine": 790
+    }
+   ]
+  }
+ ]
+}
