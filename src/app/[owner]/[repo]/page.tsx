@@ -4,6 +4,7 @@ import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { indexRepository, IndexAbortError, type IndexProgress, type AstNode } from "@/lib/indexer";
 import { VectorStore } from "@/lib/vectorStore";
+import { exposeAgentTools } from "@/lib/agent/devtools";
 import { multiPathHybridSearch } from "@/lib/search";
 import { generateQueryVariants, getRetrievalRefinement, buildContextualQuery, expandQuery } from "@/lib/queryExpansion";
 import { defaultLimitsForProvider } from "@/lib/contextAssembly";
@@ -136,6 +137,11 @@ export default function RepoPage({
 		setRepoStale(false);
 		staleNoticeShownRef.current = false;
 	}, [owner, repo]);
+
+	// Agent tools on window.gitask once there's an index to run them against.
+	useEffect(() => {
+		if (isIndexed) exposeAgentTools(storeRef.current);
+	}, [isIndexed]);
 
 	useEffect(() => {
 		return onStatusChange((s) => {
