@@ -6,7 +6,7 @@ import { ThemeToggle } from "@/components/ThemeToggle";
 import { indexRepository, type IndexProgress } from "@/lib/indexer";
 import { embedText } from "@/lib/embedder";
 import { VectorStore } from "@/lib/vectorStore";
-import { getGeminiKeyScope } from "@/lib/llm";
+import { getGeminiKeyScope, getLLMStatus, initLLM } from "@/lib/llm";
 import { GEMINI_AGENT_MODEL } from "@/lib/agent/providers/gemini";
 import type { Arm } from "@/lib/eval/arms";
 import {
@@ -99,6 +99,17 @@ export default function EvalPage() {
   const handleRun = useCallback(async () => {
     setPhase("running");
     setError(null);
+    // The RAG arm's multi-query expansion and refinement both no-op unless the
+    // shared LLM engine is ready. Without this the baseline would quietly run
+    // single-query, which is not the RAG the app ships.
+    try {
+      await initLLM();
+      if (getLLMStatus() !== "ready") throw new Error(`LLM status is ${getLLMStatus()}`);
+    } catch (err) {
+      setError(`Query expansion needs a working Gemini key: ${err instanceof Error ? err.message : String(err)}`);
+      setPhase("error");
+      return;
+    }
     const controller = new AbortController();
     abortRef.current = controller;
     // Re-running a repo replaces its rows rather than doubling them.
@@ -111,7 +122,10 @@ export default function EvalPage() {
         withKey: getGeminiKeyScope(),
         runs,
         arms,
-        questionIds: smoke ? questions.slice(0, 2).map((q) => q.id) : undefined,
+        questionIds: smoke ? questions.slice(0, 1).map((q) => q.id) : undefined,
+        // Free-tier keys 429 the agent arm hard; a short breather costs an hour
+        // of wall clock on a full run and saves a lot of wasted calls.
+        pauseMs: 1500,
         signal: controller.signal,
         onProgress: setEvalProgress,
         onRecord: (record) => {
@@ -250,7 +264,7 @@ export default function EvalPage() {
                 disabled={busy}
                 onChange={(e) => setSmoke(e.target.checked)}
               />
-              smoke run (first 2 questions)
+              smoke run (first question only)
             </label>
           </div>
 

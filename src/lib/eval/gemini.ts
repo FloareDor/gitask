@@ -9,6 +9,7 @@
 
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import { GEMINI_AGENT_MODEL, type KeyScope } from "../agent/providers/gemini";
+import { withRetry } from "../retry";
 
 export interface OneShotResult {
 	text: string;
@@ -25,7 +26,7 @@ export interface OneShotOptions {
 }
 
 export async function geminiOneShot(withKey: KeyScope, options: OneShotOptions): Promise<OneShotResult> {
-	return withKey(async (apiKey) => {
+	return withRetry(() => withKey(async (apiKey) => {
 		const model = new GoogleGenerativeAI(apiKey).getGenerativeModel({
 			model: options.model ?? GEMINI_AGENT_MODEL,
 			systemInstruction: options.system,
@@ -40,5 +41,5 @@ export async function geminiOneShot(withKey: KeyScope, options: OneShotOptions):
 			tokensIn: response.usageMetadata?.promptTokenCount ?? 0,
 			tokensOut: response.usageMetadata?.candidatesTokenCount ?? 0,
 		};
-	});
+	}));
 }

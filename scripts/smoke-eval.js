@@ -22,6 +22,8 @@ const POLL_MS = 2000;
 const argv = process.argv.slice(2);
 const repo = argv.find((a) => a.includes("/") && !a.startsWith("--")) || "psf/requests";
 const wantArms = argv.includes("--arms");
+const runsFlag = argv.indexOf("--runs");
+const runsPerQuestion = runsFlag !== -1 ? argv[runsFlag + 1] : null;
 const keyFlag = argv.indexOf("--key");
 const apiKey = keyFlag !== -1 ? argv[keyFlag + 1] : process.env.GEMINI_API_KEY;
 
@@ -30,6 +32,11 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 function readPage() {
   return {
     text: document.body.innerText,
+    // Every control is disabled while a run is in flight, so "run eval is
+    // clickable again" is the one unambiguous finished signal. Text-based
+    // checks kept firing early, before React had rendered the running phase.
+    busy: [...document.querySelectorAll("button")]
+      .some((b) => b.innerText.trim() === "run eval" && b.disabled),
     tables: [...document.querySelectorAll("table")].map((t) =>
       [...t.querySelectorAll("tr")].map((r) =>
         [...r.querySelectorAll("th,td")].map((c) => c.innerText.trim())
@@ -95,19 +102,41 @@ function printTable(rows) {
   await page.goto(BASE, { waitUntil: "domcontentloaded" });
   await page.waitForSelector("select");
 
-  // The repo select is the first one on the page; wait for React to re-render
-  // the index button before trusting that the choice took.
-  await page.selectOption("select >> nth=0", repo);
+  // Wait for hydration: on a cold dev compile the buttons appear well after
+  // domcontentloaded, and selecting before then silently does nothing.
   await page.waitForFunction(
-    (name) => [...document.querySelectorAll("button")]
-      .some((b) => b.innerText.trim() === `index ${name}`.trim() || b.innerText.includes(name)),
-    repo,
-    { timeout: 10_000 }
+    () => [...document.querySelectorAll("button")].some((b) => b.innerText.startsWith("index ")),
+    null,
+    { timeout: 120_000 }
   );
+
+  // Two things bite here. React's value tracker suppresses onChange when
+  // select.value is set directly, so the change has to go through the native
+  // setter; and the select's handler is attached a beat after the button first
+  // renders, so a single dispatch can land before React is listening. Hence:
+  // dispatch, check the observable effect, retry.
+  const selectRepo = () => page.evaluate((name) => {
+    const select = document.querySelector("select");
+    Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, "value").set.call(select, name);
+    select.dispatchEvent(new Event("change", { bubbles: true }));
+  }, repo);
+
+  let selected = false;
+  for (let attempt = 0; attempt < 10 && !selected; attempt += 1) {
+    await selectRepo();
+    await sleep(1000);
+    selected = await page.evaluate((name) => [...document.querySelectorAll("button")]
+      .some((b) => b.innerText.startsWith("index ") && b.innerText.includes(name)), repo);
+  }
+  if (!selected) {
+    const saw = await page.evaluate(() =>
+      [...document.querySelectorAll("button")].map((b) => b.innerText.trim()));
+    throw new Error(`repo select did not take. buttons: ${JSON.stringify(saw)}`);
+  }
+
   const indexLabel = await page.evaluate(() =>
-    [...document.querySelectorAll("button")].find((b) => b.innerText.startsWith("index")).innerText
+    [...document.querySelectorAll("button")].find((b) => b.innerText.startsWith("index ")).innerText
   );
-  if (!indexLabel.includes(repo)) throw new Error(`repo select did not take: ${indexLabel}`);
 
   console.log(`→ ${indexLabel}`);
   await clickButton(page, "index ");
@@ -127,14 +156,27 @@ function printTable(rows) {
 
   if (wantArms) {
     if (!apiKey) throw new Error("--arms needs GEMINI_API_KEY or --key");
-    console.log("→ smoke run: first 2 questions, both arms");
+    console.log(`→ smoke run: first question, both arms${runsPerQuestion ? `, runs=${runsPerQuestion}` : ""}`);
+    if (runsPerQuestion) {
+      // Same native-setter dance as the repo select; this is the second one.
+      await page.evaluate((value) => {
+        const select = document.querySelectorAll("select")[1];
+        Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, "value").set.call(select, value);
+        select.dispatchEvent(new Event("change", { bubbles: true }));
+      }, runsPerQuestion);
+      await sleep(500);
+    }
     await page.evaluate(() => {
       const box = [...document.querySelectorAll("input[type=checkbox]")]
         .find((i) => i.parentElement.innerText.includes("smoke run"));
       if (!box.checked) box.click();
     });
     await clickButton(page, "run eval");
-    const ran = await waitFor(page, "eval", (s) => s.text.includes("Results"));
+    // Records stream into the table as they land, so "Results exists" only
+    // means the first row arrived. The page's own progress counter reaching
+    // done/total is the finish line, and it doesn't depend on render timing.
+    await sleep(3000);
+    const ran = await waitFor(page, "eval", (s) => s.text.includes("Results") && !s.busy);
     console.log("✓ results, from the live page:");
     printTable(ran.tables.find((rows) => rows[0]?.includes("score")));
   }

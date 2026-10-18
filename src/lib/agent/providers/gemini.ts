@@ -21,6 +21,7 @@ import type {
 	ToolProvider,
 	ToolSchema,
 } from "../provider";
+import { withRetry } from "../../retry";
 
 export const GEMINI_AGENT_MODEL = "gemini-2.5-flash";
 
@@ -85,7 +86,8 @@ export function geminiProvider({ withKey, model = GEMINI_AGENT_MODEL }: GeminiPr
 		id: "gemini",
 		callWithTools(messages: AgentMessage[], options: CallOptions): Promise<ProviderReply> {
 			const { system, tools } = options;
-			return withKey(async (apiKey) => {
+			// A rate-limited step would otherwise end the whole investigation.
+			return withRetry(() => withKey(async (apiKey) => {
 				const generativeModel = new GoogleGenerativeAI(apiKey).getGenerativeModel({
 					model,
 					systemInstruction: system,
@@ -122,7 +124,7 @@ export function geminiProvider({ withKey, model = GEMINI_AGENT_MODEL }: GeminiPr
 					tokensIn: response.usageMetadata?.promptTokenCount,
 					tokensOut: response.usageMetadata?.candidatesTokenCount,
 				};
-			});
+			}));
 		},
 	};
 }

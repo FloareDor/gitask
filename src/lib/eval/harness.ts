@@ -77,12 +77,36 @@ export interface RunEvalOptions {
 	maxSteps?: number;
 	/** Narrow to a few questions — useful for a smoke run before the real one. */
 	questionIds?: string[];
+	runTimeoutMs?: number;
+	/** Pause between runs. Free-tier Gemini keys rate-limit the agent arm hard. */
+	pauseMs?: number;
 	onRecord?: (record: EvalRecord) => void;
 	onProgress?: (progress: EvalProgress) => void;
 	signal?: AbortSignal;
 }
 
 export const DEFAULT_RUNS = 3;
+/**
+ * A single run that never returns would stall an hour-long eval, and the Gemini
+ * SDK takes no abort signal — a rate-limited call can sit there indefinitely.
+ * The timeout can't cancel the call, but it stops the eval waiting on it and
+ * records the run as failed, which is the honest outcome anyway.
+ */
+export const DEFAULT_RUN_TIMEOUT_MS = 180_000;
+
+function withTimeout(run: Promise<ArmRun>, ms: number, arm: Arm): Promise<ArmRun> {
+	return new Promise((resolve) => {
+		const timer = setTimeout(() => resolve({
+			arm, answer: "", citations: [], tokensIn: 0, tokensOut: 0,
+			elapsedMs: ms, error: `timed out after ${Math.round(ms / 1000)}s`,
+		}), ms);
+		const settle = (result: ArmRun) => { clearTimeout(timer); resolve(result); };
+		run.then(settle, (error) => settle({
+			arm, answer: "", citations: [], tokensIn: 0, tokensOut: 0, elapsedMs: 0,
+			error: error instanceof Error ? error.message : String(error),
+		}));
+	});
+}
 const DEFAULT_ARMS: Arm[] = ["rag", "agent"];
 
 /** Gold files this index can't answer from, across the repo's questions. */
@@ -122,21 +146,34 @@ export async function runEvalForRepo(
 				if (options.signal?.aborted) return records;
 				options.onProgress?.({ done, total, questionId: question.id, arm, run });
 
-				const result = await runArm(arm, store, question, {
-					withKey: options.withKey,
-					model: options.model,
-					maxSteps: options.maxSteps,
-				});
+				const result = await withTimeout(
+					runArm(arm, store, question, {
+						withKey: options.withKey,
+						model: options.model,
+						maxSteps: options.maxSteps,
+					}),
+					options.runTimeoutMs ?? DEFAULT_RUN_TIMEOUT_MS,
+					arm
+				);
 
 				// A run that threw never produced an answer; judging it would just
 				// burn a call to be told the empty string is wrong.
+				// A judge that fails says nothing about the answer, so the row is
+				// flagged unreadable and dropped from correctness rather than
+				// taking the whole run down with it.
 				const judged = result.error
 					? { verdict: "wrong" as Verdict, reason: result.error, tokensIn: 0, tokensOut: 0 }
 					: await judgeAnswer(options.withKey, {
 						question: question.question,
 						goldAnswer: question.goldAnswer,
 						answer: result.answer,
-					}, options.model);
+					}, options.model).catch((error) => ({
+						verdict: "partial" as Verdict,
+						reason: `judge failed: ${error instanceof Error ? error.message : String(error)}`,
+						unreadable: true,
+						tokensIn: 0,
+						tokensOut: 0,
+					}));
 
 				const record: EvalRecord = {
 					questionId: question.id,
@@ -165,6 +202,7 @@ export async function runEvalForRepo(
 				records.push(record);
 				options.onRecord?.(record);
 				done += 1;
+				if (options.pauseMs) await new Promise((r) => setTimeout(r, options.pauseMs));
 			}
 		}
 	}
