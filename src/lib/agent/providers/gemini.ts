@@ -24,8 +24,20 @@ import type {
 
 export const GEMINI_AGENT_MODEL = "gemini-2.5-flash";
 
+/**
+ * Runs `fn` with a decrypted key in scope. Vault-backed keys are only readable
+ * inside such a scope, so the provider borrows the key per call rather than
+ * holding one.
+ */
+export type KeyScope = <T>(fn: (apiKey: string) => Promise<T>) => Promise<T>;
+
+/** A scope over a key we already have in hand — devtools, evals, tests. */
+export function staticKeyScope(apiKey: string): KeyScope {
+	return (fn) => fn(apiKey);
+}
+
 export interface GeminiProviderOptions {
-	apiKey: string;
+	withKey: KeyScope;
 	model?: string;
 }
 
@@ -68,52 +80,49 @@ function toContents(messages: AgentMessage[]): Content[] {
 	});
 }
 
-export function geminiProvider({ apiKey, model = GEMINI_AGENT_MODEL }: GeminiProviderOptions): ToolProvider {
-	if (!apiKey) {
-		throw new Error("Gemini agent mode needs an API key. Add one in LLM Settings.");
-	}
-	const client = new GoogleGenerativeAI(apiKey);
-
+export function geminiProvider({ withKey, model = GEMINI_AGENT_MODEL }: GeminiProviderOptions): ToolProvider {
 	return {
 		id: "gemini",
-		async callWithTools(messages: AgentMessage[], options: CallOptions): Promise<ProviderReply> {
+		callWithTools(messages: AgentMessage[], options: CallOptions): Promise<ProviderReply> {
 			const { system, tools } = options;
-			const generativeModel = client.getGenerativeModel({
-				model,
-				systemInstruction: system,
-				// No tools at all is how the loop says "answer now"; passing an
-				// empty declarations array would be rejected.
-				...(tools.length > 0
-					? { tools: [{ functionDeclarations: tools.map(toDeclaration) }] }
-					: {}),
+			return withKey(async (apiKey) => {
+				const generativeModel = new GoogleGenerativeAI(apiKey).getGenerativeModel({
+					model,
+					systemInstruction: system,
+					// No tools at all is how the loop says "answer now"; passing an
+					// empty declarations array would be rejected.
+					...(tools.length > 0
+						? { tools: [{ functionDeclarations: tools.map(toDeclaration) }] }
+						: {}),
+				});
+
+				// The SDK has no AbortSignal hook, so cancellation lands between calls,
+				// not mid-flight. The loop checks the signal before every call.
+				const { response } = await generativeModel.generateContent({
+					contents: toContents(messages),
+				});
+
+				const toolCalls: ToolCall[] = (response.functionCalls() ?? []).map((fc, i) => ({
+					id: `${fc.name}-${i}`,
+					name: fc.name,
+					args: (fc.args ?? {}) as Record<string, unknown>,
+				}));
+
+				// text() throws when the candidate is pure function calls.
+				let text = "";
+				try {
+					text = response.text();
+				} catch {
+					text = "";
+				}
+
+				return {
+					text,
+					toolCalls,
+					tokensIn: response.usageMetadata?.promptTokenCount,
+					tokensOut: response.usageMetadata?.candidatesTokenCount,
+				};
 			});
-
-			// The SDK has no AbortSignal hook, so cancellation lands between calls,
-			// not mid-flight. The loop checks the signal before every call.
-			const { response } = await generativeModel.generateContent({
-				contents: toContents(messages),
-			});
-
-			const toolCalls: ToolCall[] = (response.functionCalls() ?? []).map((fc, i) => ({
-				id: `${fc.name}-${i}`,
-				name: fc.name,
-				args: (fc.args ?? {}) as Record<string, unknown>,
-			}));
-
-			// text() throws when the candidate is pure function calls.
-			let text = "";
-			try {
-				text = response.text();
-			} catch {
-				text = "";
-			}
-
-			return {
-				text,
-				toolCalls,
-				tokensIn: response.usageMetadata?.promptTokenCount,
-				tokensOut: response.usageMetadata?.candidatesTokenCount,
-			};
 		},
 	};
 }

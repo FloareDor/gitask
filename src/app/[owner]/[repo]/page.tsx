@@ -5,16 +5,18 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { indexRepository, IndexAbortError, type IndexProgress, type AstNode } from "@/lib/indexer";
 import { VectorStore } from "@/lib/vectorStore";
 import { exposeAgentTools } from "@/lib/agent/devtools";
+import { runAgent } from "@/lib/agent/loop";
+import { geminiProvider } from "@/lib/agent/providers/gemini";
 import { multiPathHybridSearch } from "@/lib/search";
 import { generateQueryVariants, getRetrievalRefinement, buildContextualQuery, expandQuery } from "@/lib/queryExpansion";
 import { defaultLimitsForProvider } from "@/lib/contextAssembly";
 import { fetchRepoTree } from "@/lib/github";
-import { initLLM, generate, getLLMStatus, getLLMConfig, onStatusChange, isThinkingModel, type LLMStatus } from "@/lib/llm";
+import { initLLM, generate, getLLMStatus, getLLMConfig, getGeminiKeyScope, onStatusChange, isThinkingModel, type LLMStatus } from "@/lib/llm";
 import { recordSearch, recordSafetyScan } from "@/lib/metrics";
 import { buildSafeContext, scanChunksForInjection } from "@/lib/promptSafety";
 import { verifyAndRefine } from "@/lib/cove";
 
-import type { Message, ContextChunk, ChatSession } from "./types";
+import type { AnswerMode, Message, MessageAgentState, ContextChunk, ChatSession } from "./types";
 import {
 	makeChatId, makeMessageId, makeNewChat,
 	areMessagesEqual, normalizeMessage,
@@ -92,6 +94,7 @@ export default function RepoPage({
 	const [notificationPermission, setNotificationPermission] = useState<NotificationPermission | null>(null);
 	const [isMobile, setIsMobile] = useState(false);
 	const [coveEnabled, setCoveEnabled] = useState(false);
+	const [answerMode, setAnswerMode] = useState<AnswerMode>("rag");
 	const [queryExpansionEnabled, setQueryExpansionEnabled] = useState(() => getLLMConfig().provider !== "mlc");
 	const [indexedSha, setIndexedSha] = useState<string | null>(null);
 	const [repoStale, setRepoStale] = useState(false);
@@ -156,6 +159,8 @@ export default function RepoPage({
 			if (saved === "true") setCoveEnabled(true);
 			const savedQE = localStorage.getItem("gitask-query-expansion-enabled");
 			if (savedQE !== null) setQueryExpansionEnabled(savedQE === "true");
+			const savedMode = localStorage.getItem("gitask-answer-mode");
+			if (savedMode === "rag" || savedMode === "agent" || savedMode === "auto") setAnswerMode(savedMode);
 		} catch { /* ignore */ }
 	}, []);
 
@@ -163,8 +168,9 @@ export default function RepoPage({
 		try {
 			localStorage.setItem("gitask-cove-enabled", coveEnabled ? "true" : "false");
 			localStorage.setItem("gitask-query-expansion-enabled", queryExpansionEnabled ? "true" : "false");
+			localStorage.setItem("gitask-answer-mode", answerMode);
 		} catch { /* ignore */ }
-	}, [coveEnabled, queryExpansionEnabled]);
+	}, [coveEnabled, queryExpansionEnabled, answerMode]);
 
 	useEffect(() => {
 		chatLoadedRef.current = false;
@@ -636,6 +642,80 @@ export default function RepoPage({
 		}
 	}, [owner, repo, router, chatStorageKey]);
 
+	/**
+	 * Agent mode turn: drive runAgent and fold its events into the placeholder
+	 * message as they arrive. Throws on an error event so handleSend's existing
+	 * error path renders it like any other failure.
+	 */
+	const runAgentTurn = useCallback(async (messageId: string, question: string) => {
+		const provider = geminiProvider({ withKey: getGeminiKeyScope() });
+		const patchAgent = (fn: (agent: MessageAgentState) => MessageAgentState) => {
+			setMessages((prev) => prev.map((m) =>
+				m.id !== messageId ? m : { ...m, agent: fn(m.agent ?? { steps: [], notes: [] }) }
+			));
+		};
+		const rowId = (step: number, id: string) => `${step}-${id}`;
+
+		// Show the trace container right away so the run looks alive from step 0.
+		patchAgent(() => ({ steps: [], notes: [] }));
+
+		for await (const event of runAgent(question, storeRef.current, {
+			provider,
+			repo: `${owner}/${repo}`,
+		})) {
+			if (event.type === "thinking") {
+				patchAgent((a) => ({ ...a, notes: [...a.notes, event.text] }));
+			} else if (event.type === "tool_call") {
+				patchAgent((a) => ({
+					...a,
+					steps: [...a.steps, {
+						id: rowId(event.step, event.id),
+						step: event.step,
+						tool: event.name,
+						args: event.args,
+					}],
+				}));
+			} else if (event.type === "tool_result") {
+				patchAgent((a) => ({
+					...a,
+					steps: a.steps.map((row) => row.id !== rowId(event.step, event.id) ? row : {
+						...row,
+						result: event.text,
+						elapsedMs: event.elapsedMs,
+						bytes: event.bytes,
+						truncated: event.truncated,
+						duplicate: event.duplicate,
+						isError: event.isError,
+					}),
+				}));
+			} else if (event.type === "answer") {
+				const citations = event.citations.map((c) => ({
+					filePath: c.path,
+					startLine: c.startLine,
+					endLine: c.endLine,
+					score: 1,
+					chunkCount: 1,
+				}));
+				setMessages((prev) => prev.map((m) => m.id !== messageId ? m : {
+					...m,
+					content: event.text || "I could not find an answer to that in this repository.",
+					citations: citations.length > 0 ? citations : undefined,
+					agent: {
+						...(m.agent ?? { steps: [], notes: [] }),
+						stopReason: event.stopReason,
+						totalSteps: event.steps,
+						toolBytes: event.toolBytes,
+						tokensIn: event.tokensIn,
+						tokensOut: event.tokensOut,
+						elapsedMs: event.elapsedMs,
+					},
+				}));
+			} else if (event.type === "error") {
+				throw new Error(event.message);
+			}
+		}
+	}, [owner, repo]);
+
 	const handleSend = useCallback(async (overrideText?: string, truncateAtMessageId?: string) => {
 		const rawInput = (overrideText ?? input).trim();
 		if (!rawInput || isGeneratingRef.current || !isIndexed) return;
@@ -686,6 +766,11 @@ export default function RepoPage({
 		]);
 
 		try {
+			if (answerMode === "agent") {
+				await runAgentTurn(placeholderMessageId, queryText);
+				return;
+			}
+
 			const config = getLLMConfig();
 			const isLocalLLM = config.provider === "mlc";
 			const limits = defaultLimitsForProvider(config.provider);
@@ -1019,7 +1104,7 @@ ${context}`,
 			isGeneratingRef.current = false;
 			setIsGenerating(false);
 		}
-	}, [input, isIndexed, owner, repo, llmStatus, llmProvider, coveEnabled, queryExpansionEnabled]);
+	}, [input, isIndexed, owner, repo, llmStatus, llmProvider, coveEnabled, queryExpansionEnabled, answerMode, runAgentTurn]);
 
 	const handleEditMessage = useCallback((messageId: string, newText: string) => {
 		if (isGeneratingRef.current) return;
@@ -1123,6 +1208,7 @@ ${context}`,
 				queryExpansionEnabled={queryExpansionEnabled}
 				isLocalProvider={llmProvider === "mlc"}
 				isGenerating={isGenerating}
+				answerMode={answerMode}
 				messages={messages}
 				fileBrowserOpen={fileBrowserOpen}
 				onExpandSidebar={() => setSidebarCollapsed(false)}
@@ -1135,6 +1221,7 @@ ${context}`,
 				onDeleteEmbeddings={() => { void handleDeleteEmbeddings(); }}
 				onToggleFileBrowser={() => setFileBrowserOpen((v) => !v)}
 				onShowDiagram={() => setShowDiagram(true)}
+				onAnswerModeChange={setAnswerMode}
 			/>
 
 			{showTokenInput && (

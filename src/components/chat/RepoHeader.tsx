@@ -4,9 +4,15 @@ import { useRef, useState, useEffect } from "react";
 import { ModelSettings } from "@/components/ModelSettings";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { getLLMConfig, type LLMStatus } from "@/lib/llm";
-import type { Message } from "@/app/[owner]/[repo]/types";
+import type { AnswerMode, Message } from "@/app/[owner]/[repo]/types";
 
 const PROJECT_REPO_URL = "https://github.com/FloareDor/gitask";
+
+const ANSWER_MODES: Array<{ value: AnswerMode; label: string; title: string }> = [
+	{ value: "rag", label: "rag", title: "One hybrid search, then answer" },
+	{ value: "agent", label: "agent", title: "Investigate with tools, then answer (Gemini, your key)" },
+	{ value: "auto", label: "auto", title: "Pick a mode per question — behaves as rag until the router lands" },
+];
 
 const overflowItemStyle: React.CSSProperties = {
 	fontSize: "13px",
@@ -33,6 +39,7 @@ interface RepoHeaderProps {
 	queryExpansionEnabled: boolean;
 	isLocalProvider: boolean;
 	isGenerating: boolean;
+	answerMode: AnswerMode;
 	messages: Message[];
 	fileBrowserOpen: boolean;
 	onExpandSidebar: () => void;
@@ -45,6 +52,7 @@ interface RepoHeaderProps {
 	onDeleteEmbeddings: () => void;
 	onToggleFileBrowser: () => void;
 	onShowDiagram: () => void;
+	onAnswerModeChange: (mode: AnswerMode) => void;
 }
 
 export function RepoHeader({
@@ -59,6 +67,7 @@ export function RepoHeader({
 	queryExpansionEnabled,
 	isLocalProvider,
 	isGenerating,
+	answerMode,
 	messages,
 	fileBrowserOpen,
 	onExpandSidebar,
@@ -71,6 +80,7 @@ export function RepoHeader({
 	onDeleteEmbeddings,
 	onToggleFileBrowser,
 	onShowDiagram,
+	onAnswerModeChange,
 }: RepoHeaderProps) {
 	const overflowRef = useRef<HTMLDivElement>(null);
 	const [showOverflow, setShowOverflow] = useState(false);
@@ -122,6 +132,23 @@ export function RepoHeader({
 				)}
 			</div>
 			<div style={{ display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
+				{isIndexed && (
+					<div className="mode-switch" role="group" aria-label="Answer mode">
+						{ANSWER_MODES.map(({ value, label, title }) => (
+							<button
+								key={value}
+								type="button"
+								title={title}
+								disabled={isGenerating}
+								aria-pressed={answerMode === value}
+								className={`mode-switch-btn${answerMode === value ? " mode-switch-btn--active" : ""}`}
+								onClick={() => onAnswerModeChange(value)}
+							>
+								{label}
+							</button>
+						))}
+					</div>
+				)}
 				<div style={{
 					width: 8, height: 8, borderRadius: "50%", flexShrink: 0,
 					background: llmStatus === "ready" ? "#16a34a" : llmStatus === "generating" ? "#d97706" : llmStatus === "loading" ? "#3b82f6" : "var(--text-on-dark-muted)",

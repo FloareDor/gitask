@@ -839,6 +839,33 @@ class GroqEngineWrapper implements LLMEngine {
 	}
 }
 
+/**
+ * A key scope for agent mode: local key if the user chose local storage, else
+ * the vault. Agent mode calls Gemini directly from the browser, so unlike chat
+ * it can't fall back to the server's key via the proxy route.
+ */
+export function getGeminiKeyScope(): <T>(fn: (apiKey: string) => Promise<T>) => Promise<T> {
+	const config = getLLMConfig();
+	const storageMode = normalizeCloudStorageMode(config.cloudStorage ?? config.geminiStorage);
+
+	if (storageMode === "local") {
+		const localKey = getGeminiLocalApiKey();
+		if (!localKey) throw new Error("Add your Gemini API key in LLM Settings to use agent mode.");
+		return (fn) => fn(localKey);
+	}
+
+	const vault = getGeminiVault();
+	if (!vault?.canCall()) {
+		throw new Error(
+			vault?.getState() === "locked"
+				? VAULT_LOCKED_MSG
+				: "Agent mode needs your own Gemini key. Add one in LLM Settings."
+		);
+	}
+	// withKey keeps the decrypted key inside the callback — never store it.
+	return (fn) => vault.withKey(fn);
+}
+
 // ─── Initialization ─────────────────────────────────────────────────────────
 
 /**

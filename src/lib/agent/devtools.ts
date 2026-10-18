@@ -11,7 +11,7 @@
 import type { VectorStore } from "../vectorStore";
 import type { GrepOptions } from "./grep";
 import { runAgent, type AgentEvent } from "./loop";
-import { geminiProvider } from "./providers/gemini";
+import { geminiProvider, staticKeyScope } from "./providers/gemini";
 import { findDefinition, findReferences, grep, readFile, semanticSearch } from "./tools";
 
 /** Run the loop and log each event as it lands, so a run is watchable live. */
@@ -23,7 +23,7 @@ async function traceAgent(
 ): Promise<AgentEvent[]> {
 	const events: AgentEvent[] = [];
 	for await (const event of runAgent(question, store, {
-		provider: geminiProvider({ apiKey }),
+		provider: geminiProvider({ withKey: staticKeyScope(apiKey) }),
 		repo,
 	})) {
 		events.push(event);
