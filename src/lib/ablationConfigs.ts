@@ -56,7 +56,14 @@ export const searchNoQuantization: AblationSearchFn = async (store, queryEmbeddi
 	return rerank(chunks, expanded, queryEmbedding, maxFused).slice(0, limit);
 };
 
-/** No BM25, no fusion — dense retrieval and a cosine rerank, nothing else. */
+/**
+ * Dense retrieval and a cosine rerank, nothing else.
+ *
+ * This removes three things at once — BM25, RRF fusion and graph expansion —
+ * so it is a "how far does dense alone get you" baseline rather than a clean
+ * single-component ablation. Read it that way; the gap between this and the
+ * full pipeline cannot be attributed to any one of the three.
+ */
 export const searchVectorOnly: AblationSearchFn = (store, queryEmbedding, _queryText, limit = 5) => {
 	const chunks = store.getAll();
 	const vectorScores = vectorSearch(chunks, queryEmbedding, COARSE_CANDIDATES, store.getAllBinaries());
@@ -142,7 +149,7 @@ export const ABLATION_CONFIGS: AblationConfig[] = [
 	},
 	{
 		name: "Vector-Only",
-		description: "Hamming coarse retrieval + cosine rerank, no BM25 and no RRF",
+		description: "Hamming coarse retrieval + cosine rerank — no BM25, no RRF, no graph expansion",
 		run: searchVectorOnly,
 	},
 	{
