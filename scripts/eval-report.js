@@ -63,8 +63,23 @@ function byQuestion(records, value) {
   );
 }
 
+/**
+ * A run that never produced an answer is not a wrong answer.
+ *
+ * `error` rows are timeouts and provider failures — the model never replied,
+ * so there is nothing to grade. Counting them as wrong would charge whichever
+ * arm was unlucky, and the luck is not evenly spread: the agent makes six to
+ * twelve calls per question to RAG's one, so it is far likelier to be caught
+ * by a timeout, and it is caught on the slowest questions. Scoring them would
+ * bias the comparison against the agent on exactly the multi-hop questions the
+ * whole eval is about. They are excluded here and counted out loud instead.
+ */
+function scorable(records) {
+  return records.filter((r) => !r.judgeUnreadable && !r.error);
+}
+
 function summarize(records) {
-  const scored = records.filter((r) => !r.judgeUnreadable);
+  const scored = scorable(records);
   if (!scored.length) return null;
   const perQuestion = byQuestion(scored, (r) => SCORE[r.verdict] ?? 0);
   const cited = scored.filter((r) => r.citation && r.citation.precision !== null);
@@ -290,9 +305,23 @@ for (const repo of data.repos || []) {
 }
 
 const unreadable = data.records.filter((r) => r.judgeUnreadable).length;
-const errored = data.records.filter((r) => r.error).length;
-if (unreadable || errored) {
-  console.log(`\n  dropped: ${unreadable} unreadable judge replies, ${errored} provider errors`);
+const errored = data.records.filter((r) => r.error);
+if (unreadable || errored.length) {
+  console.log(`\n  excluded from scoring: ${unreadable} unreadable judge replies, ${errored.length} runs with no answer`);
+  // Broken out by arm and type because even exclusion is not neutral: if the
+  // losses are lopsided, the surviving samples are not comparable and the
+  // slide has to say so rather than quoting a clean-looking mean.
+  const by = {};
+  for (const r of errored) {
+    const key = `${r.arm}/${r.type}`;
+    by[key] = by[key] || { n: 0, reasons: new Set() };
+    by[key].n += 1;
+    by[key].reasons.add((r.error || "").slice(0, 40));
+  }
+  for (const [key, v] of Object.entries(by).sort((a, b) => b[1].n - a[1].n)) {
+    const total = data.records.filter((r) => `${r.arm}/${r.type}` === key).length;
+    console.log(`    ${key.padEnd(16)} ${v.n}/${total} lost  (${[...v.reasons].join("; ")})`);
+  }
 }
 
 printArms(data.records);

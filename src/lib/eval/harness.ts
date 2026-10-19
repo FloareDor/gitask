@@ -92,10 +92,21 @@ export const DEFAULT_RUNS = 3;
 /**
  * A single run that never returns would stall an hour-long eval, and the Gemini
  * SDK takes no abort signal — a rate-limited call can sit there indefinitely.
- * The timeout can't cancel the call, but it stops the eval waiting on it and
- * records the run as failed, which is the honest outcome anyway.
+ * The timeout can't cancel the call, but it stops the eval waiting on it.
+ *
+ * It has to be far longer than any real run, because a timeout is not a neutral
+ * loss. The agent makes six to twelve calls per question where RAG makes one,
+ * so it is caught more often, and it is caught on the slowest questions — which
+ * are the multi-hop ones the whole comparison is about. At 180s a real run
+ * during a provider slowdown lost 12 of 27 agent multi-hop runs against 6 of 27
+ * for RAG, which censors the arms unequally on exactly the cases that decide
+ * the result. Excluding those runs afterwards does not rescue it either: the
+ * survivors are the fast ones.
+ *
+ * 10 minutes against a slowest observed real run of ~7 minutes. This bounds a
+ * hang; it must never be what ends a working run.
  */
-export const DEFAULT_RUN_TIMEOUT_MS = 180_000;
+export const DEFAULT_RUN_TIMEOUT_MS = 600_000;
 
 function withTimeout(run: Promise<ArmRun>, ms: number, arm: Arm): Promise<ArmRun> {
 	return new Promise((resolve) => {
