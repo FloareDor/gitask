@@ -231,6 +231,56 @@ function printCost(records) {
   }
 }
 
+/**
+ * Questions where the two arms consistently disagree across every run.
+ *
+ * This is where the slide-4 example comes from. A question the agent wins once
+ * is a coin flip and will not survive someone asking "did you run it twice?";
+ * a question it wins on all three runs while RAG loses all three is a real
+ * difference and safe to put on a slide. Printed in both directions, because
+ * the questions RAG wins are the honest half of the story and the ones the
+ * router slide needs.
+ */
+function printDisagreements(records) {
+  const byQ = new Map();
+  for (const r of scorable(records)) {
+    if (!byQ.has(r.questionId)) {
+      byQ.set(r.questionId, { id: r.questionId, type: r.type, source: r.source, repo: r.repo, rag: [], agent: [] });
+    }
+    byQ.get(r.questionId)[r.arm]?.push(SCORE[r.verdict] ?? 0);
+  }
+
+  const rows = [];
+  for (const q of byQ.values()) {
+    // Needs every run of both arms, or "consistent" is not established.
+    if (q.rag.length < 2 || q.agent.length < 2) continue;
+    const rag = mean(q.rag);
+    const agent = mean(q.agent);
+    if (rag === agent) continue;
+    if (Math.min(...q.rag) === Math.max(...q.rag) && Math.min(...q.agent) === Math.max(...q.agent)) {
+      rows.push({ ...q, rag, agent, gap: agent - rag });
+    }
+  }
+  if (!rows.length) return;
+
+  console.log("\n## Clean disagreements (slide-4 candidates)\n");
+  const widths = [22, 10, 10, 10, 7, 7];
+  console.log(row(["question", "repo", "type", "source", "rag", "agent"], widths));
+  rows.sort((a, b) => b.gap - a.gap);
+  for (const r of rows) {
+    console.log(row([
+      r.id,
+      (r.repo || "").split("/").pop(),
+      r.type,
+      r.source,
+      r.rag.toFixed(2),
+      r.agent.toFixed(2),
+    ], widths));
+  }
+  const agentWins = rows.filter((r) => r.gap > 0).length;
+  console.log(`\n  ${agentWins} agent-wins-every-run, ${rows.length - agentWins} rag-wins-every-run.`);
+}
+
 function printStops(records) {
   const agent = records.filter((r) => r.arm === "agent" && r.stopReason);
   if (!agent.length) return;
@@ -330,6 +380,7 @@ if (unreadable || errored.length) {
 
 printArms(data.records);
 printBySource(data.records);
+printDisagreements(data.records);
 printStops(data.records);
 printCost(data.records);
 if (beforeFile) printDiff(read(beforeFile), data);
