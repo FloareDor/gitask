@@ -485,10 +485,20 @@ for (const repo of data.repos || []) {
   console.log(`  ${repo.repo}@${repo.ref} - ${repo.indexedChunks} chunks, ${repo.questionCount} questions${warn}`);
 }
 
-const unreadable = data.records.filter((r) => r.judgeUnreadable).length;
+// The harness flags both a judge reply it could not parse and a judge call
+// that failed outright as `judgeUnreadable`. They mean different things: one
+// is the judge being unreliable, the other is the provider being down. Worth
+// separating, because so far every single one has been the second kind.
+const unreadableRows = data.records.filter((r) => r.judgeUnreadable);
+const judgeCallFailed = unreadableRows.filter((r) => String(r.judgeReason || "").startsWith("judge failed:")).length;
+const judgeUnparseable = unreadableRows.length - judgeCallFailed;
+const unreadable = unreadableRows.length;
 const errored = data.records.filter((r) => r.error);
 if (unreadable || errored.length) {
-  console.log(`\n  excluded from scoring: ${unreadable} unreadable judge replies, ${errored.length} runs with no answer`);
+  const judgeNote = unreadable
+    ? `${unreadable} judge rows dropped (${judgeCallFailed} call failed, ${judgeUnparseable} reply unparseable)`
+    : "";
+  console.log(`\n  excluded from scoring: ${judgeNote}${judgeNote && errored.length ? ", " : ""}${errored.length ? `${errored.length} runs with no answer` : ""}`);
   // Broken out by arm and type because even exclusion is not neutral: if the
   // losses are lopsided, the surviving samples are not comparable and the
   // slide has to say so rather than quoting a clean-looking mean.
