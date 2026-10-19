@@ -70,9 +70,14 @@ function buildSystemPrompt(repo: string | undefined, maxSteps: number): string {
 		`- Stop as soon as you can answer. You have at most ${maxSteps} turns of tool calls.`,
 		"- If a result says it was truncated, you are not seeing everything. Narrow your query rather than assuming.",
 		"",
-		"Citations are mandatory:",
+		// "Only what you have seen" stops invention but says nothing about
+		// relevance, so the model cited every file it opened while narrowing
+		// down. Measured: a third of multi-hop citations pointed at files that
+		// were visited and then turned out to be irrelevant.
+		"Citations are mandatory, and a citation is a claim that those exact lines show what you just said:",
 		"- Follow every factual claim with a citation of the form path:startLine-endLine, for example src/lib/search.ts:151-170.",
-		"- Cite only line numbers you have actually seen in a tool result.",
+		"- Cite the narrowest range that actually supports the claim, and only lines you have seen in a tool result.",
+		"- Opening a file is not a reason to cite it. Most of what you read while narrowing down does not belong in the answer — if a line does not support a specific claim, leave it out.",
 		"- If you could not find something, say so plainly. Never invent a file, symbol, or line number.",
 	].join("\n");
 }
@@ -83,7 +88,8 @@ const FORCE_ANSWER_PROMPT =
 
 const CITATION_RETRY_PROMPT =
 	"That answer has no citations. Rewrite it with a path:startLine-endLine citation after every " +
-	"factual claim, using only line numbers from the tool results above.";
+	"factual claim, using only line numbers from the tool results above, and citing the narrowest " +
+	"range that supports each claim rather than every file you looked at.";
 
 /** Stable key for duplicate detection — argument order must not matter. */
 function callKey(call: ToolCall): string {

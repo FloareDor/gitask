@@ -27,6 +27,7 @@ import { runAblationForRepo, type AblationProgress, type AblationRow } from "@/l
 const DRAFT_KEY = "gitask-eval-draft";
 
 type Phase = "idle" | "indexing" | "indexed" | "running" | "ablating" | "done" | "error";
+type Subset = "all" | "lookup" | "multihop";
 
 function loadDraft(): EvalRecord[] {
   if (typeof window === "undefined") return [];
@@ -57,6 +58,12 @@ export default function EvalPage() {
   const [runs, setRuns] = useState(DEFAULT_RUNS);
   const [arms, setArms] = useState<Arm[]>(["rag", "agent"]);
   const [smoke, setSmoke] = useState(false);
+  /**
+   * Re-run one question type on its own. Phase 5 fixes a defect that only shows
+   * up on multi-hop questions, and re-running the lookups it cannot affect
+   * would only dilute the measured before/after.
+   */
+  const [subset, setSubset] = useState<Subset>("all");
 
   const [phase, setPhase] = useState<Phase>("idle");
   const [error, setError] = useState<string | null>(null);
@@ -72,6 +79,10 @@ export default function EvalPage() {
 
   const ref = refForRepo(repo);
   const questions = useMemo(() => questionsForRepo(repo), [repo]);
+  const pickedQuestions = useMemo(
+    () => (subset === "all" ? questions : questions.filter((q) => q.type === subset)),
+    [questions, subset]
+  );
   const table = useMemo(() => summaryTable(records), [records]);
   const stops = useMemo(() => stopReasons(records), [records]);
   const splits = useMemo(() => disagreements(records), [records]);
@@ -124,7 +135,9 @@ export default function EvalPage() {
         withKey: getGeminiKeyScope(),
         runs,
         arms,
-        questionIds: smoke ? questions.slice(0, 1).map((q) => q.id) : undefined,
+        questionIds: pickedQuestions.length === questions.length && !smoke
+          ? undefined
+          : (smoke ? pickedQuestions.slice(0, 1) : pickedQuestions).map((q) => q.id),
         // Free-tier keys 429 the agent arm hard; a short breather costs an hour
         // of wall clock on a full run and saves a lot of wasted calls.
         pauseMs: 1500,
@@ -141,7 +154,7 @@ export default function EvalPage() {
       setError(err instanceof Error ? err.message : String(err));
       setPhase("error");
     }
-  }, [arms, questions, records, repo, runs, smoke]);
+  }, [arms, pickedQuestions, questions, records, repo, runs, smoke]);
 
   const handleAblation = useCallback(async () => {
     setPhase("ablating");
@@ -237,6 +250,23 @@ export default function EvalPage() {
                 style={styles.input}
               >
                 {[1, 3, 5].map((n) => <option key={n} value={n}>{n}</option>)}
+              </select>
+            </label>
+
+            {/* After the runs select on purpose: the headless runners address
+                these by index, and inserting earlier would silently retarget
+                them. */}
+            <label style={styles.label}>
+              questions
+              <select
+                value={subset}
+                onChange={(e) => setSubset(e.target.value as Subset)}
+                disabled={busy}
+                style={styles.input}
+              >
+                {(["all", "lookup", "multihop"] as Subset[]).map((s) => (
+                  <option key={s} value={s}>{s}</option>
+                ))}
               </select>
             </label>
 

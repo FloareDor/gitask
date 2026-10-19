@@ -35,6 +35,8 @@ const flag = (name, fallback) => {
 const outDir = flag("out", ".");
 const apiKey = flag("key", process.env.GEMINI_API_KEY);
 const repoFilter = flag("repos", null);
+const subset = flag("subset", "all");
+const arms = flag("arms", "both");
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const stamp = () => new Date().toISOString().slice(11, 19);
@@ -98,6 +100,39 @@ function printTable(rows) {
  * React's value tracker swallows a directly assigned select.value, so the
  * change has to go through the native setter. Lifted from smoke-eval.js.
  */
+/**
+ * The question-type select, which the page renders third. Addressed by index
+ * because it has no stable test id; the page has a comment saying new selects
+ * go after it for exactly this reason.
+ */
+async function setSubset(page, value) {
+  const ok = await page.evaluate((v) => {
+    const select = document.querySelectorAll("select")[2];
+    if (!select || ![...select.options].some((o) => o.value === v)) return false;
+    Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, "value").set.call(select, v);
+    select.dispatchEvent(new Event("change", { bubbles: true }));
+    return true;
+  }, value);
+  if (!ok) throw new Error(`could not set question subset to "${value}"`);
+  await sleep(500);
+}
+
+/** Leaves exactly the named arm checked. */
+async function setArms(page, keep) {
+  const result = await page.evaluate((want) => {
+    const boxes = [...document.querySelectorAll("input[type=checkbox]")]
+      .filter((i) => ["rag", "agent"].includes(i.parentElement.innerText.trim()));
+    if (boxes.length !== 2) return `expected 2 arm checkboxes, found ${boxes.length}`;
+    for (const box of boxes) {
+      const mine = box.parentElement.innerText.trim() === want;
+      if (box.checked !== mine) box.click();
+    }
+    return "ok";
+  }, keep);
+  if (result !== "ok") throw new Error(result);
+  await sleep(500);
+}
+
 function selectRepo(page, name) {
   return page.evaluate((repo) => {
     const select = document.querySelector("select");
@@ -165,11 +200,20 @@ async function download(page, file) {
       (s) => /\d+ chunks · \d+ questions/.test(s.text), STEP_TIMEOUT_MS);
     log(`  ${(indexed.text.match(/^.*\d+ chunks · \d+ questions.*$/m) || [])[0].trim()}`);
 
-    log("  ablation");
-    await clickButton(page, "run ablation");
-    await waitFor(page, "ablation", (s) => !s.busy, STEP_TIMEOUT_MS);
+    if (subset === "all" && arms === "both") {
+      log("  ablation");
+      await clickButton(page, "run ablation");
+      await waitFor(page, "ablation", (s) => !s.busy, STEP_TIMEOUT_MS);
+    } else {
+      // Retrieval is deterministic and untouched by an agent-prompt change, so
+      // a targeted re-run would just reproduce the ablation it already has.
+      log("  ablation skipped (targeted re-run)");
+    }
 
-    log("  eval — all questions, both arms");
+    if (subset !== "all") await setSubset(page, subset);
+    if (arms !== "both") await setArms(page, arms);
+
+    log(`  eval — ${subset} questions, ${arms === "both" ? "both arms" : `${arms} only`}`);
     await clickButton(page, "run eval");
     await sleep(5000);
     const ran = await waitFor(page, "eval", (s) => s.text.includes("Results") && !s.busy, EVAL_TIMEOUT_MS);
