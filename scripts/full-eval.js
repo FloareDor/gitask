@@ -141,6 +141,27 @@ function selectRepo(page, name) {
   }, name);
 }
 
+/**
+ * Stop if most of a repo's runs produced no answer.
+ *
+ * A provider outage turns every run into an error row and the page keeps
+ * going, so without this the run spends another hour writing two more files
+ * full of nothing. Once saw all 27 runs of a repo come back
+ * "503 This model is currently experiencing high demand".
+ */
+function assertUsable(file, repo) {
+  const data = JSON.parse(fs.readFileSync(file, "utf8"));
+  const rows = data.records.filter((r) => r.repo === repo);
+  const errored = rows.filter((r) => r.error);
+  if (rows.length && errored.length / rows.length > 0.5) {
+    const reasons = [...new Set(errored.map((r) => String(r.error).slice(0, 140)))];
+    throw new Error(
+      `${errored.length}/${rows.length} runs on ${repo} produced no answer. ` +
+      `Not continuing - the export would be unusable. Reasons: ${reasons.join(" | ")}`
+    );
+  }
+}
+
 async function download(page, file) {
   const [dl] = await Promise.all([
     page.waitForEvent("download"),
@@ -220,7 +241,9 @@ async function download(page, file) {
     log("  results so far:");
     printTable(ran.tables.find((rows) => rows[0]?.includes("score")));
 
-    await download(page, path.join(outDir, `gitask-eval-after-${repo.replace("/", "-")}.json`));
+    const checkpoint = path.join(outDir, `gitask-eval-after-${repo.replace("/", "-")}.json`);
+    await download(page, checkpoint);
+    assertUsable(checkpoint, repo);
   }
 
   const final = await page.evaluate(readPage);

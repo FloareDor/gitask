@@ -13,7 +13,13 @@ export function isTransientProviderError(error: unknown): boolean {
 	return /\b(429|500|503)\b|rate.?limit|quota|overloaded|unavailable|try again/i.test(message);
 }
 
-export const RETRY_ATTEMPTS = 3;
+/**
+ * Four tries became six after a provider spike emptied a whole re-run: the
+ * backoff doubles, so this stretches the window a single call can survive from
+ * about 28 seconds to about two minutes. It cannot ride out a sustained
+ * outage - nothing can - but the spikes that actually show up are short.
+ */
+export const RETRY_ATTEMPTS = 5;
 export const RETRY_BACKOFF_MS = 4000;
 
 export async function withRetry<T>(
