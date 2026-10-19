@@ -281,6 +281,59 @@ function printDisagreements(records) {
   console.log(`\n  ${agentWins} agent-wins-every-run, ${rows.length - agentWins} rag-wins-every-run.`);
 }
 
+/**
+ * Paired comparison, which is the test this design actually calls for.
+ *
+ * Both arms answer the same questions, so comparing two independent means
+ * throws away that pairing and reports a wider interval than the data
+ * supports. Differencing per question cancels the "some questions are just
+ * harder" variance, which is the dominant source here.
+ *
+ * Restricted to questions both arms answered. When one arm loses a question
+ * entirely — a timeout, a blocked candidate — the unpaired means are computed
+ * over different question sets and are not comparable at all.
+ */
+function printPaired(records) {
+  const scored = scorable(records);
+  console.log("\n## Paired comparison (same questions, both arms)\n");
+  const widths = [12, 12, 16, 16, 18];
+  console.log(row(["type", "questions", "rag", "agent", "gap (agent-rag)"], widths));
+
+  for (const type of [null, "lookup", "multihop"]) {
+    const perArm = {};
+    for (const arm of ["rag", "agent"]) {
+      const byQ = new Map();
+      for (const r of scored) {
+        if (r.arm !== arm) continue;
+        if (type !== null && r.type !== type) continue;
+        if (!byQ.has(r.questionId)) byQ.set(r.questionId, []);
+        byQ.get(r.questionId).push(SCORE[r.verdict] ?? 0);
+      }
+      perArm[arm] = new Map([...byQ].map(([q, v]) => [q, mean(v)]));
+    }
+    const common = [...perArm.rag.keys()].filter((q) => perArm.agent.has(q));
+    if (common.length < 2) continue;
+
+    const ragVals = common.map((q) => perArm.rag.get(q));
+    const agentVals = common.map((q) => perArm.agent.get(q));
+    const diffs = common.map((q) => perArm.agent.get(q) - perArm.rag.get(q));
+    const gap = mean(diffs);
+    const se = stderr(diffs);
+    // Two standard errors is the rough line where a gap stops being noise.
+    const verdict = Math.abs(gap) > 2 * se && se > 0 ? "" : "  (inside noise)";
+    console.log(row([
+      type === null ? "all" : type,
+      common.length,
+      mean(ragVals).toFixed(2),
+      mean(agentVals).toFixed(2),
+      `${gap >= 0 ? "+" : ""}${gap.toFixed(2)} +/- ${se.toFixed(2)}${verdict}`,
+    ], widths));
+  }
+
+  const dropped = scored.length && [...new Set(scored.map((r) => r.questionId))].length;
+  if (dropped) console.log(`\n  Questions either arm lost entirely are excluded from the pairing.`);
+}
+
 function printStops(records) {
   const agent = records.filter((r) => r.arm === "agent" && r.stopReason);
   if (!agent.length) return;
@@ -379,6 +432,7 @@ if (unreadable || errored.length) {
 }
 
 printArms(data.records);
+printPaired(data.records);
 printBySource(data.records);
 printDisagreements(data.records);
 printStops(data.records);
