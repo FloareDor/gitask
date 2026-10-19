@@ -296,7 +296,7 @@ function printDisagreements(records) {
 function printPaired(records) {
   const scored = scorable(records);
   console.log("\n## Paired comparison (same questions, both arms)\n");
-  const widths = [12, 12, 16, 16, 18];
+  const widths = [12, 12, 16, 16, 30];
   console.log(row(["type", "questions", "rag", "agent", "gap (agent-rag)"], widths));
 
   for (const type of [null, "lookup", "multihop"]) {
@@ -319,14 +319,17 @@ function printPaired(records) {
     const diffs = common.map((q) => perArm.agent.get(q) - perArm.rag.get(q));
     const gap = mean(diffs);
     const se = stderr(diffs);
-    // Two standard errors is the rough line where a gap stops being noise.
-    const verdict = Math.abs(gap) > 2 * se && se > 0 ? "" : "  (inside noise)";
+    // Report the gap in standard errors rather than a significant/not flag.
+    // At n this small the interesting cases sit right on the line, and a
+    // binary label would hide exactly those.
+    const ratio = se > 0 ? Math.abs(gap) / se : Infinity;
+    const note = se === 0 ? "" : `  ${ratio.toFixed(1)} SE${ratio < 2 ? " — noise" : ""}`;
     console.log(row([
       type === null ? "all" : type,
       common.length,
       mean(ragVals).toFixed(2),
       mean(agentVals).toFixed(2),
-      `${gap >= 0 ? "+" : ""}${gap.toFixed(2)} +/- ${se.toFixed(2)}${verdict}`,
+      `${gap >= 0 ? "+" : ""}${gap.toFixed(2)} +/- ${se.toFixed(2)}${note}`,
     ], widths));
   }
 
