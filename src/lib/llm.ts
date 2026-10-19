@@ -56,6 +56,12 @@ export interface ChatMessage {
 
 const VAULT_LOCKED_MSG = "Your API key is locked. Open LLM Settings and unlock it to continue.";
 
+/**
+ * Fired when LLM settings change. Anything whose enabled state depends on the
+ * stored key listens for this, so adding a key takes effect without a reload.
+ */
+export const LLM_CONFIG_CHANGED_EVENT = "gitask-llm-config-changed";
+
 function isVaultLockedError(lower: string): boolean {
 	return (
 		lower.includes("vault is locked") ||
@@ -840,31 +846,55 @@ class GroqEngineWrapper implements LLMEngine {
 	}
 }
 
+type GeminiKeyScope = <T>(fn: (apiKey: string) => Promise<T>) => Promise<T>;
+
 /**
- * A key scope for agent mode: local key if the user chose local storage, else
- * the vault. Agent mode calls Gemini directly from the browser, so unlike chat
- * it can't fall back to the server's key via the proxy route.
+ * Whether agent mode has a key to call with, and the scope if it does.
+ *
+ * One function answers both so the header and the run path can never disagree
+ * about whether agent mode is usable — the button used to be enabled for
+ * everyone, and a user on a local model found out only after asking.
  */
-export function getGeminiKeyScope(): <T>(fn: (apiKey: string) => Promise<T>) => Promise<T> {
+function geminiKeyAccess(): { ok: true; scope: GeminiKeyScope } | { ok: false; reason: string } {
 	const config = getLLMConfig();
 	const storageMode = normalizeCloudStorageMode(config.cloudStorage ?? config.geminiStorage);
 
 	if (storageMode === "local") {
 		const localKey = getGeminiLocalApiKey();
-		if (!localKey) throw new Error("Add your Gemini API key in LLM Settings to use agent mode.");
-		return (fn) => fn(localKey);
+		if (!localKey) {
+			return { ok: false, reason: "Add your Gemini API key in LLM Settings to use agent mode." };
+		}
+		return { ok: true, scope: (fn) => fn(localKey) };
 	}
 
 	const vault = getGeminiVault();
 	if (!vault?.canCall()) {
-		throw new Error(
-			vault?.getState() === "locked"
+		return {
+			ok: false,
+			reason: vault?.getState() === "locked"
 				? VAULT_LOCKED_MSG
-				: "Agent mode needs your own Gemini key. Add one in LLM Settings."
-		);
+				: "Agent mode needs your own Gemini key. Add one in LLM Settings.",
+		};
 	}
 	// withKey keeps the decrypted key inside the callback — never store it.
-	return (fn) => vault.withKey(fn);
+	return { ok: true, scope: (fn) => vault.withKey(fn) };
+}
+
+/** Why agent mode can't run right now, or null when it can. */
+export function agentModeBlockedReason(): string | null {
+	const access = geminiKeyAccess();
+	return access.ok ? null : access.reason;
+}
+
+/**
+ * A key scope for agent mode: local key if the user chose local storage, else
+ * the vault. Agent mode calls Gemini directly from the browser, so unlike chat
+ * it can't fall back to the server's key via the proxy route.
+ */
+export function getGeminiKeyScope(): GeminiKeyScope {
+	const access = geminiKeyAccess();
+	if (!access.ok) throw new Error(access.reason);
+	return access.scope;
 }
 
 // ─── Initialization ─────────────────────────────────────────────────────────

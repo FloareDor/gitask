@@ -3,7 +3,7 @@
 import { useRef, useState, useEffect } from "react";
 import { ModelSettings } from "@/components/ModelSettings";
 import { ThemeToggle } from "@/components/ThemeToggle";
-import { getLLMConfig, type LLMStatus } from "@/lib/llm";
+import { agentModeBlockedReason, LLM_CONFIG_CHANGED_EVENT, type LLMStatus } from "@/lib/llm";
 import type { AnswerMode, Message } from "@/app/[owner]/[repo]/types";
 
 const PROJECT_REPO_URL = "https://github.com/FloareDor/gitask";
@@ -96,6 +96,23 @@ export function RepoHeader({
 		return () => document.removeEventListener("mousedown", handleClick);
 	}, [showOverflow]);
 
+	// Agent mode calls Gemini directly with the user's own key, so it is the one
+	// mode that can be unavailable. Read on the client only — the stored key
+	// lives in localStorage, which the server render can't see.
+	const [agentBlocked, setAgentBlocked] = useState<string | null>(null);
+	useEffect(() => {
+		const check = () => setAgentBlocked(agentModeBlockedReason());
+		check();
+		window.addEventListener(LLM_CONFIG_CHANGED_EVENT, check);
+		return () => window.removeEventListener(LLM_CONFIG_CHANGED_EVENT, check);
+	}, []);
+
+	// Don't strand someone in a mode that stopped working, e.g. after locking
+	// the vault while agent was selected.
+	useEffect(() => {
+		if (agentBlocked && answerMode === "agent") onAnswerModeChange("rag");
+	}, [agentBlocked, answerMode, onAnswerModeChange]);
+
 	return (
 		<nav className="chat-nav" style={{
 			display: "flex", alignItems: "center", justifyContent: "space-between",
@@ -134,19 +151,22 @@ export function RepoHeader({
 			<div style={{ display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
 				{isIndexed && (
 					<div className="mode-switch" role="group" aria-label="Answer mode">
-						{ANSWER_MODES.map(({ value, label, title }) => (
-							<button
-								key={value}
-								type="button"
-								title={title}
-								disabled={isGenerating}
-								aria-pressed={answerMode === value}
-								className={`mode-switch-btn${answerMode === value ? " mode-switch-btn--active" : ""}`}
-								onClick={() => onAnswerModeChange(value)}
-							>
-								{label}
-							</button>
-						))}
+						{ANSWER_MODES.map(({ value, label, title }) => {
+							const blocked = value === "agent" ? agentBlocked : null;
+							return (
+								<button
+									key={value}
+									type="button"
+									title={blocked ?? title}
+									disabled={isGenerating || blocked !== null}
+									aria-pressed={answerMode === value}
+									className={`mode-switch-btn${answerMode === value ? " mode-switch-btn--active" : ""}`}
+									onClick={() => onAnswerModeChange(value)}
+								>
+									{label}
+								</button>
+							);
+						})}
 					</div>
 				)}
 				<div style={{
