@@ -218,7 +218,11 @@ function printCost(records) {
   // agent costing more; this shows what the extra tokens actually bought.
   console.log("");
   for (const arm of ["rag", "agent"]) {
-    const rs = records.filter((r) => r.arm === arm && !r.judgeUnreadable);
+    // Same exclusion as the scoring tables. A run that never answered spent no
+    // tokens, so leaving it in would not move the ratio — but the two sections
+    // disagreeing about what counts is how a number ends up on a slide that
+    // nobody can reproduce from the other table.
+    const rs = scorable(records).filter((r) => r.arm === arm);
     if (!rs.length) continue;
     const correct = rs.filter((r) => r.verdict === "correct").length;
     const tokens = rs.reduce((a, r) => a + (r.tokensIn || 0) + (r.tokensOut || 0), 0);
