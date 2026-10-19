@@ -23,11 +23,16 @@ const PRICE_OUT = 3.75;
 const SCORE = { correct: 1, partial: 0.5, wrong: 0 };
 
 const argv = process.argv.slice(2);
-const file = argv.find((a) => !a.startsWith("--"));
 const beforeIdx = argv.indexOf("--before");
 const beforeFile = beforeIdx !== -1 ? argv[beforeIdx + 1] : null;
-if (!file) {
-  console.error("usage: node scripts/eval-report.js export.json [--before earlier.json]");
+// Several exports can be merged. A run long enough to be interrupted gets
+// finished in a second session, and the per-repo checkpoints are separate
+// files — the report should still read as one eval.
+const files = argv.filter(
+  (a, i) => !a.startsWith("--") && !(beforeIdx !== -1 && i === beforeIdx + 1)
+);
+if (!files.length) {
+  console.error("usage: node scripts/eval-report.js export.json [more.json ...] [--before earlier.json]");
   process.exit(1);
 }
 
@@ -122,6 +127,11 @@ function printArms(records) {
  * multi-hop questions are the only place they come apart — if the multi-hop
  * gap survives inside `authored`, it is about question type. If it does not,
  * it was about provenance, and the honest claim is much weaker.
+ *
+ * The check has a limit of its own, and the slide has to say so: all 9 authored
+ * multi-hop questions are gitask questions, so `authored / multihop` is also
+ * `repo = gitask`. This separates provenance from question type; it cannot
+ * separate either from the repo. Hence the repo column.
  */
 function printBySource(records) {
   const cells = [
@@ -135,14 +145,17 @@ function printBySource(records) {
   if (present.length < 2) return;
 
   console.log("\n## By source (the confound check)\n");
-  const widths = [28, 4, 5, 14, 9, 10];
-  console.log(row(["arm / source / type", "q", "runs", "score", "correct", "cite prec"], widths));
+  const widths = [28, 22, 4, 5, 14, 9, 10];
+  console.log(row(["arm / source / type", "repos", "q", "runs", "score", "correct", "cite prec"], widths));
   for (const arm of ["rag", "agent"]) {
     for (const [src, type] of present) {
-      const s = summarize(records.filter((r) => r.arm === arm && r.source === src && r.type === type));
+      const subset = records.filter((r) => r.arm === arm && r.source === src && r.type === type);
+      const s = summarize(subset);
       if (!s) continue;
+      const repos = [...new Set(subset.map((r) => (r.repo || "").split("/").pop()))].sort();
       console.log(row([
         `${arm} / ${src} / ${type}`,
+        repos.join(","),
         s.questions,
         s.runs,
         `${s.score.toFixed(2)} +/- ${s.se.toFixed(2)}`,
@@ -235,7 +248,37 @@ function printDiff(before, after) {
   console.log("\n  Compared only on the questions the re-run covers.");
 }
 
-const data = read(file);
+/**
+ * Merge exports, keyed so a repo re-run replaces its rows rather than doubling
+ * them — the same rule the /eval page uses when you re-run a repo.
+ */
+function merge(parts) {
+  const records = [];
+  const seen = new Set();
+  const repos = new Map();
+  const ablation = new Map();
+  // Later files win, so pass them in the order they were produced.
+  for (const part of parts) {
+    for (const r of part.records || []) {
+      const key = `${r.repo}|${r.questionId}|${r.arm}|${r.run}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      records.push(r);
+    }
+    for (const repo of part.repos || []) repos.set(repo.repo, repo);
+    for (const a of part.ablation || []) ablation.set(`${a.repo}|${a.config}`, a);
+  }
+  return { ...parts[parts.length - 1], records, repos: [...repos.values()], ablation: [...ablation.values()] };
+}
+
+const parts = files.map(read);
+const models = [...new Set(parts.map((p) => `${p.model}/${p.thinkingLevel ?? "?"}`))];
+if (models.length > 1) {
+  console.error(`REFUSING TO MERGE: these exports used different models — ${models.join(" vs ")}`);
+  process.exit(1);
+}
+const data = parts.length === 1 ? parts[0] : merge(parts.slice().reverse());
+if (parts.length > 1) console.log(`merged ${parts.length} exports`);
 console.log(`# ${data.evalSet}`);
 const thinking = data.thinkingLevel ? ` - thinking ${data.thinkingLevel}` : "";
 console.log(`model ${data.model}${thinking} - embed ${data.embeddingModel} - ${data.runsPerQuestion} runs/question`);
