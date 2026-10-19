@@ -11,6 +11,7 @@ import { getGroqVault } from "./groq-vault";
 import { detectWebGPUAvailability, formatWebGPUReason } from "./webgpu";
 import { recordLLM } from "./metrics";
 import { prepareGeminiChat } from "./chatHistory";
+import { GEMINI_MODEL, billedOutputTokens } from "./geminiModel";
 
 export type LLMStatus = "idle" | "loading" | "ready" | "generating" | "error";
 
@@ -442,7 +443,7 @@ class GeminiEngineWrapper implements LLMEngine {
 
 		const genAI = new GoogleGenerativeAI(apiKey);
 		const model = genAI.getGenerativeModel({
-			model: "gemini-2.5-flash",
+			model: GEMINI_MODEL,
 		});
 		const chat = model.startChat({ history });
 
@@ -458,7 +459,7 @@ class GeminiEngineWrapper implements LLMEngine {
 			return {
 				chunks: out,
 				tokensIn: usage?.promptTokenCount,
-				tokensOut: usage?.candidatesTokenCount,
+				tokensOut: billedOutputTokens(usage),
 			};
 		} catch (err) {
 			throw normalizeGeminiError(err);

@@ -22,8 +22,7 @@ import type {
 	ToolSchema,
 } from "../provider";
 import { withRetry } from "../../retry";
-
-export const GEMINI_AGENT_MODEL = "gemini-2.5-flash";
+import { GEMINI_MODEL, billedOutputTokens, withThinkingLevel } from "../../geminiModel";
 
 /**
  * Runs `fn` with a decrypted key in scope. Vault-backed keys are only readable
@@ -81,7 +80,7 @@ function toContents(messages: AgentMessage[]): Content[] {
 	});
 }
 
-export function geminiProvider({ withKey, model = GEMINI_AGENT_MODEL }: GeminiProviderOptions): ToolProvider {
+export function geminiProvider({ withKey, model = GEMINI_MODEL }: GeminiProviderOptions): ToolProvider {
 	return {
 		id: "gemini",
 		callWithTools(messages: AgentMessage[], options: CallOptions): Promise<ProviderReply> {
@@ -96,6 +95,7 @@ export function geminiProvider({ withKey, model = GEMINI_AGENT_MODEL }: GeminiPr
 					...(tools.length > 0
 						? { tools: [{ functionDeclarations: tools.map(toDeclaration) }] }
 						: {}),
+					generationConfig: withThinkingLevel(),
 				});
 
 				// The SDK has no AbortSignal hook, so cancellation lands between calls,
@@ -118,11 +118,12 @@ export function geminiProvider({ withKey, model = GEMINI_AGENT_MODEL }: GeminiPr
 					text = "";
 				}
 
+				const usage = response.usageMetadata;
 				return {
 					text,
 					toolCalls,
-					tokensIn: response.usageMetadata?.promptTokenCount,
-					tokensOut: response.usageMetadata?.candidatesTokenCount,
+					tokensIn: usage?.promptTokenCount,
+					tokensOut: billedOutputTokens(usage),
 				};
 			}));
 		},

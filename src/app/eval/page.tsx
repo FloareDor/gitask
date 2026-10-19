@@ -7,7 +7,7 @@ import { indexRepository, type IndexProgress } from "@/lib/indexer";
 import { embedText } from "@/lib/embedder";
 import { VectorStore } from "@/lib/vectorStore";
 import { getGeminiKeyScope, getLLMStatus, initLLM } from "@/lib/llm";
-import { GEMINI_AGENT_MODEL } from "@/lib/agent/providers/gemini";
+import { GEMINI_MODEL } from "@/lib/geminiModel";
 import type { Arm } from "@/lib/eval/arms";
 import {
   buildExport,
@@ -167,7 +167,7 @@ export default function EvalPage() {
   }, []);
 
   const handleDownload = useCallback(() => {
-    const payload = buildExport({ model: GEMINI_AGENT_MODEL, runs, repos: summaries, records, ablation });
+    const payload = buildExport({ model: GEMINI_MODEL, runs, repos: summaries, records, ablation });
     const blob = new Blob([JSON.stringify(payload, null, 1)], { type: "application/json" });
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
@@ -196,7 +196,7 @@ export default function EvalPage() {
         <header style={styles.header}>
           <h1 style={styles.title}>Eval</h1>
           <p style={styles.subtitle}>
-            {EVAL_SET.name} — same index, same model ({GEMINI_AGENT_MODEL}), same questions.
+            {EVAL_SET.name} — same index, same model ({GEMINI_MODEL}), same questions.
             The only variable is the retrieval strategy.
           </p>
           <p style={styles.provenance}>{EVAL_SET.provenance}</p>
