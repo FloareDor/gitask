@@ -398,18 +398,40 @@ function printStops(records) {
 
 function printDiff(before, after) {
   console.log("\n## Before / after\n");
+  const droppedNote = [];
   const widths = [18, 16, 16, 10];
   console.log(row(["arm / type", "before", "after", "delta"], widths));
   for (const arm of ["rag", "agent"]) {
     for (const type of [null, "lookup", "multihop"]) {
       const pick = (rs) => rs.filter((r) => r.arm === arm && (type === null || r.type === type));
-      // Restrict the before side to the questions the re-run actually covers,
-      // or the delta measures the change in sample rather than the fix.
-      const afterIds = new Set(pick(after.records).map((r) => r.questionId));
-      const b = summarize(pick(before.records).filter((r) => afterIds.has(r.questionId)));
-      const a = summarize(pick(after.records));
+      // Both sides restricted to the questions both actually answered.
+      //
+      // Restricting only the before side is not enough: each run loses its own
+      // questions to provider errors and unreadable judges, and those losses
+      // are not random — they fall on the slow, hard questions. One real run
+      // lost 9 of 27 that way, including every run of one question, and the
+      // surviving sample scored visibly better. Comparing two differently
+      // censored samples measures the censoring.
+      const scorableIds = (rs) => new Set(scorable(pick(rs)).map((r) => r.questionId));
+      const beforeIds = scorableIds(before.records);
+      const afterIds = scorableIds(after.records);
+      const common = new Set([...beforeIds].filter((id) => afterIds.has(id)));
+      // Only one direction is worth flagging. The before side covering more
+      // questions is just the re-run being targeted, which is deliberate. The
+      // before side covering FEWER means it lost questions the re-run managed
+      // to answer — censoring, and the thing that quietly moves a delta.
+      const lostByBefore = [...afterIds].filter((id) => !beforeIds.has(id));
+
+      const b = summarize(pick(before.records).filter((r) => common.has(r.questionId)));
+      const a = summarize(pick(after.records).filter((r) => common.has(r.questionId)));
       if (!b || !a) continue;
       const delta = a.score - b.score;
+      if (lostByBefore.length) {
+        droppedNote.push(
+          `${arm} / ${type === null ? "all" : type}: before-run lost ${lostByBefore.length} ` +
+          `question(s) the re-run answered (${lostByBefore.join(", ")}) — excluded from both sides`
+        );
+      }
       console.log(row([
         type === null ? `${arm} / all` : `${arm} / ${type}`,
         `${b.score.toFixed(2)} +/- ${b.se.toFixed(2)}`,
@@ -418,7 +440,8 @@ function printDiff(before, after) {
       ], widths));
     }
   }
-  console.log("\n  Compared only on the questions the re-run covers.");
+  console.log("\n  Compared only on questions both runs answered.");
+  for (const note of droppedNote) console.log(`  ${note}`);
 }
 
 /**
