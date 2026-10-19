@@ -65,7 +65,12 @@ async function waitFor(page, label, done, timeoutMs) {
     if (failure && /error:/i.test(failure[0])) {
       throw new Error(`${label} failed — ${failure[0].slice(0, 300)}`);
     }
-    const status = (state.text.match(/^.*(fetching|chunking|embedding|ablation|\d+\/\d+).*$/im) || [""])[0].trim();
+    // Match the page's three progress formats exactly. A loose pattern finds
+    // the "run ablation" button label first and then never changes again,
+    // which is indistinguishable from a stalled run.
+    const status = state.text.split("\n").map((l) => l.trim()).reverse().find((l) =>
+      /^\d+\/\d+\s+—/.test(l) || /\(\d+\/\d+\)$/.test(l) || /^ablation —/.test(l)
+    ) || "";
     if (status && status !== lastStatus) {
       lastStatus = status;
       log(`  ${label} +${Math.round((Date.now() - started) / 1000)}s — ${status.slice(0, 120)}`);
