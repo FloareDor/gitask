@@ -112,6 +112,59 @@ function printArms(records) {
   }
 }
 
+/**
+ * The same split, but cut by where the question came from.
+ *
+ * Source and type are badly confounded in this set: every SWE-QA question is
+ * multi-hop, and every lookup question was authored. So "agent wins on
+ * multi-hop" and "agent wins on borrowed questions" predict the same table,
+ * and the headline split alone cannot tell them apart. The 9 authored
+ * multi-hop questions are the only place they come apart — if the multi-hop
+ * gap survives inside `authored`, it is about question type. If it does not,
+ * it was about provenance, and the honest claim is much weaker.
+ */
+function printBySource(records) {
+  const cells = [
+    ["swe-qa", "multihop"],
+    ["authored", "multihop"],
+    ["authored", "lookup"],
+  ];
+  const present = cells.filter(([src, type]) =>
+    records.some((r) => r.source === src && r.type === type)
+  );
+  if (present.length < 2) return;
+
+  console.log("\n## By source (the confound check)\n");
+  const widths = [28, 4, 5, 14, 9, 10];
+  console.log(row(["arm / source / type", "q", "runs", "score", "correct", "cite prec"], widths));
+  for (const arm of ["rag", "agent"]) {
+    for (const [src, type] of present) {
+      const s = summarize(records.filter((r) => r.arm === arm && r.source === src && r.type === type));
+      if (!s) continue;
+      console.log(row([
+        `${arm} / ${src} / ${type}`,
+        s.questions,
+        s.runs,
+        `${s.score.toFixed(2)} +/- ${s.se.toFixed(2)}`,
+        pct(s.correct),
+        pct(s.citePrec),
+      ], widths));
+    }
+  }
+
+  const gap = (src, type) => {
+    const a = summarize(records.filter((r) => r.arm === "agent" && r.source === src && r.type === type));
+    const g = summarize(records.filter((r) => r.arm === "rag" && r.source === src && r.type === type));
+    return a && g ? a.score - g.score : null;
+  };
+  const borrowed = gap("swe-qa", "multihop");
+  const authored = gap("authored", "multihop");
+  if (borrowed !== null && authored !== null) {
+    console.log(`\n  agent - rag on multihop: ${borrowed >= 0 ? "+" : ""}${borrowed.toFixed(2)} borrowed, ${authored >= 0 ? "+" : ""}${authored.toFixed(2)} authored`);
+    console.log("  Both positive and similar means the effect is about question type, not provenance.");
+  }
+}
+
 function printCost(records) {
   console.log("\n## Cost\n");
   const widths = [10, 12, 12, 12, 10];
@@ -200,6 +253,7 @@ if (unreadable || errored) {
 }
 
 printArms(data.records);
+printBySource(data.records);
 printStops(data.records);
 printCost(data.records);
 if (beforeFile) printDiff(read(beforeFile), data);
