@@ -337,6 +337,54 @@ function printPaired(records) {
   if (dropped) console.log(`\n  Questions either arm lost entirely are excluded from the pairing.`);
 }
 
+/**
+ * The retrieval ablation, pooled across repos and per repo.
+ *
+ * Retrieval is deterministic, so the error bars are the spread between
+ * questions, not run-to-run variance — 15 questions per repo is the sample,
+ * and the spread between them is the honest uncertainty on each mean.
+ *
+ * Pooled is what slide 3 shows; the per-repo rows are there because the arms
+ * data already showed one repo can disagree sharply with another, and an
+ * average that hides that is worth less than the disagreement.
+ */
+function printAblation(rows) {
+  if (!rows || !rows.length) return;
+  console.log("\n## Retrieval ablation\n");
+  const widths = [20, 14, 6, 16, 16, 16, 10];
+  console.log(row(["config", "repo", "q", "Recall@5", "MRR", "NDCG@10", "latency"], widths));
+
+  const configs = [...new Set(rows.map((r) => r.config))];
+  const line = (label, repo, rs) => {
+    const q = rs.reduce((a, r) => a + r.questions, 0);
+    // Weight by questions, since repos can contribute different counts.
+    const wmean = (pick) => rs.reduce((a, r) => a + pick(r) * r.questions, 0) / (q || 1);
+    // Pooling independent per-repo means: errors add in quadrature, weighted.
+    const wse = (pick) =>
+      Math.sqrt(rs.reduce((a, r) => a + (pick(r) * r.questions) ** 2, 0)) / (q || 1);
+    console.log(row([
+      label,
+      repo,
+      q,
+      `${(wmean((r) => r.avgRecallAt5) * 100).toFixed(0)}% +/- ${(wse((r) => r.stderrRecallAt5) * 100).toFixed(0)}%`,
+      `${wmean((r) => r.avgMRR).toFixed(3)} +/- ${wse((r) => r.stderrMRR).toFixed(3)}`,
+      `${wmean((r) => r.avgNdcgAt10).toFixed(3)} +/- ${wse((r) => r.stderrNdcgAt10).toFixed(3)}`,
+      `${wmean((r) => r.avgLatencyMs).toFixed(1)}ms`,
+    ], widths));
+  };
+
+  for (const config of configs) line(config, "all", rows.filter((r) => r.config === config));
+  console.log("");
+  for (const config of configs) {
+    for (const r of rows.filter((x) => x.config === config)) {
+      line(config, (r.repo || "").split("/").pop(), [r]);
+    }
+  }
+  const desc = new Map(rows.map((r) => [r.config, r.description]));
+  console.log("");
+  for (const [config, d] of desc) console.log(`  ${config}: ${d}`);
+}
+
 function printStops(records) {
   const agent = records.filter((r) => r.arm === "agent" && r.stopReason);
   if (!agent.length) return;
@@ -438,6 +486,7 @@ printArms(data.records);
 printPaired(data.records);
 printBySource(data.records);
 printDisagreements(data.records);
+printAblation(data.ablation);
 printStops(data.records);
 printCost(data.records);
 if (beforeFile) printDiff(read(beforeFile), data);
