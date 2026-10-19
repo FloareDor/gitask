@@ -13,6 +13,7 @@
 
 import type { KeyScope } from "../agent/providers/gemini";
 import { EMBEDDING_MODEL_ID } from "../embedder";
+import { THINKING_LEVEL } from "../geminiModel";
 import type { VectorStore } from "../vectorStore";
 import type { AblationRow } from "./ablation";
 import { runArm, type Arm, type ArmRun, type TraceStep } from "./arms";
@@ -219,6 +220,12 @@ export interface EvalExport {
 	evalSet: string;
 	provenance: string;
 	model: string;
+	/**
+	 * How hard the model was allowed to think. It changes the token counts in
+	 * every record below — reasoning bills as output — so the export states it
+	 * rather than leaving someone to infer it from the model id.
+	 */
+	thinkingLevel: string;
 	embeddingModel: string;
 	runsPerQuestion: number;
 	repos: RepoSummary[];
@@ -239,6 +246,7 @@ export function buildExport(options: {
 		evalSet: EVAL_SET.name,
 		provenance: EVAL_SET.provenance,
 		model: options.model,
+		thinkingLevel: THINKING_LEVEL,
 		embeddingModel: EMBEDDING_MODEL_ID,
 		runsPerQuestion: options.runs,
 		repos: options.repos,

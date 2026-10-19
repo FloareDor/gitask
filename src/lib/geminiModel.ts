@@ -49,7 +49,7 @@ export function billedOutputTokens(usage: GeminiUsage | undefined): number {
  * ("Thinking level MINIMAL is not supported for this model") and Flash models
  * can't turn thinking off altogether.
  */
-const THINKING_LEVEL = "low";
+export const THINKING_LEVEL = "low";
 
 /**
  * Adds the thinking level to a generation config.
