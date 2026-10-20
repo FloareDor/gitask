@@ -315,7 +315,13 @@ export default function EvalPage() {
               run ablation
             </button>
             {busy && <button onClick={handleStop} style={styles.button}>stop</button>}
-            <button onClick={handleDownload} disabled={records.length === 0} style={styles.button}>
+            <button
+              onClick={handleDownload}
+              // The ablation is worth exporting on its own: it needs no API
+              // calls, so it can be run and kept when the arms cannot.
+              disabled={records.length === 0 && ablation.length === 0}
+              style={styles.button}
+            >
               download json ({records.length} rows)
             </button>
             <button onClick={handleClear} disabled={busy || records.length === 0} style={styles.button}>

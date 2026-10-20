@@ -221,29 +221,35 @@ async function download(page, file) {
       (s) => /\d+ chunks · \d+ questions/.test(s.text), STEP_TIMEOUT_MS);
     log(`  ${(indexed.text.match(/^.*\d+ chunks · \d+ questions.*$/m) || [])[0].trim()}`);
 
-    if (subset === "all" && arms === "both") {
+    if (ablationOnly || (subset === "all" && arms === "both")) {
       log("  ablation");
       await clickButton(page, "run ablation");
       await waitFor(page, "ablation", (s) => !s.busy, STEP_TIMEOUT_MS);
+      printTable((await page.evaluate(readPage)).tables.find((rows) => rows[0]?.includes("Recall@5")));
     } else {
       // Retrieval is deterministic and untouched by an agent-prompt change, so
       // a targeted re-run would just reproduce the ablation it already has.
       log("  ablation skipped (targeted re-run)");
     }
 
-    if (subset !== "all") await setSubset(page, subset);
-    if (arms !== "both") await setArms(page, arms);
+    if (ablationOnly) {
+      // Retrieval needs no provider, so this half can run when the arms cannot.
+      log("  eval skipped (--ablation-only)");
+    } else {
+      if (subset !== "all") await setSubset(page, subset);
+      if (arms !== "both") await setArms(page, arms);
 
-    log(`  eval — ${subset} questions, ${arms === "both" ? "both arms" : `${arms} only`}`);
-    await clickButton(page, "run eval");
-    await sleep(5000);
-    const ran = await waitFor(page, "eval", (s) => s.text.includes("Results") && !s.busy, EVAL_TIMEOUT_MS);
-    log("  results so far:");
-    printTable(ran.tables.find((rows) => rows[0]?.includes("score")));
+      log(`  eval — ${subset} questions, ${arms === "both" ? "both arms" : `${arms} only`}`);
+      await clickButton(page, "run eval");
+      await sleep(5000);
+      const ran = await waitFor(page, "eval", (s) => s.text.includes("Results") && !s.busy, EVAL_TIMEOUT_MS);
+      log("  results so far:");
+      printTable(ran.tables.find((rows) => rows[0]?.includes("score")));
+    }
 
     const checkpoint = path.join(outDir, `gitask-eval-after-${repo.replace("/", "-")}.json`);
     await download(page, checkpoint);
-    assertUsable(checkpoint, repo);
+    if (!ablationOnly) assertUsable(checkpoint, repo);
   }
 
   const final = await page.evaluate(readPage);
