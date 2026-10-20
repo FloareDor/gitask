@@ -411,6 +411,7 @@ export default function EvalPage() {
                   <tr>
                     <th style={styles.th}>config</th>
                     <th style={styles.th}>repo</th>
+                    <th style={styles.th}>questions</th>
                     <th style={styles.th}>q</th>
                     <th style={styles.th}>Recall@5</th>
                     <th style={styles.th}>MRR</th>
@@ -420,9 +421,10 @@ export default function EvalPage() {
                 </thead>
                 <tbody>
                   {ablation.map((row) => (
-                    <tr key={`${row.repo}-${row.config}`} title={row.description}>
+                    <tr key={`${row.repo}-${row.config}-${row.questionType}`} title={row.description}>
                       <td style={styles.td}>{row.config}</td>
                       <td style={styles.td}>{row.repo}</td>
+                      <td style={styles.td}>{row.questionType}</td>
                       <td style={styles.td}>{row.questions}</td>
                       <td style={styles.td}>{pct(row.avgRecallAt5)} ± {pct(row.stderrRecallAt5)}</td>
                       <td style={styles.td}>{row.avgMRR.toFixed(3)} ± {row.stderrMRR.toFixed(3)}</td>

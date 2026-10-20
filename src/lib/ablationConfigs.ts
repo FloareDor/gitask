@@ -102,6 +102,27 @@ export const searchNoReranking: AblationSearchFn = async (store, queryEmbedding,
 	return results;
 };
 
+/**
+ * The full pipeline with graph expansion removed, and nothing else changed.
+ *
+ * Vector-Only drops BM25, RRF and graph expansion together, so the gap between
+ * it and the full pipeline cannot be pinned on any one of them. This isolates
+ * the graph hop: it is the only step missing here. The point of measuring it is
+ * that the hop is the baseline's one attempt at reaching evidence the query
+ * text cannot name — the cheap, blind version of what the agent does by
+ * reading first and searching second.
+ */
+export const searchNoGraphExpansion: AblationSearchFn = async (store, queryEmbedding, queryText, limit = 5) => {
+	const chunks = store.getAll();
+	const vectorScores = vectorSearch(chunks, queryEmbedding, COARSE_CANDIDATES, store.getAllBinaries());
+	const sparseScores = await bm25Search(chunks, queryText, { limit: COARSE_CANDIDATES });
+	const fused = reciprocalRankFusion([vectorScores, sparseScores], RRF_K);
+	const candidates = [...fused.entries()].sort((a, b) => b[1] - a[1]).slice(0, COARSE_CANDIDATES);
+	const maxFused = candidates.reduce((max, [, score]) => Math.max(max, score), 0);
+
+	return rerank(chunks, candidates, queryEmbedding, maxFused).slice(0, limit);
+};
+
 function rerank(
 	chunks: EmbeddedChunk[],
 	candidates: [string, number][],
@@ -156,6 +177,11 @@ export const ABLATION_CONFIGS: AblationConfig[] = [
 		name: "No Reranking",
 		description: "Fused rank order straight through, no cosine rerank",
 		run: searchNoReranking,
+	},
+	{
+		name: "No Graph Expansion",
+		description: "Full pipeline with only the graph hop removed",
+		run: searchNoGraphExpansion,
 	},
 ];
 

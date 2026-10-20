@@ -348,8 +348,11 @@ function printPaired(records) {
  * data already showed one repo can disagree sharply with another, and an
  * average that hides that is worth less than the disagreement.
  */
-function printAblation(rows) {
-  if (!rows || !rows.length) return;
+function printAblation(allRows) {
+  if (!allRows || !allRows.length) return;
+  // Older exports carry no questionType; treat those rows as the aggregate.
+  const rows = allRows.filter((r) => (r.questionType ?? "all") === "all");
+  if (!rows.length) return;
   console.log("\n## Retrieval ablation\n");
   const widths = [20, 14, 6, 16, 16, 16, 10];
   console.log(row(["config", "repo", "q", "Recall@5", "MRR", "NDCG@10", "latency"], widths));
@@ -383,6 +386,78 @@ function printAblation(rows) {
   const desc = new Map(rows.map((r) => [r.config, r.description]));
   console.log("");
   for (const [config, d] of desc) console.log(`  ${config}: ${d}`);
+}
+
+/**
+ * The ablation split by question type.
+ *
+ * A retrieval component that only matters when the answer is spread across
+ * files should show up on the multi-file rows and nowhere else. An aggregate
+ * averages exactly that signal away, which is why this split exists: the graph
+ * hop is the baseline's one attempt at reaching evidence the query text cannot
+ * name, and this is where it either shows or it does not.
+ */
+function printAblationSplit(allRows) {
+  const rows = (allRows || []).filter((r) => r.questionType && r.questionType !== "all");
+  if (!rows.length) return;
+
+  console.log("\n## Ablation by question type\n");
+  const widths = [24, 12, 6, 18, 18];
+  console.log(row(["config", "questions", "q", "Recall@5", "MRR"], widths));
+
+  const configs = [...new Set(rows.map((r) => r.config))];
+  const cell = (config, type) => {
+    const rs = rows.filter((r) => r.config === config && r.questionType === type);
+    if (!rs.length) return null;
+    const q = rs.reduce((a, r) => a + r.questions, 0);
+    const wmean = (pick) => rs.reduce((a, r) => a + pick(r) * r.questions, 0) / (q || 1);
+    const wse = (pick) => Math.sqrt(rs.reduce((a, r) => a + (pick(r) * r.questions) ** 2, 0)) / (q || 1);
+    return {
+      q,
+      recall: wmean((r) => r.avgRecallAt5),
+      recallSe: wse((r) => r.stderrRecallAt5),
+      mrr: wmean((r) => r.avgMRR),
+      mrrSe: wse((r) => r.stderrMRR),
+    };
+  };
+
+  for (const config of configs) {
+    for (const type of ["lookup", "multihop"]) {
+      const c = cell(config, type);
+      if (!c) continue;
+      console.log(row([
+        config,
+        type,
+        c.q,
+        `${(c.recall * 100).toFixed(0)}% +/- ${(c.recallSe * 100).toFixed(0)}%`,
+        `${c.mrr.toFixed(3)} +/- ${c.mrrSe.toFixed(3)}`,
+      ], widths));
+    }
+  }
+
+  const full = { lookup: cell("Full Pipeline", "lookup"), multihop: cell("Full Pipeline", "multihop") };
+  if (!full.lookup || !full.multihop) return;
+
+  // What each component is worth, in Recall@5 points, on each question type.
+  console.log("\n  Recall@5 lost by removing each component:\n");
+  const w2 = [24, 16, 18, 14];
+  console.log(row(["removed", "on one-file", "on multi-file", "difference"], w2));
+  for (const config of configs) {
+    if (config === "Full Pipeline") continue;
+    const lk = cell(config, "lookup");
+    const mh = cell(config, "multihop");
+    if (!lk || !mh) continue;
+    const dLook = (full.lookup.recall - lk.recall) * 100;
+    const dMulti = (full.multihop.recall - mh.recall) * 100;
+    const diff = dMulti - dLook;
+    console.log(row([
+      config.replace(/^No /, ""),
+      `${dLook >= 0 ? "+" : ""}${dLook.toFixed(1)}`,
+      `${dMulti >= 0 ? "+" : ""}${dMulti.toFixed(1)}`,
+      `${diff >= 0 ? "+" : ""}${diff.toFixed(1)}`,
+    ], w2));
+  }
+  console.log("\n  A component that carries the multi-file case is positive in the last column.");
 }
 
 function printStops(records) {
@@ -520,6 +595,7 @@ printPaired(data.records);
 printBySource(data.records);
 printDisagreements(data.records);
 printAblation(data.ablation);
+printAblationSplit(data.ablation);
 printStops(data.records);
 printCost(data.records);
 if (beforeFile) printDiff(read(beforeFile), data);

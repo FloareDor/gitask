@@ -13,12 +13,19 @@
 import { ABLATION_CONFIGS, meanReciprocalRank, ndcgAtK, recallAtK } from "../ablationConfigs";
 import type { VectorStore } from "../vectorStore";
 import { questionsForRepo } from "./questions";
+import type { EvalQuestion } from "./types";
 import { deriveRelevance } from "./scoring";
 
 export interface AblationRow {
 	config: string;
 	description: string;
 	repo: string;
+	/**
+	 * Which questions this row covers. The split is the point: a component that
+	 * only matters when the answer is spread across files should show up here
+	 * and nowhere else, and an aggregate row averages that signal away.
+	 */
+	questionType: "all" | "lookup" | "multihop";
 	/** Questions with at least one relevant chunk in this index. */
 	questions: number;
 	avgRecallAt5: number;
@@ -72,7 +79,7 @@ export async function runAblationForRepo(
 
 	// Embed once and reuse across configs: the ablation is about retrieval, and
 	// re-embedding per config would put the embedder in every latency number.
-	const prepared: { text: string; embedding: number[]; relevantChunkIds: string[]; relevanceScores: Record<string, number> }[] = [];
+	const prepared: { text: string; type: EvalQuestion["type"]; embedding: number[]; relevantChunkIds: string[]; relevanceScores: Record<string, number> }[] = [];
 	for (const question of questions) {
 		if (options.signal?.aborted) return [];
 		const derived = deriveRelevance(chunks, question);
@@ -81,6 +88,7 @@ export async function runAblationForRepo(
 		if (derived.relevantChunkIds.length === 0) continue;
 		prepared.push({
 			text: question.question,
+			type: question.type,
 			embedding: await options.embedQuery(question.question),
 			relevantChunkIds: derived.relevantChunkIds,
 			relevanceScores: derived.relevanceScores,
@@ -89,10 +97,8 @@ export async function runAblationForRepo(
 
 	const rows: AblationRow[] = [];
 	for (const config of ABLATION_CONFIGS) {
-		const recalls: number[] = [];
-		const mrrs: number[] = [];
-		const ndcgs: number[] = [];
-		const latencies: number[] = [];
+		type Measured = { type: EvalQuestion["type"]; recall: number; mrr: number; ndcg: number; latency: number };
+		const measured: Measured[] = [];
 
 		for (const [index, question] of prepared.entries()) {
 			if (options.signal?.aborted) return rows;
@@ -100,26 +106,38 @@ export async function runAblationForRepo(
 
 			const started = performance.now();
 			const results = await config.run(store, question.embedding, question.text, limit);
-			latencies.push(performance.now() - started);
+			const latency = performance.now() - started;
 
-			recalls.push(recallAtK(results, question.relevantChunkIds, 5));
-			mrrs.push(meanReciprocalRank(results, question.relevantChunkIds));
-			ndcgs.push(ndcgAtK(results, question.relevanceScores, 10));
+			measured.push({
+				type: question.type,
+				recall: recallAtK(results, question.relevantChunkIds, 5),
+				mrr: meanReciprocalRank(results, question.relevantChunkIds),
+				ndcg: ndcgAtK(results, question.relevanceScores, 10),
+				latency,
+			});
 		}
 
-		rows.push({
-			config: config.name,
-			description: config.description,
-			repo,
-			questions: prepared.length,
-			avgRecallAt5: mean(recalls),
-			avgMRR: mean(mrrs),
-			avgNdcgAt10: mean(ndcgs),
-			avgLatencyMs: mean(latencies),
-			stderrRecallAt5: stderr(recalls),
-			stderrMRR: stderr(mrrs),
-			stderrNdcgAt10: stderr(ndcgs),
-		});
+		const emit = (questionType: AblationRow["questionType"], subset: Measured[]) => {
+			if (subset.length === 0) return;
+			rows.push({
+				config: config.name,
+				description: config.description,
+				repo,
+				questionType,
+				questions: subset.length,
+				avgRecallAt5: mean(subset.map((m) => m.recall)),
+				avgMRR: mean(subset.map((m) => m.mrr)),
+				avgNdcgAt10: mean(subset.map((m) => m.ndcg)),
+				avgLatencyMs: mean(subset.map((m) => m.latency)),
+				stderrRecallAt5: stderr(subset.map((m) => m.recall)),
+				stderrMRR: stderr(subset.map((m) => m.mrr)),
+				stderrNdcgAt10: stderr(subset.map((m) => m.ndcg)),
+			});
+		};
+
+		emit("all", measured);
+		emit("lookup", measured.filter((m) => m.type === "lookup"));
+		emit("multihop", measured.filter((m) => m.type === "multihop"));
 	}
 
 	return rows;
