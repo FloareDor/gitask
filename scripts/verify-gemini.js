@@ -13,7 +13,7 @@ async function verifyGemini() {
 
 	console.log('Found GEMINI_API_KEY, testing...');
 	const genAI = new GoogleGenerativeAI(apiKey);
-	const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
+	const model = genAI.getGenerativeModel({ model: "gemini-3.8-flash" });
 
 	try {
 		const result = await model.generateContent("Hello, are you working?");
