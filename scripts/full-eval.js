@@ -37,6 +37,8 @@ const apiKey = flag("key", process.env.GEMINI_API_KEY);
 const repoFilter = flag("repos", null);
 const subset = flag("subset", "all");
 const arms = flag("arms", "both");
+// Retrieval needs no provider, so this half can run when the arms cannot.
+const ablationOnly = argv.includes("--ablation-only");
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const stamp = () => new Date().toISOString().slice(11, 19);
@@ -172,7 +174,9 @@ async function download(page, file) {
 }
 
 (async () => {
-  if (!apiKey) throw new Error("need GEMINI_API_KEY or --key");
+  // Only the arms call a provider. An ablation-only run is pure local
+  // retrieval, so demanding a key for it would be wrong.
+  if (!apiKey && !ablationOnly) throw new Error("need GEMINI_API_KEY or --key");
   fs.mkdirSync(outDir, { recursive: true });
 
   const browser = await chromium.launch({ headless: true });
