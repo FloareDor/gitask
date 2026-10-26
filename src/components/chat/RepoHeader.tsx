@@ -11,7 +11,8 @@ const PROJECT_REPO_URL = "https://github.com/FloareDor/gitask";
 const ANSWER_MODES: Array<{ value: AnswerMode; label: string; title: string }> = [
 	{ value: "rag", label: "rag", title: "One hybrid search, then answer" },
 	{ value: "agent", label: "agent", title: "Investigate with tools, then answer (Gemini, your key)" },
-	{ value: "auto", label: "auto", title: "Pick a mode per question — behaves as rag until the router lands" },
+	// "auto" is deliberately not offered yet — it still answers as rag, and a
+	// button that does nothing is worse than no button. Add it back with the router.
 ];
 
 const overflowItemStyle: React.CSSProperties = {

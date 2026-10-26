@@ -153,7 +153,8 @@ export default function RepoPage({
 			const savedQE = localStorage.getItem("gitask-query-expansion-enabled");
 			if (savedQE !== null) setQueryExpansionEnabled(savedQE === "true");
 			const savedMode = localStorage.getItem("gitask-answer-mode");
-			if (savedMode === "rag" || savedMode === "agent" || savedMode === "auto") setAnswerMode(savedMode);
+			// Anyone left on "auto" from an earlier build falls back to the default.
+			if (savedMode === "rag" || savedMode === "agent") setAnswerMode(savedMode);
 		} catch { /* ignore */ }
 	}, []);
 
@@ -598,20 +599,20 @@ export default function RepoPage({
 		}
 	}, [owner, repo]);
 
-	const handleCancelIndexing = useCallback(async () => {
+	const handleCancelIndexing = useCallback(async () => {
 		if (isCancellingIndex) return;
 		setIsCancellingIndex(true);
 		indexAbortControllerRef.current?.abort();
-		storeRef.current.clear();
-		if (owner && repo) {
-			try {
-				await storeRef.current.clearPartialProgress(owner, repo);
-			} catch (e) {
-				console.warn("Failed to clear partial indexing progress:", e);
-			}
-		}
+		storeRef.current.clear();
+		if (owner && repo) {
+			try {
+				await storeRef.current.clearPartialProgress(owner, repo);
+			} catch (e) {
+				console.warn("Failed to clear partial indexing progress:", e);
+			}
+		}
 		router.push("/");
-	}, [isCancellingIndex, owner, repo, router]);
+	}, [isCancellingIndex, owner, repo, router]);
 
 	const handleDeleteEmbeddings = useCallback(async () => {
 		if (!owner || !repo) return;
