@@ -1,13 +1,14 @@
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import { NextResponse } from "next/server";
 import { prepareGeminiChat } from "@/lib/chatHistory";
+import { GEMINI_MODEL } from "@/lib/geminiModel";
 
 // Prevent static optimization - fixes 405 on Vercel production
 export const dynamic = "force-dynamic";
 
 // Initialize Gemini with server-side key
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || "");
-const model = genAI.getGenerativeModel({ model: "gemini-3.8-flash" });
+const model = genAI.getGenerativeModel({ model: GEMINI_MODEL });
 
 interface GeminiErrorPayload {
 	error: string;

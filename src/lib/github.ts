@@ -101,84 +101,75 @@ function combineAbortSignals(
 	};
 }
 
+/** Translate a failed GitHub response into a user-facing error. */
+async function throwGitHubError(res: Response, owner: string, repo: string): Promise<never> {
+	const details = await readGitHubErrorMessage(res);
+	if (res.status === 404) {
+		throw new Error(privateRepoGuidance(owner, repo));
+	}
+	if (res.status === 401) {
+		throw new Error(`GitHub token was rejected. Update it in "GH Token" and try again.`);
+	}
+	if (res.status === 403) {
+		throw new Error(`GitHub access denied. You may be rate-limited. Add a token in "GH Token" and try again.`);
+	}
+	throw new Error(`GitHub error (${res.status}): ${details}`);
+}
+
+async function fetchDefaultBranch(
+	owner: string,
+	repo: string,
+	token?: string,
+	signal?: AbortSignal
+): Promise<string> {
+	const res = await fetch(`${API_BASE}/repos/${owner}/${repo}`, {
+		headers: headers(token),
+		signal,
+	});
+	if (!res.ok) await throwGitHubError(res, owner, repo);
+	const data = await res.json();
+	return data.default_branch as string;
+}
+
 /**
  * Fetch the full recursive file tree for a repository.
- * Returns the default branch commit SHA + all blob entries for that commit tree.
+ *
+ * `ref` may be a branch, tag, or commit SHA. When omitted the default branch
+ * HEAD is used. The returned `sha` is always the resolved commit SHA so the
+ * snapshot is stable even when `ref` is a moving branch.
  */
 export async function fetchRepoTree(
 	owner: string,
 	repo: string,
 	token?: string,
-	signal?: AbortSignal
+	signal?: AbortSignal,
+	ref?: string
 ): Promise<TreeResponse> {
-	// 1. Get default branch SHA
-	const repoRes = await fetch(`${API_BASE}/repos/${owner}/${repo}`, {
-		headers: headers(token),
-		signal,
-	});
-	if (!repoRes.ok) {
-		const details = await readGitHubErrorMessage(repoRes);
-		if (repoRes.status === 404) {
-			throw new Error(privateRepoGuidance(owner, repo));
-		}
-		if (repoRes.status === 401) {
-			throw new Error(`GitHub token was rejected. Update it in "GH Token" and try again.`);
-		}
-		if (repoRes.status === 403) {
-			throw new Error(`GitHub access denied. You may be rate-limited. Add a token in "GH Token" and try again.`);
-		}
-		throw new Error(`GitHub error (${repoRes.status}): ${details}`);
-	}
-	const repoData = await repoRes.json();
-	const defaultBranch: string = repoData.default_branch;
+	const target = ref || (await fetchDefaultBranch(owner, repo, token, signal));
 
-	// 2. Resolve the default branch HEAD commit for a stable snapshot.
+	// 1. Resolve the ref to a commit so we index an exact snapshot.
 	const commitRes = await fetch(
-		`${API_BASE}/repos/${owner}/${repo}/commits/${encodeURIComponent(defaultBranch)}`,
+		`${API_BASE}/repos/${owner}/${repo}/commits/${encodeURIComponent(target)}`,
 		{ headers: headers(token), signal }
 	);
-	if (!commitRes.ok) {
-		const details = await readGitHubErrorMessage(commitRes);
-		if (commitRes.status === 404) {
-			throw new Error(privateRepoGuidance(owner, repo));
-		}
-		if (commitRes.status === 401) {
-			throw new Error(`GitHub token was rejected. Update it in "GH Token" and try again.`);
-		}
-		if (commitRes.status === 403) {
-			throw new Error(`GitHub access denied. You may be rate-limited. Add a token in "GH Token" and try again.`);
-		}
-		throw new Error(`GitHub error (${commitRes.status}): ${details}`);
-	}
+	if (!commitRes.ok) await throwGitHubError(commitRes, owner, repo);
 	const commitData = await commitRes.json();
 	const commitSha =
 		typeof commitData?.sha === "string" && commitData.sha.length > 0
 			? (commitData.sha as string)
-			: defaultBranch;
+			: target;
 	const treeSha =
 		typeof commitData?.commit?.tree?.sha === "string" &&
 		commitData.commit.tree.sha.length > 0
 			? (commitData.commit.tree.sha as string)
 			: commitSha;
 
-	// 3. Get the tree recursively for that exact commit tree.
+	// 2. Get the tree recursively for that exact commit tree.
 	const treeRes = await fetch(
 		`${API_BASE}/repos/${owner}/${repo}/git/trees/${treeSha}?recursive=1`,
 		{ headers: headers(token), signal }
 	);
-	if (!treeRes.ok) {
-		const details = await readGitHubErrorMessage(treeRes);
-		if (treeRes.status === 404) {
-			throw new Error(privateRepoGuidance(owner, repo));
-		}
-		if (treeRes.status === 401) {
-			throw new Error(`GitHub token was rejected. Update it in "GH Token" and try again.`);
-		}
-		if (treeRes.status === 403) {
-			throw new Error(`GitHub access denied. You may be rate-limited. Add a token in "GH Token" and try again.`);
-		}
-		throw new Error(`GitHub error (${treeRes.status}): ${details}`);
-	}
+	if (!treeRes.ok) await throwGitHubError(treeRes, owner, repo);
 	const treeData = await treeRes.json();
 
 	const files: RepoFile[] = (treeData.tree as any[])

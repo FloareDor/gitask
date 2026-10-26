@@ -6,6 +6,7 @@ import type { Components } from "react-markdown";
 import type { Message } from "@/app/[owner]/[repo]/types";
 import { encodeGitHubPath, injectInlineFileLinks } from "@/lib/chatUtils";
 import { InlineDiagram } from "@/components/diagram/InlineDiagram";
+import { AgentTrace } from "@/components/chat/AgentTrace";
 import { generateMessageDiagram } from "@/lib/diagramGenerator";
 import type { MessageDiagram } from "@/app/[owner]/[repo]/types";
 import type { VectorStore } from "@/lib/vectorStore";
@@ -153,7 +154,8 @@ export const ChatMessage = memo(function ChatMessage({
 	);
 
 	// Thinking block: visible whenever streaming with no content yet.
-	const showThinking = isStreaming && !msg.content;
+	// Agent mode has its own live indicator — the trace — so skip the RAG one.
+	const showThinking = isStreaming && !msg.content && !msg.agent;
 	const thinkingPhase = msg.retrieval?.loadingPhase ?? idleWordRef.current;
 	const thinkingVariants = msg.retrieval?.variants ?? [];
 	const completedCount = msg.retrieval?.completedCount ?? 0;
@@ -269,6 +271,10 @@ export const ChatMessage = memo(function ChatMessage({
 					</summary>
 					<div className="chat-model-thinking-content">{msg.thinking}</div>
 				</details>
+			)}
+
+			{!msg.safety?.blocked && !isUser && msg.agent && (
+				<AgentTrace agent={msg.agent} isLive={isStreaming} />
 			)}
 
 			{!msg.safety?.blocked && !isUser && (!isStreaming || msg.content) && (

@@ -13,6 +13,7 @@ async function verifyGemini() {
 
 	console.log('Found GEMINI_API_KEY, testing...');
 	const genAI = new GoogleGenerativeAI(apiKey);
+	// Plain CJS, so it can't import the TS constant — keep in sync with src/lib/geminiModel.ts.
 	const model = genAI.getGenerativeModel({ model: "gemini-3.8-flash" });
 
 	try {

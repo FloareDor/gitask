@@ -17,6 +17,8 @@ interface CachedRepoBlob {
 	embeddingModel?: string;
 	chunks: EmbeddedChunk[];
 	graph?: StoredRepoGraph;
+	/** Raw file text keyed by path. Absent on indexes built before file storage existed. */
+	files?: Record<string, string>;
 }
 
 /** AST node for partial progress (matches indexer AstNode shape) */
@@ -39,6 +41,7 @@ export interface PartialProgress {
 	textChunkCounts?: Record<string, number>;
 	fileChunkRanges?: [string, { start: number; end: number }][];
 	dependencyGraph?: Record<string, { imports: string[]; definitions: string[] }>;
+	files?: Record<string, string>;
 	directoryStats?: Record<string, {
 		fileCount: number;
 		totalChars: number;
@@ -75,6 +78,7 @@ export class VectorStore {
 	private resolveFileDataCache: GraphResolveFileData | null = null;
 	private resolveFileDataDirty = true;
 	private graph: Record<string, { imports: string[]; definitions: string[] }> = {};
+	private files: Map<string, string> = new Map();
 	private repoKey: string = "";
 
 	constructor() { }
@@ -150,6 +154,26 @@ export class VectorStore {
 		return this.chunksByFile.get(filePath) || [];
 	}
 
+	/** Store the raw text of a file so tools can read it without hitting GitHub. */
+	setFile(filePath: string, content: string): void {
+		this.files.set(filePath, content);
+	}
+
+	setFiles(files: Record<string, string>): void {
+		for (const [filePath, content] of Object.entries(files)) {
+			this.files.set(filePath, content);
+		}
+	}
+
+	/** Raw file text, or undefined if the file was not stored (older index or skipped file). */
+	getFile(filePath: string): string | undefined {
+		return this.files.get(filePath);
+	}
+
+	getFiles(): Record<string, string> {
+		return Object.fromEntries(this.files);
+	}
+
 	/**
 	 * Get the number of chunks stored.
 	 */
@@ -167,6 +191,7 @@ export class VectorStore {
 		this.resolveFileDataCache = null;
 		this.resolveFileDataDirty = true;
 		this.graph = {};
+		this.files.clear();
 	}
 
 	/**
@@ -177,7 +202,7 @@ export class VectorStore {
 	async loadCachedBlob(
 		owner: string,
 		repo: string
-	): Promise<{ sha: string; chunks: EmbeddedChunk[]; graph: StoredRepoGraph } | null> {
+	): Promise<{ sha: string; chunks: EmbeddedChunk[]; graph: StoredRepoGraph; files: Record<string, string> } | null> {
 		const key = `${owner}/${repo}`;
 		return new Promise((resolve) => {
 			const request = indexedDB.open("gitask-cache", 1);
@@ -203,6 +228,7 @@ export class VectorStore {
 							sha: data.sha,
 							chunks: data.chunks,
 							graph: data.graph || {},
+							files: data.files || {},
 						});
 					} else {
 						resolve(null);
@@ -221,9 +247,11 @@ export class VectorStore {
 	setFromBlob(data: {
 		chunks: EmbeddedChunk[];
 		graph: StoredRepoGraph;
+		files?: Record<string, string>;
 	}): void {
 		this.chunks = [...data.chunks];
 		this.graph = { ...data.graph };
+		this.files = new Map(Object.entries(data.files ?? {}));
 		this.chunksByFile.clear();
 		this.chunkBinaries = [];
 		for (const chunk of this.chunks) {
@@ -259,6 +287,7 @@ export class VectorStore {
 		this.chunkBinaries = keptBinaries;
 		for (const p of pathSet) {
 			delete this.graph[p];
+			this.files.delete(p);
 		}
 		this.resolveFileDataCache = null;
 		this.resolveFileDataDirty = true;
@@ -275,6 +304,7 @@ export class VectorStore {
 			embeddingModel: EMBEDDING_MODEL_ID,
 			chunks: this.chunks,
 			graph: this.graph,
+			files: this.getFiles(),
 		};
 
 		return new Promise((resolve, reject) => {
@@ -440,6 +470,7 @@ export class VectorStore {
 					) {
 						this.chunks = data.chunks;
 						this.graph = data.graph || {};
+						this.files = new Map(Object.entries(data.files ?? {}));
 						// Rebuild derived indexes and binary cache.
 						this.chunksByFile.clear();
 						this.chunkBinaries = [];

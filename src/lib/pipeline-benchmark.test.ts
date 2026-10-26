@@ -17,7 +17,26 @@ import { describe, it } from "vitest";
 import { fetchRepoTree, fetchFileContent, isIndexable, prioritiseFiles } from "./github";
 import { chunkCode, detectLanguage } from "./chunker";
 import { initEmbedder, embedChunks } from "./embedder";
-import { pooledMap } from "./indexer";
+
+/**
+ * Fixed-size batches, mirroring the loop in `indexRepository` — it slices the
+ * file list into groups of `size` and awaits each group before starting the
+ * next. Kept here rather than imported because the indexer has it inline, and
+ * exporting it would mean reshaping the hot indexing path to suit a benchmark.
+ * If that loop changes, this has to change with it or the numbers stop meaning
+ * anything.
+ */
+async function batchedMap<T, R>(
+	items: T[],
+	fn: (item: T) => Promise<R>,
+	size: number
+): Promise<R[]> {
+	const out: R[] = [];
+	for (let start = 0; start < items.length; start += size) {
+		out.push(...await Promise.all(items.slice(start, start + size).map(fn)));
+	}
+	return out;
+}
 
 // ---- Configure target repo here --------------------------------------------
 const BENCH_OWNER = "TanStack";
@@ -41,7 +60,21 @@ function fmtThroughput(count: number, totalMs: number, unit: string): string {
 
 // ---------------------------------------------------------------------------
 
-describe("Pipeline Speed Benchmark", () => {
+/**
+ * Skipped by default, and not because it is flaky.
+ *
+ * The embedder asks onnxruntime for the `wasm` device, which only exists in a
+ * browser — under Node it fails with "Unsupported device: wasm. Should be one
+ * of: dml, cpu." There is no jsdom or browser runner configured here, so this
+ * file cannot pass as a Node test, and it never could. It stayed red while
+ * importing a `pooledMap` that `indexer.ts` has never exported, which is how
+ * long it has been unrunnable.
+ *
+ * Kept rather than deleted because the measurements are still the ones worth
+ * taking; it needs a browser runner, which is a bigger change than it earns
+ * right now. Run it by hand in the browser, or unskip once one exists.
+ */
+describe.skip("Pipeline Speed Benchmark", () => {
 	it(
 		`chunking + embedding throughput on ${BENCH_OWNER}/${BENCH_REPO} (top ${MAX_FILES} files)`,
 		async () => {
@@ -83,12 +116,12 @@ describe("Pipeline Speed Benchmark", () => {
 			console.log(`  Rate  : ${fmtThroughput(files.length, seqFetchTotalMs, "files")}`);
 
 			// ----------------------------------------------------------------
-			// 2. FETCH PHASE — pooled (FETCH_CONCURRENCY = 5)
+			// 2. FETCH PHASE - batched
 			// ----------------------------------------------------------------
-			console.log(`\n── FETCH (pooled, concurrency=${CONCURRENCY}, ${files.length} files) ──`);
+			console.log(`\n── FETCH (batched, concurrency=${CONCURRENCY}, ${files.length} files) ──`);
 
 			const poolFetchStart = performance.now();
-			const poolFetched = await pooledMap<FileMeta, FetchResult>(
+			const poolFetched = await batchedMap<FileMeta, FetchResult>(
 				files,
 				async (file) => {
 					const t = performance.now();
@@ -142,12 +175,12 @@ describe("Pipeline Speed Benchmark", () => {
 			}
 
 			// ----------------------------------------------------------------
-			// 4. RE-CHUNK with pooledMap (simulates the live pipeline wave loop)
+			// 4. RE-CHUNK batched (same shape as the indexer loop)
 			// ----------------------------------------------------------------
-			console.log(`\n── CHUNKING via pooledMap (concurrency=${CONCURRENCY}) ──`);
+			console.log(`\n── CHUNKING batched (concurrency=${CONCURRENCY}) ──`);
 
 			const poolChunkStart = performance.now();
-			await pooledMap(
+			await batchedMap(
 				successfulFetches,
 				async ({ file, content }) => {
 					const lang = detectLanguage(file.path);

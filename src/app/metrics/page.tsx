@@ -99,6 +99,13 @@ function EventRow({ event }: { event: MetricEvent }) {
     if (event.repo) detail += `  (${event.repo})`;
   } else if (event.type === "search") {
     typeLabel = "SEARCH";
+  } else if (event.type === "agent") {
+    typeLabel = `AGENT/${event.agentProvider ?? "?"}`;
+    detail += `  ${event.steps ?? 0} steps`;
+    if (event.tokensIn != null || event.tokensOut != null) {
+      detail += `  ${fmtTokens(event.tokensIn ?? 0)} in / ${fmtTokens(event.tokensOut ?? 0)} out`;
+    }
+    if (event.repo) detail += `  (${event.repo})`;
   } else if (event.type === "safety") {
     typeLabel = "SAFETY";
     const level = event.riskLevel ?? "none";

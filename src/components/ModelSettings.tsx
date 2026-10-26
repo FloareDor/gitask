@@ -14,6 +14,7 @@ import {
 	getDownloadedMLCModels,
 	deleteMLCModel,
 	MLC_MODELS,
+	LLM_CONFIG_CHANGED_EVENT,
 	type LLMConfig,
 	type CloudStorageMode,
 } from "@/lib/llm";
@@ -92,6 +93,14 @@ export function ModelSettings() {
 		if (vaultSupported || storageMode === "local") return;
 		setConfig((prev) => ({ ...prev, cloudStorage: "local" }));
 	}, [isCloudProvider, storageMode, vaultSupported]);
+
+	// Saving, locking or clearing a key all land here. Announcing it once from
+	// this effect beats dispatching from each of those handlers and forgetting
+	// one — the agent-mode button reads the stored key to decide if it works.
+	useEffect(() => {
+		if (typeof window === "undefined") return;
+		window.dispatchEvent(new Event(LLM_CONFIG_CHANGED_EVENT));
+	}, [config, hasLocalKey]);
 
 	const canSave = (() => {
 		if (!isCloudProvider) return true;
