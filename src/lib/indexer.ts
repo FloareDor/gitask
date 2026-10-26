@@ -136,7 +136,8 @@ export async function indexRepository(
 	store: VectorStore,
 	onProgress?: (progress: IndexProgress) => void,
 	token?: string,
-	signal?: AbortSignal
+	signal?: AbortSignal,
+	ref?: string
 ): Promise<IndexResult> {
 	checkAborted(signal);
 
@@ -150,7 +151,7 @@ export async function indexRepository(
 		total: 1,
 	});
 
-	const tree = await withAbort(fetchRepoTree(owner, repo, token, signal), signal);
+	const tree = await withAbort(fetchRepoTree(owner, repo, token, signal, ref), signal);
 	checkAborted(signal);
 
 	// Fail fast on truncated trees to avoid stale/partial context from incomplete repository views.
@@ -210,7 +211,7 @@ export async function indexRepository(
 	type ChunkingResult = {
 		fileIndex: number;
 		filePath: string;
-		contentLength: number;
+		content: string;
 		chunks: CodeChunk[];
 		deps?: { imports: string[]; definitions: string[] };
 		symbolNodes: AstNode[];
@@ -273,7 +274,7 @@ export async function indexRepository(
 			return {
 				fileIndex,
 				filePath: file.path,
-				contentLength: content.length,
+				content,
 				chunks,
 				deps,
 				symbolNodes,
@@ -283,7 +284,7 @@ export async function indexRepository(
 			return {
 				fileIndex,
 				filePath: file.path,
-				contentLength: 0,
+				content: "",
 				chunks: [],
 				symbolNodes: [],
 				error: e,
@@ -414,6 +415,7 @@ export async function indexRepository(
 								console.warn(`Skipped ${result.filePath} (incremental):`, result.error);
 							} else {
 								allNewChunks.push(...result.chunks);
+								store.setFile(result.filePath, result.content);
 								if (result.deps) {
 									newDeps[result.filePath] = result.deps;
 								}
@@ -513,6 +515,7 @@ export async function indexRepository(
 	let textChunkCounts: Record<string, number>;
 	let fileChunkRanges: Map<string, { start: number; end: number }>;
 	let dependencyGraph: Record<string, { imports: string[]; definitions: string[] }>;
+	let fileContents: Record<string, string>;
 	let directoryStats: DirectoryStatsMap;
 	let startFileIndex: number;
 
@@ -523,6 +526,7 @@ export async function indexRepository(
 		textChunkCounts = partial.textChunkCounts ?? {};
 		fileChunkRanges = new Map(partial.fileChunkRanges ?? []);
 		dependencyGraph = partial.dependencyGraph ?? {};
+		fileContents = partial.files ?? {};
 		directoryStats = partial.directoryStats ?? {};
 		startFileIndex = totalFiles; // Skip chunking
 	} else if (partial?.phase === "chunking" && partial.allChunks && partial.indexablePaths && partial.lastProcessedFileIndex != null) {
@@ -532,6 +536,7 @@ export async function indexRepository(
 		textChunkCounts = partial.textChunkCounts ?? {};
 		fileChunkRanges = new Map(partial.fileChunkRanges ?? []);
 		dependencyGraph = partial.dependencyGraph ?? {};
+		fileContents = partial.files ?? {};
 		directoryStats = partial.directoryStats ?? {};
 		startFileIndex = partial.lastProcessedFileIndex + 1;
 	} else {
@@ -541,6 +546,7 @@ export async function indexRepository(
 		textChunkCounts = {};
 		fileChunkRanges = new Map();
 		dependencyGraph = {};
+		fileContents = {};
 		directoryStats = {};
 		startFileIndex = 0;
 	}
@@ -583,6 +589,7 @@ export async function indexRepository(
 
 				fileChunkRanges.set(result.filePath, { start: chunkStart, end: chunkEnd });
 				textChunkCounts[result.filePath] = result.chunks.length;
+				fileContents[result.filePath] = result.content;
 				if (result.deps) {
 					dependencyGraph[result.filePath] = result.deps;
 				}
@@ -592,7 +599,7 @@ export async function indexRepository(
 				updateDirectoryStats(
 					directoryStats,
 					result.filePath,
-					result.contentLength,
+					result.content.length,
 					result.chunks.length,
 					result.chunks.some((chunk) => chunk.nodeType === "file_summary")
 				);
@@ -627,6 +634,7 @@ export async function indexRepository(
 				textChunkCounts: { ...textChunkCounts },
 				fileChunkRanges: [...fileChunkRanges.entries()],
 				dependencyGraph: { ...dependencyGraph },
+				files: fileContents,
 				directoryStats: { ...directoryStats },
 				lastProcessedFileIndex,
 			});
@@ -660,6 +668,7 @@ export async function indexRepository(
 		textChunkCounts: { ...textChunkCounts },
 		fileChunkRanges: [...fileChunkRanges.entries()],
 		dependencyGraph: { ...dependencyGraph },
+		files: fileContents,
 		directoryStats: { ...directoryStats },
 		embeddedSoFar: [...embeddedSoFar],
 	});
@@ -766,6 +775,7 @@ export async function indexRepository(
 					textChunkCounts: { ...textChunkCounts },
 					fileChunkRanges: [...fileChunkRanges.entries()],
 					dependencyGraph: { ...dependencyGraph },
+					files: fileContents,
 					directoryStats: { ...directoryStats },
 					embeddedSoFar: soFar,
 				}).catch((e) => {
@@ -789,6 +799,7 @@ export async function indexRepository(
 	// 7. Store
 	store.insert(embedded);
 	store.setGraph(dependencyGraph);
+	store.setFiles(fileContents);
 
 	checkAborted(signal);
 

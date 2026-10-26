@@ -15,6 +15,38 @@ export interface MessageRetrievalState {
 	completedCount?: number;
 }
 
+/** Which retrieval strategy answers a question. Auto is wired up in Phase 7. */
+export type AnswerMode = "rag" | "agent" | "auto";
+
+/** One row in the agent trace: a tool call and, once it lands, its result. */
+export interface AgentTraceStep {
+	id: string;
+	step: number;
+	tool: string;
+	args: Record<string, unknown>;
+	/** Absent while the call is still running. */
+	result?: string;
+	elapsedMs?: number;
+	bytes?: number;
+	truncated?: boolean;
+	duplicate?: boolean;
+	isError?: boolean;
+	expanded?: boolean;
+}
+
+export interface MessageAgentState {
+	steps: AgentTraceStep[];
+	/** Prose the model emitted alongside its tool calls. */
+	notes: string[];
+	stopReason?: "answered" | "step_cap" | "context_budget";
+	totalSteps?: number;
+	toolBytes?: number;
+	tokensIn?: number;
+	tokensOut?: number;
+	elapsedMs?: number;
+	traceExpanded?: boolean;
+}
+
 export interface Message {
 	id: string;
 	role: "user" | "assistant";
@@ -23,6 +55,8 @@ export interface Message {
 	thinking?: string;
 	citations?: MessageCitation[];
 	retrieval?: MessageRetrievalState;
+	/** Present only on answers produced by agent mode. */
+	agent?: MessageAgentState;
 	ui?: MessageUIState;
 	safety?: MessageSafetyState;
 	diagramStatus?: "loading" | "ready" | "skipped" | "error";

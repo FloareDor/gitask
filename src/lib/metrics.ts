@@ -8,7 +8,7 @@
 const STORAGE_KEY = "gitask-metrics-v1";
 const MAX_EVENTS = 200;
 
-export type MetricEventType = "llm" | "embed" | "index" | "search" | "safety";
+export type MetricEventType = "llm" | "embed" | "index" | "search" | "safety" | "agent";
 export type LLMProvider = "gemini" | "groq" | "mlc";
 export type InjectionRiskLevel = "none" | "low" | "medium" | "high";
 
@@ -29,6 +29,10 @@ export interface MetricEvent {
 	blocked?: boolean;
 	redactedChunks?: number;
 	signals?: number;
+	/** Agent runs: tool-calling turns used. */
+	steps?: number;
+	/** Agent runs: which provider adapter served the run. */
+	agentProvider?: string;
 }
 
 export interface AggregateTotals {
@@ -50,6 +54,9 @@ export interface AggregateTotals {
 	totalSearchMs: number;
 	totalChunksEmbedded: number;
 	totalFilesIndexed: number;
+	agentRuns: number;
+	totalAgentSteps: number;
+	totalAgentMs: number;
 }
 
 export interface MetricsStore {
@@ -77,6 +84,9 @@ function blankTotals(): AggregateTotals {
 		totalSearchMs: 0,
 		totalChunksEmbedded: 0,
 		totalFilesIndexed: 0,
+		agentRuns: 0,
+		totalAgentSteps: 0,
+		totalAgentMs: 0,
 	};
 }
 
@@ -150,6 +160,14 @@ function appendEvent(event: MetricEvent): void {
 		t.injectionScans += 1;
 		if (event.blocked) t.injectionBlocks += 1;
 		t.injectionRedactedChunks += event.redactedChunks ?? 0;
+	} else if (event.type === "agent") {
+		t.agentRuns += 1;
+		t.totalAgentSteps += event.steps ?? 0;
+		t.totalAgentMs += event.durationMs;
+		// Agent tokens count toward the same budget as plain chat — the whole
+		// point of the eval is comparing the two on cost.
+		t.totalTokensIn += event.tokensIn ?? 0;
+		t.totalTokensOut += event.tokensOut ?? 0;
 	}
 
 	saveStore(store);
@@ -176,6 +194,34 @@ export function recordLLM(
 		tokenAccuracy,
 		repo,
 	});
+}
+
+/** One agent run: every provider call and tool call it made, summed. */
+export function recordAgent(
+	agentProvider: string,
+	durationMs: number,
+	tokensIn: number,
+	tokensOut: number,
+	steps: number,
+	repo?: string
+): void {
+	appendEvent({
+		id: makeId(),
+		ts: Date.now(),
+		type: "agent",
+		durationMs,
+		agentProvider,
+		provider: isLLMProvider(agentProvider) ? agentProvider : undefined,
+		tokensIn,
+		tokensOut,
+		tokenAccuracy: "actual",
+		steps,
+		repo,
+	});
+}
+
+function isLLMProvider(value: string): value is LLMProvider {
+	return value === "gemini" || value === "groq" || value === "mlc";
 }
 
 export function recordEmbedding(chunks: number, durationMs: number): void {

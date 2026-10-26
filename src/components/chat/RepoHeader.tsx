@@ -3,10 +3,17 @@
 import { useRef, useState, useEffect } from "react";
 import { ModelSettings } from "@/components/ModelSettings";
 import { ThemeToggle } from "@/components/ThemeToggle";
-import { getLLMConfig, type LLMStatus } from "@/lib/llm";
-import type { Message } from "@/app/[owner]/[repo]/types";
+import { agentModeBlockedReason, LLM_CONFIG_CHANGED_EVENT, type LLMStatus } from "@/lib/llm";
+import type { AnswerMode, Message } from "@/app/[owner]/[repo]/types";
 
 const PROJECT_REPO_URL = "https://github.com/FloareDor/gitask";
+
+const ANSWER_MODES: Array<{ value: AnswerMode; label: string; title: string }> = [
+	{ value: "rag", label: "rag", title: "One hybrid search, then answer" },
+	{ value: "agent", label: "agent", title: "Investigate with tools, then answer (Gemini, your key)" },
+	// "auto" is deliberately not offered yet — it still answers as rag, and a
+	// button that does nothing is worse than no button. Add it back with the router.
+];
 
 const overflowItemStyle: React.CSSProperties = {
 	fontSize: "13px",
@@ -33,6 +40,7 @@ interface RepoHeaderProps {
 	queryExpansionEnabled: boolean;
 	isLocalProvider: boolean;
 	isGenerating: boolean;
+	answerMode: AnswerMode;
 	messages: Message[];
 	fileBrowserOpen: boolean;
 	onExpandSidebar: () => void;
@@ -45,6 +53,7 @@ interface RepoHeaderProps {
 	onDeleteEmbeddings: () => void;
 	onToggleFileBrowser: () => void;
 	onShowDiagram: () => void;
+	onAnswerModeChange: (mode: AnswerMode) => void;
 }
 
 export function RepoHeader({
@@ -59,6 +68,7 @@ export function RepoHeader({
 	queryExpansionEnabled,
 	isLocalProvider,
 	isGenerating,
+	answerMode,
 	messages,
 	fileBrowserOpen,
 	onExpandSidebar,
@@ -71,6 +81,7 @@ export function RepoHeader({
 	onDeleteEmbeddings,
 	onToggleFileBrowser,
 	onShowDiagram,
+	onAnswerModeChange,
 }: RepoHeaderProps) {
 	const overflowRef = useRef<HTMLDivElement>(null);
 	const [showOverflow, setShowOverflow] = useState(false);
@@ -85,6 +96,23 @@ export function RepoHeader({
 		document.addEventListener("mousedown", handleClick);
 		return () => document.removeEventListener("mousedown", handleClick);
 	}, [showOverflow]);
+
+	// Agent mode calls Gemini directly with the user's own key, so it is the one
+	// mode that can be unavailable. Read on the client only — the stored key
+	// lives in localStorage, which the server render can't see.
+	const [agentBlocked, setAgentBlocked] = useState<string | null>(null);
+	useEffect(() => {
+		const check = () => setAgentBlocked(agentModeBlockedReason());
+		check();
+		window.addEventListener(LLM_CONFIG_CHANGED_EVENT, check);
+		return () => window.removeEventListener(LLM_CONFIG_CHANGED_EVENT, check);
+	}, []);
+
+	// Don't strand someone in a mode that stopped working, e.g. after locking
+	// the vault while agent was selected.
+	useEffect(() => {
+		if (agentBlocked && answerMode === "agent") onAnswerModeChange("rag");
+	}, [agentBlocked, answerMode, onAnswerModeChange]);
 
 	return (
 		<nav className="chat-nav" style={{
@@ -122,6 +150,26 @@ export function RepoHeader({
 				)}
 			</div>
 			<div style={{ display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
+				{isIndexed && (
+					<div className="mode-switch" role="group" aria-label="Answer mode">
+						{ANSWER_MODES.map(({ value, label, title }) => {
+							const blocked = value === "agent" ? agentBlocked : null;
+							return (
+								<button
+									key={value}
+									type="button"
+									title={blocked ?? title}
+									disabled={isGenerating || blocked !== null}
+									aria-pressed={answerMode === value}
+									className={`mode-switch-btn${answerMode === value ? " mode-switch-btn--active" : ""}`}
+									onClick={() => onAnswerModeChange(value)}
+								>
+									{label}
+								</button>
+							);
+						})}
+					</div>
+				)}
 				<div style={{
 					width: 8, height: 8, borderRadius: "50%", flexShrink: 0,
 					background: llmStatus === "ready" ? "#16a34a" : llmStatus === "generating" ? "#d97706" : llmStatus === "loading" ? "#3b82f6" : "var(--text-on-dark-muted)",
