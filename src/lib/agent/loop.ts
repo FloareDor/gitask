@@ -11,8 +11,8 @@ import { recordAgent } from "../metrics";
 import type { VectorStore } from "../vectorStore";
 import { parseCitations, type Citation } from "./citations";
 import type { AgentMessage, ProviderReply, ToolCall, ToolProvider } from "./provider";
-import { TOOL_SCHEMAS, runTool } from "./schemas";
-import { ToolError } from "./types";
+import { TOOL_NAMES, TOOL_SCHEMAS, TOOL_SETS, runTool, type ToolSet } from "./schemas";
+import { TOOL_LIMITS, ToolError } from "./types";
 
 export const DEFAULT_MAX_STEPS = 12;
 /** Total tool output the model may accumulate before it has to answer. */
@@ -56,19 +56,45 @@ export interface AgentOptions {
 	/** `owner/repo`, for the prompt and for metrics. */
 	repo?: string;
 	signal?: AbortSignal;
+	/** Which tools the model is offered. Default: all of them. */
+	toolSet?: ToolSet;
 }
 
-function buildSystemPrompt(repo: string | undefined, maxSteps: number): string {
-	const target = repo ? `the ${repo} repository` : "this repository";
+/**
+ * The "How to work" lines. The full set is the prompt every measured agent run
+ * used, and must stay byte-identical; the search-only variant only drops the
+ * instructions that name tools it does not have.
+ */
+function workingRules(toolSet: ToolSet, maxSteps: number): string[] {
+	if (toolSet === "search_only") {
+		return [
+			"- Your only tool is semantic_search. Each result gives a file path, a line range, and the code in that range.",
+			"- Never describe code you have not seen in a search result.",
+			"- Follow the trail. If the answer depends on what another function does, search for it by name.",
+			`- Stop as soon as you can answer. You have at most ${maxSteps} turns of tool calls.`,
+			"- If a result says it was truncated, you are not seeing everything. Narrow your query rather than assuming.",
+		];
+	}
 	return [
-		`You are a code investigator working on ${target}. Answer the question by reading the code, not by guessing.`,
-		"",
-		"How to work:",
 		"- Locate code first with semantic_search or find_definition. Use grep for exact strings like config keys or error messages.",
 		"- Read a file before describing it. Never describe code you have not seen in a tool result.",
 		"- Follow the trail. If the answer depends on what another function does, go look at it.",
 		`- Stop as soon as you can answer. You have at most ${maxSteps} turns of tool calls.`,
 		"- If a result says it was truncated, you are not seeing everything. Narrow your query rather than assuming.",
+	];
+}
+
+export function buildSystemPrompt(
+	repo: string | undefined,
+	maxSteps: number,
+	toolSet: ToolSet = "full"
+): string {
+	const target = repo ? `the ${repo} repository` : "this repository";
+	return [
+		`You are a code investigator working on ${target}. Answer the question by reading the code, not by guessing.`,
+		"",
+		"How to work:",
+		...workingRules(toolSet, maxSteps),
 		"",
 		// "Only what you have seen" stops invention but says nothing about
 		// relevance, so the model cited every file it opened while narrowing
@@ -77,7 +103,9 @@ function buildSystemPrompt(repo: string | undefined, maxSteps: number): string {
 		"Citations are mandatory, and a citation is a claim that those exact lines show what you just said:",
 		"- Follow every factual claim with a citation of the form path:startLine-endLine, for example src/lib/search.ts:151-170.",
 		"- Cite the narrowest range that actually supports the claim, and only lines you have seen in a tool result.",
-		"- Opening a file is not a reason to cite it. Most of what you read while narrowing down does not belong in the answer — if a line does not support a specific claim, leave it out.",
+		toolSet === "search_only"
+			? "- Seeing code in a search result is not a reason to cite it. Most of what you see while narrowing down does not belong in the answer — if a line does not support a specific claim, leave it out."
+			: "- Opening a file is not a reason to cite it. Most of what you read while narrowing down does not belong in the answer — if a line does not support a specific claim, leave it out.",
 		"- If you could not find something, say so plainly. Never invent a file, symbol, or line number.",
 	].join("\n");
 }
@@ -117,10 +145,18 @@ export async function* runAgent(
 		maxContextBytes = DEFAULT_MAX_CONTEXT_BYTES,
 		repo,
 		signal,
+		toolSet = "full",
 	} = options;
 
+	const allowed = new Set(TOOL_SETS[toolSet]);
+	const schemas = TOOL_SCHEMAS.filter((s) => allowed.has(s.name));
+	// Without read_file, search results are the only view of the code, so they
+	// show as much of each chunk as the RAG arm's context does.
+	const runOptions =
+		toolSet === "search_only" ? { snippetChars: TOOL_LIMITS.MAX_SNIPPET_CHARS_SEARCH_ONLY } : {};
+
 	const startedAt = Date.now();
-	const system = buildSystemPrompt(repo, maxSteps);
+	const system = buildSystemPrompt(repo, maxSteps, toolSet);
 	const messages: AgentMessage[] = [{ role: "user", text: question }];
 	const seenCalls = new Map<string, number>();
 
@@ -138,7 +174,7 @@ export async function* runAgent(
 	const ask = (useTools: boolean) => {
 		if (signal?.aborted) throw new Error("Agent run cancelled.");
 		return provider
-			.callWithTools(messages, { system, tools: useTools ? TOOL_SCHEMAS : [], signal })
+			.callWithTools(messages, { system, tools: useTools ? schemas : [], signal })
 			.then(tally);
 	};
 
@@ -182,7 +218,14 @@ export async function* runAgent(
 				} else {
 					seenCalls.set(key, step);
 					try {
-						const outcome = await runTool(store, call);
+						// The model only saw the allowed schemas, but nothing stops it naming
+						// another tool. Running it anyway would quietly void the ablation.
+						if (TOOL_NAMES.includes(call.name) && !allowed.has(call.name)) {
+							throw new ToolError(
+								`Tool "${call.name}" is not available. Available: ${[...allowed].join(", ")}.`
+							);
+						}
+						const outcome = await runTool(store, call, runOptions);
 						truncated = outcome.truncated;
 						bytes = outcome.bytes;
 						toolBytes += bytes;

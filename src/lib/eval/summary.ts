@@ -11,7 +11,7 @@
  */
 
 import type { EvalRecord } from "./harness";
-import type { Arm } from "./arms";
+import { ALL_ARMS, isAgentArm, type Arm } from "./arms";
 
 export const VERDICT_SCORE = { correct: 1, partial: 0.5, wrong: 0 } as const;
 
@@ -90,7 +90,7 @@ export function summarize(records: EvalRecord[], arm: Arm, type: Cell["type"]): 
 		meanLatencyMs: mean(rows.map((r) => r.elapsedMs)),
 		citationPrecision: cited.length === 0 ? null : mean(cited.map((r) => r.citation.precision as number)),
 		uncitedRate: rows.length === 0 ? 0 : (rows.length - cited.length) / rows.length,
-		meanSteps: arm === "agent" && rows.length > 0 ? mean(rows.map((r) => r.steps ?? 0)) : null,
+		meanSteps: isAgentArm(arm) && rows.length > 0 ? mean(rows.map((r) => r.steps ?? 0)) : null,
 		errorRate: rows.length === 0 ? 0 : rows.filter((r) => r.error).length / rows.length,
 		refusalRate: rows.length === 0 ? 0 : rows.filter((r) => r.refused).length / rows.length,
 	};
@@ -98,7 +98,7 @@ export function summarize(records: EvalRecord[], arm: Arm, type: Cell["type"]): 
 
 /** The headline table: each arm, pooled and split by question type. */
 export function summaryTable(records: EvalRecord[]): Cell[] {
-	const arms: Arm[] = ["rag", "agent"];
+	const arms = ALL_ARMS;
 	const types: Cell["type"][] = [null, "lookup", "multihop"];
 	const cells: Cell[] = [];
 	for (const arm of arms) {
@@ -119,7 +119,7 @@ export interface StopReasonCount {
 export function stopReasons(records: EvalRecord[]): StopReasonCount[] {
 	const counts = new Map<string, number>();
 	for (const record of records) {
-		if (record.arm !== "agent") continue;
+		if (!isAgentArm(record.arm)) continue;
 		const reason = record.error ? "error" : record.stopReason ?? "unknown";
 		counts.set(reason, (counts.get(reason) ?? 0) + 1);
 	}
@@ -139,6 +139,8 @@ export interface Disagreement {
 export function disagreements(records: EvalRecord[]): Disagreement[] {
 	const byQuestion = new Map<string, { rag: number[]; agent: number[]; type: EvalRecord["type"] }>();
 	for (const record of scorable(records)) {
+		// RAG vs the full agent only; the search-only ablation has its own report.
+		if (record.arm !== "rag" && record.arm !== "agent") continue;
 		const entry = byQuestion.get(record.questionId)
 			?? { rag: [], agent: [], type: record.type };
 		entry[record.arm].push(VERDICT_SCORE[record.verdict]);

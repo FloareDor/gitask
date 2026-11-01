@@ -11,6 +11,7 @@ import type { Citation } from "../agent/citations";
 import { parseCitations } from "../agent/citations";
 import { geminiProvider, type KeyScope } from "../agent/providers/gemini";
 import { runAgent, type StopReason } from "../agent/loop";
+import type { ToolSet } from "../agent/schemas";
 import { defaultLimitsForProvider } from "../contextAssembly";
 import { buildCorrelatedCitationResults } from "../citationUtils";
 import { assembleRagContext, buildRagSystemPrompt, retrieveForQuery } from "../ragAnswer";
@@ -18,7 +19,18 @@ import type { SearchResult, VectorStore } from "../vectorStore";
 import { geminiOneShot } from "./gemini";
 import type { EvalQuestion } from "./types";
 
-export type Arm = "rag" | "agent";
+/**
+ * `agent_search` is the full agent loop restricted to semantic_search: an
+ * iterative RAG with the agent's budget and prompt. It exists to split the
+ * agent's gain over RAG into "from looping" and "from exact tools".
+ */
+export type Arm = "rag" | "agent" | "agent_search";
+
+/** Every arm, in display order. */
+export const ALL_ARMS: Arm[] = ["rag", "agent", "agent_search"];
+
+/** Arms that run the agent loop, and so carry steps, traces and stop reasons. */
+export const isAgentArm = (arm: Arm) => arm !== "rag";
 
 /**
  * One tool call from an agent run, kept so Phase 5 can bucket failures.
@@ -157,11 +169,12 @@ export async function runRagArm(
 export async function runAgentArm(
 	store: VectorStore,
 	question: EvalQuestion,
-	options: ArmOptions
+	options: ArmOptions,
+	toolSet: ToolSet = "full"
 ): Promise<ArmRun> {
 	const started = performance.now();
 	const run: ArmRun = {
-		arm: "agent",
+		arm: toolSet === "search_only" ? "agent_search" : "agent",
 		answer: "",
 		citations: [],
 		tokensIn: 0,
@@ -181,6 +194,7 @@ export async function runAgentArm(
 			provider: geminiProvider({ withKey: options.withKey, model: options.model }),
 			repo: question.repo,
 			maxSteps: options.maxSteps,
+			toolSet,
 		})) {
 			if (event.type === "tool_call") {
 				pendingArgs.set(event.id, { step: event.step, args: event.args });
@@ -228,5 +242,6 @@ export function runArm(
 	question: EvalQuestion,
 	options: ArmOptions
 ): Promise<ArmRun> {
-	return arm === "rag" ? runRagArm(store, question, options) : runAgentArm(store, question, options);
+	if (arm === "rag") return runRagArm(store, question, options);
+	return runAgentArm(store, question, options, arm === "agent_search" ? "search_only" : "full");
 }

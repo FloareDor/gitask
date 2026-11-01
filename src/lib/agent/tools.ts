@@ -52,7 +52,8 @@ export interface FileSlice {
 export async function semanticSearch(
 	store: VectorStore,
 	query: string,
-	k: number = 5
+	k: number = 5,
+	snippetChars: number = TOOL_LIMITS.MAX_SNIPPET_CHARS
 ): Promise<ToolResult<SearchHit[]>> {
 	if (!query.trim()) throw new ToolError("semantic_search needs a non-empty query.");
 
@@ -62,7 +63,7 @@ export async function semanticSearch(
 
 	let truncated = limit < k;
 	const hits = results.map(({ chunk, score }) => {
-		const snippet = clip(chunk.code, TOOL_LIMITS.MAX_SNIPPET_CHARS);
+		const snippet = clip(chunk.code, snippetChars);
 		if (snippet.length < chunk.code.length) truncated = true;
 		return {
 			path: chunk.filePath,

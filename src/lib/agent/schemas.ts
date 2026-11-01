@@ -91,6 +91,27 @@ export const TOOL_SCHEMAS: ToolSchema[] = [
 
 export const TOOL_NAMES = TOOL_SCHEMAS.map((t) => t.name);
 
+/**
+ * Which tools the agent gets.
+ *
+ * `search_only` is the ablation that answers "why an agent and not iterative
+ * RAG?": same loop, same budget, same model, but the only action is the same
+ * hybrid search the RAG arm runs. Whatever the full agent gains over it comes
+ * from the exact tools (grep, read_file, definitions, references), not from
+ * looping.
+ */
+export type ToolSet = "full" | "search_only";
+
+export const TOOL_SETS: Record<ToolSet, readonly string[]> = {
+	full: TOOL_NAMES,
+	search_only: ["semantic_search"],
+};
+
+export interface RunToolOptions {
+	/** Per-hit code shown by semantic_search. */
+	snippetChars?: number;
+}
+
 function str(args: Record<string, unknown>, key: string, required: true): string;
 function str(args: Record<string, unknown>, key: string, required?: false): string | undefined;
 function str(args: Record<string, unknown>, key: string, required = false): string | undefined {
@@ -114,12 +135,13 @@ function num(args: Record<string, unknown>, key: string): number | undefined {
 /** Run one tool call. Throws ToolError for anything the model can fix by retrying. */
 export function runTool(
 	store: VectorStore,
-	call: ToolCall
+	call: ToolCall,
+	options: RunToolOptions = {}
 ): Promise<ToolResult<unknown>> | ToolResult<unknown> {
 	const { name, args } = call;
 	switch (name) {
 		case "semantic_search":
-			return semanticSearch(store, str(args, "query", true), num(args, "k") ?? 5);
+			return semanticSearch(store, str(args, "query", true), num(args, "k") ?? 5, options.snippetChars);
 		case "grep":
 			return grep(store, str(args, "pattern", true), {
 				glob: str(args, "glob"),
