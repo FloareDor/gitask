@@ -7,7 +7,7 @@
 import { EMBEDDING_MODEL_ID, type EmbeddedChunk } from "./embedder";
 import type { CodeChunk } from "./chunker";
 import { binarize } from "./quantize";
-import type { GraphResolveFileData } from "./graphExpansion";
+import { buildResolveFileData, type GraphResolveFileData } from "./graphExpansion";
 
 type StoredRepoGraph = Record<string, { imports: string[]; definitions: string[] }>;
 
@@ -128,26 +128,20 @@ export class VectorStore {
 
 	/**
 	 * Cached file path indexes used by graph expansion import resolution.
+	 *
+	 * Built by graphExpansion's own builder rather than inline here: this used
+	 * to be a second copy of the same loop, and the copy is exactly where a new
+	 * index would get forgotten.
 	 */
 	getResolveFileData(): GraphResolveFileData {
 		if (!this.resolveFileDataDirty && this.resolveFileDataCache) {
 			return this.resolveFileDataCache;
 		}
 
-		const allFiles = [...this.chunksByFile.keys()];
-		const normalizedFiles = allFiles.map((p) => p.replace(/\\/g, "/"));
-		const exactIndex = new Map<string, number>();
-		for (let i = 0; i < normalizedFiles.length; i++) {
-			exactIndex.set(normalizedFiles[i], i);
-		}
-
-		this.resolveFileDataCache = {
-			allFiles,
-			normalizedFiles,
-			exactIndex,
-		};
+		const data = buildResolveFileData([...this.chunksByFile.keys()]);
+		this.resolveFileDataCache = data;
 		this.resolveFileDataDirty = false;
-		return this.resolveFileDataCache;
+		return data;
 	}
 
 	getChunksByFile(filePath: string): EmbeddedChunk[] {
