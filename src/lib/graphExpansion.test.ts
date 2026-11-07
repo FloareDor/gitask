@@ -153,6 +153,41 @@ describe("resolveImport — JavaScript and TypeScript", () => {
 	});
 });
 
+
+describe("resolveImport — Java", () => {
+	const files = [
+		"src/main/java/com/example/App.java",
+		"src/main/java/com/example/auth/TokenValidator.java",
+		"src/main/java/com/example/auth/Validator.java",
+	];
+	const APP = "src/main/java/com/example/App.java";
+
+	it("resolves a package path, which the build directories prefix", () => {
+		// The package is `com.example.auth`, but the file lives under
+		// `src/main/java/...`, so only a suffix of the path is real.
+		expect(reachedFrom(files, { [APP]: ["com.example.auth.TokenValidator"] }, APP))
+			.toEqual(["src/main/java/com/example/auth/TokenValidator.java"]);
+	});
+
+	it("resolves a static import by dropping the member it names", () => {
+		// `import static com.example.auth.TokenValidator.check` addresses a
+		// method; the file is one segment shorter than the import.
+		expect(reachedFrom(files, { [APP]: ["com.example.auth.TokenValidator.check"] }, APP))
+			.toEqual(["src/main/java/com/example/auth/TokenValidator.java"]);
+	});
+
+	it("resolves a wildcard import to the package directory", () => {
+		// `import com.example.auth.*` arrives as the package alone, which is a
+		// directory — so it reaches whatever that directory holds.
+		const reached = reachedFrom(files, { [APP]: ["com.example.auth"] }, APP);
+		expect(reached).toHaveLength(1);
+		expect(reached[0]).toMatch(/^src\/main\/java\/com\/example\/auth\//);
+	});
+
+	it("ignores a JDK import with no file in the repo", () => {
+		expect(reachedFrom(files, { [APP]: ["java.util.List"] }, APP)).toEqual([]);
+	});
+});
 describe("expandCandidatesWithGraph", () => {
 	const files = ["a.py", "b.py"];
 	const graph = { "a.py": ["b"] };

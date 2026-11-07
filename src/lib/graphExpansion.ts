@@ -171,7 +171,11 @@ function parseModulePath(requested: string, language: string): ParsedModulePath 
 	// names siblings under the same path, so the prefix is what we resolve.
 	const cleaned = requested.split(/[{*]/)[0].replace(/::\s*$/, "").trim();
 
-	if (language === "py") {
+	// Dot-separated module paths: Python, and Java's package paths.
+	//
+	// Java has no relative imports, so the leading-dot arithmetic below is dead
+	// code for it rather than wrong — a Java import cannot start with a dot.
+	if (language === "py" || language === "java") {
 		// Leading dots are the relative marker: one dot means "this package",
 		// so the climb is one less than the number of dots.
 		const dots = cleaned.length - cleaned.replace(/^\.+/, "").length;
@@ -281,29 +285,51 @@ function resolveImport(
 		if (hit) return hit;
 	}
 
-	// 4. Last resort: any module key ending with the request on a segment
-	//    boundary. Scanning moduleIndex rather than the file list is what lets
-	//    a bare `crate::graph` reach `src/graph/mod.rs` — the package entry is
-	//    only reachable under its directory's key, which is not a real path.
-	//    Longest file path wins among equals, as it always has.
-	let best: { file: string; keyLength: number; pathLength: number } | null = null;
-	for (const [key, indexes] of moduleIndex) {
-		if (!endsWithSegments(key, full)) continue;
-		// Only the bucket's first entry: its order already encodes which file
-		// speaks for the key, and a directory's entry file must not lose to a
-		// sibling that happens to have a longer name.
-		const index = indexes[0];
-		const pathLength = normalizedFiles[index].length;
-		if (
-			!best
-			|| key.length > best.keyLength
-			|| (key.length === best.keyLength && pathLength > best.pathLength)
-		) {
-			best = { file: allFiles[index], keyLength: key.length, pathLength };
+	// 4. Any module key ending with the request on a segment boundary.
+	//
+	// Scanning moduleIndex rather than the file list is what lets a bare
+	// `crate::graph` reach `src/graph/mod.rs` — the package entry is only
+	// reachable under its directory's key, which is not a real path. It is also
+	// what resolves a Java package under its build directories: `com.example.auth`
+	// is a suffix of `src/main/java/com/example/auth`, never the whole of it.
+	// Longest file path wins among equals, as it always has.
+	const findBySuffix = (needle: string): string | null => {
+		if (!needle) return null;
+		let best: { file: string; keyLength: number; pathLength: number } | null = null;
+		for (const [key, indexes] of moduleIndex) {
+			if (!endsWithSegments(key, needle)) continue;
+			// Only the bucket's first entry: its order already encodes which file
+			// speaks for the key, and a directory's entry file must not lose to a
+			// sibling that happens to have a longer name.
+			const index = indexes[0];
+			const pathLength = normalizedFiles[index].length;
+			if (
+				!best
+				|| key.length > best.keyLength
+				|| (key.length === best.keyLength && pathLength > best.pathLength)
+			) {
+				best = { file: allFiles[index], keyLength: key.length, pathLength };
+			}
 		}
+		return best?.file ?? null;
+	};
+
+	const bySuffix = findBySuffix(full);
+	if (bySuffix) return bySuffix;
+
+	// 5. Java only: an import that names a member, not a file.
+	//
+	// `import static com.example.Arrays.asList` and `import a.b.Outer.Inner`
+	// both end in something living *inside* a file, so the file is one segment
+	// shorter than the import. Tried last, because the full path is the more
+	// specific match whenever it exists. Java-specific because only there does
+	// an import routinely address a member by its full path — a Python
+	// `from x import y` arrives as `x` alone, already trimmed by the extractor.
+	if (extensionOf(current) === "java" && segments.length > 1) {
+		return findBySuffix(segments.slice(0, -1).join("/"));
 	}
 
-	return best?.file ?? null;
+	return null;
 }
 
 /**
