@@ -66,6 +66,9 @@ export function collectGraphMetadataFromNode(
 		case "cpp":
 			extractCpp(node, imports, definitions);
 			break;
+		case "java":
+			extractJava(node, imports, definitions);
+			break;
 	}
 
 	if (!symbols) return;
@@ -249,6 +252,23 @@ function extractPython(node: SyntaxNode, imports: Set<string>, definitions: Set<
 	} else if (node.type === "function_definition" || node.type === "class_definition") {
 		const nameNode = node.children.find((c: SyntaxNode) => c.type === "identifier");
 		if (nameNode?.text) definitions.add(nameNode.text);
+	} else if (node.type === "assignment") {
+		// `LIMIT = 10`, `limit: int = 10`, `a, b = ...`. In Python a bound name
+		// is as much a definition as a `def`, and config modules are mostly
+		// these. The target is the first child, before any annotation or `=`.
+		//
+		// This records bindings at any depth, including locals, which matches
+		// what the JS extractor already does with `variable_declarator`.
+		const target = node.children?.[0];
+		if (!target) return;
+		if (target.type === "identifier") {
+			if (target.text) definitions.add(target.text);
+		} else if (target.type === "pattern_list" || target.type === "tuple_pattern") {
+			// `a, b = 1, 2` binds each element.
+			for (const element of target.children ?? []) {
+				if (element.type === "identifier" && element.text) definitions.add(element.text);
+			}
+		}
 	}
 }
 
@@ -283,9 +303,21 @@ function extractRust(node: SyntaxNode, imports: Set<string>, definitions: Set<st
 		// use std::io; -> std::io
 		// tree-sitter-rust structure is complex, text fallback is okay for now
 		imports.add(node.text.replace(/^use\s+|;/g, "").trim());
-	} else if (node.type === "function_item" || node.type === "struct_item" || node.type === "enum_item") {
-		const nameNode = node.children.find((c: SyntaxNode) => c.type === "identifier" || c.type === "type_identifier");
-		if (nameNode?.text) definitions.add(nameNode.text);
+	} else if (
+		node.type === "function_item" ||
+		node.type === "struct_item" ||
+		node.type === "enum_item" ||
+		node.type === "trait_item" ||   // type_identifier
+		node.type === "union_item" ||   // type_identifier
+		node.type === "type_item" ||    // type_identifier — `type Alias = u32;`
+		node.type === "mod_item" ||     // identifier
+		node.type === "const_item" ||   // identifier
+		node.type === "static_item"     // identifier
+	) {
+		// A visibility_modifier can precede the name, so this finds the first
+		// child of either name type rather than assuming a position.
+		const name = findNamedChild(node, NAME_NODE_TYPES);
+		if (name) definitions.add(name);
 	}
 }
 
@@ -329,6 +361,36 @@ function visitSymbols(cursor: any, language: string, symbols: FileSymbol[]) {
 			visitSymbols(cursor, language, symbols);
 		} while (cursor.gotoNextSibling());
 		cursor.gotoParent();
+	}
+}
+
+/**
+ * Java was never wired into the switch above, so a Java file contributed
+ * nothing to the graph at all — no imports, no definitions — even though the
+ * indexer chunks it and ships a grammar for it.
+ */
+function extractJava(node: SyntaxNode, imports: Set<string>, definitions: Set<string>) {
+	if (node.type === "import_declaration") {
+		// `import java.util.List;` and `import static java.util.Arrays.asList;`
+		// both carry the path as a scoped_identifier; the `static` keyword is a
+		// separate child, so it does not need stripping out of the text.
+		const path = node.children?.find(
+			(c: SyntaxNode) => c.type === "scoped_identifier" || c.type === "identifier"
+		);
+		if (path?.text) imports.add(path.text);
+	} else if (
+		node.type === "class_declaration" ||
+		node.type === "interface_declaration" ||
+		node.type === "enum_declaration" ||
+		node.type === "record_declaration" ||
+		node.type === "annotation_type_declaration" ||
+		node.type === "method_declaration" ||
+		node.type === "constructor_declaration"
+	) {
+		// Java names everything with a plain identifier, but a `modifiers` node
+		// and a return type can both sit in front of it.
+		const name = findNamedChild(node, ["identifier"]);
+		if (name) definitions.add(name);
 	}
 }
 
