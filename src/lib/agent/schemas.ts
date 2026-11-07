@@ -7,6 +7,7 @@
 
 import type { VectorStore } from "../vectorStore";
 import type { ToolCall, ToolSchema } from "./provider";
+import { listSymbols, semanticSearchByFile } from "./navigation";
 import { findDefinition, findReferences, grep, readFile, semanticSearch } from "./tools";
 import { TOOL_LIMITS, ToolError, type ToolResult } from "./types";
 
@@ -91,6 +92,91 @@ export const TOOL_SCHEMAS: ToolSchema[] = [
 
 export const TOOL_NAMES = TOOL_SCHEMAS.map((t) => t.name);
 
+/**
+ * The navigation interface: one extra tool, and a semantic_search that returns
+ * files instead of a flat chunk list.
+ *
+ * Declared separately rather than appended to TOOL_SCHEMAS so that `full` keeps
+ * exactly the five tools, in the order, with the descriptions, that every
+ * measured agent run saw. The baseline has to stay byte-identical or the
+ * `agent` numbers already on disk stop being a comparison.
+ */
+export const LIST_SYMBOLS_SCHEMA: ToolSchema = {
+	name: "list_symbols",
+	description:
+		"The outline of one file: every function, class, and top-level symbol it defines, with " +
+		"line ranges. Call this before read_file on a file you do not know — it is far cheaper " +
+		`than reading, and it shows you which of several similar names is the one you want. ` +
+		`Lists at most ${TOOL_LIMITS.MAX_OUTLINE_SYMBOLS} symbols.`,
+	parameters: {
+		type: "object",
+		properties: {
+			path: { type: "string", description: "Repository-relative path, e.g. 'src/lib/search.ts'." },
+		},
+		required: ["path"],
+	},
+};
+
+const NAV_SEARCH_SCHEMA: ToolSchema = {
+	...TOOL_SCHEMAS[0],
+	description:
+		"Find code by meaning. Use this first when you don't know which file to look in. " +
+		"Returns matching files; under each one, the matched symbols with their line ranges " +
+		"and code, plus the names of nearby symbols in the same file that did not match. " +
+		"Check those neighbours before you settle on a match — the right file often contains " +
+		"several similarly named functions and only one of them is the answer.",
+};
+
+/**
+ * Which tools the agent gets.
+ *
+ * `search_only` is the ablation that answers "why an agent and not iterative
+ * RAG?": same loop, same budget, same model, but the only action is the same
+ * hybrid search the RAG arm runs. Whatever the full agent gains over it comes
+ * from the exact tools (grep, read_file, definitions, references), not from
+ * looping.
+ *
+ * `nav` is the file-centered interface from RepoNav (arXiv 2609.08355): the
+ * same five tools, the same retriever, the same budget, plus list_symbols and
+ * search results grouped by file. It is the other half of the same question —
+ * search_only asks what the exact tools buy, nav asks what *presenting* them
+ * by file buys. Since retrieval is untouched, any delta against `full` is the
+ * interface and nothing else.
+ */
+export type ToolSet = "full" | "search_only" | "nav";
+
+/**
+ * Every tool name that exists, across all sets.
+ *
+ * The loop checks calls against this rather than against TOOL_NAMES: a model
+ * that names a tool it was not given must be refused, and a tool outside the
+ * baseline five would otherwise fall through the check and run anyway, quietly
+ * voiding the ablation it was excluded from.
+ */
+export const ALL_TOOL_NAMES: readonly string[] = [...TOOL_NAMES, LIST_SYMBOLS_SCHEMA.name];
+
+export const TOOL_SETS: Record<ToolSet, readonly string[]> = {
+	full: TOOL_NAMES,
+	search_only: ["semantic_search"],
+	nav: ALL_TOOL_NAMES,
+};
+
+/** The declarations for one tool set, in the order the model sees them. */
+export function schemasForToolSet(toolSet: ToolSet): ToolSchema[] {
+	if (toolSet === "nav") {
+		return [NAV_SEARCH_SCHEMA, ...TOOL_SCHEMAS.slice(1), LIST_SYMBOLS_SCHEMA];
+	}
+	const allowed = new Set(TOOL_SETS[toolSet]);
+	return TOOL_SCHEMAS.filter((schema) => allowed.has(schema.name));
+}
+
+export interface RunToolOptions {
+	/** Per-hit code shown by semantic_search. */
+	snippetChars?: number;
+	/** Group semantic_search hits by file and sketch their neighbours. */
+	groupByFile?: boolean;
+}
+
 function str(args: Record<string, unknown>, key: string, required: true): string;
 function str(args: Record<string, unknown>, key: string, required?: false): string | undefined;
 function str(args: Record<string, unknown>, key: string, required = false): string | undefined {
@@ -114,12 +200,18 @@ function num(args: Record<string, unknown>, key: string): number | undefined {
 /** Run one tool call. Throws ToolError for anything the model can fix by retrying. */
 export function runTool(
 	store: VectorStore,
-	call: ToolCall
+	call: ToolCall,
+	options: RunToolOptions = {}
 ): Promise<ToolResult<unknown>> | ToolResult<unknown> {
 	const { name, args } = call;
 	switch (name) {
-		case "semantic_search":
-			return semanticSearch(store, str(args, "query", true), num(args, "k") ?? 5);
+		case "semantic_search": {
+			const query = str(args, "query", true);
+			const k = num(args, "k") ?? 5;
+			return options.groupByFile
+				? semanticSearchByFile(store, query, k, options.snippetChars)
+				: semanticSearch(store, query, k, options.snippetChars);
+		}
 		case "grep":
 			return grep(store, str(args, "pattern", true), {
 				glob: str(args, "glob"),
@@ -131,6 +223,8 @@ export function runTool(
 			return findDefinition(store, str(args, "symbol", true));
 		case "find_references":
 			return findReferences(store, str(args, "symbol", true));
+		case "list_symbols":
+			return listSymbols(store, str(args, "path", true));
 		default:
 			throw new ToolError(`Unknown tool "${name}". Available: ${TOOL_NAMES.join(", ")}.`);
 	}

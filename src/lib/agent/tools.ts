@@ -52,7 +52,8 @@ export interface FileSlice {
 export async function semanticSearch(
 	store: VectorStore,
 	query: string,
-	k: number = 5
+	k: number = 5,
+	snippetChars: number = TOOL_LIMITS.MAX_SNIPPET_CHARS
 ): Promise<ToolResult<SearchHit[]>> {
 	if (!query.trim()) throw new ToolError("semantic_search needs a non-empty query.");
 
@@ -62,7 +63,7 @@ export async function semanticSearch(
 
 	let truncated = limit < k;
 	const hits = results.map(({ chunk, score }) => {
-		const snippet = clip(chunk.code, TOOL_LIMITS.MAX_SNIPPET_CHARS);
+		const snippet = clip(chunk.code, snippetChars);
 		if (snippet.length < chunk.code.length) truncated = true;
 		return {
 			path: chunk.filePath,
@@ -196,7 +197,8 @@ function firstMatchingLine(store: VectorStore, path: string, symbol: string): Gr
 }
 
 /** Wrong paths are the model's most common mistake, so point it at near misses. */
-function missingFileMessage(store: VectorStore, path: string): string {
+/** Shared with the navigation tools so a bad path reads the same everywhere. */
+export function missingFileMessage(store: VectorStore, path: string): string {
 	const base = path.split("/").pop() ?? path;
 	const near = Object.keys(store.getFiles())
 		.filter((p) => p.endsWith(`/${base}`) || p === base)

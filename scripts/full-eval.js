@@ -13,6 +13,7 @@
  *
  * Usage:
  *   node scripts/full-eval.js [--repos a/b,c/d] [--out DIR] [--key ...]
+ *                             [--subset all|lookup|multihop] [--arms rag,agent,agent_search] [--smoke]
  *
  * Requires `npm run dev` on port 3000.
  */
@@ -39,6 +40,9 @@ const subset = flag("subset", "all");
 const arms = flag("arms", "both");
 // Retrieval needs no provider, so this half can run when the arms cannot.
 const ablationOnly = argv.includes("--ablation-only");
+// First question of the subset only — a cheap end-to-end check before the
+// expensive run, which is how the Gemini 3 wire-format break was caught.
+const smoke = argv.includes("--smoke");
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const stamp = () => new Date().toISOString().slice(11, 19);
@@ -119,14 +123,21 @@ async function setSubset(page, value) {
   await sleep(500);
 }
 
-/** Leaves exactly the named arm checked. */
+/**
+ * Leaves exactly the named arms checked. `keep` is a comma-separated list,
+ * e.g. "agent_search" or "rag,agent_search".
+ */
 async function setArms(page, keep) {
   const result = await page.evaluate((want) => {
+    const ARMS = ["rag", "agent", "agent_search"];
+    const wanted = want.split(",").map((s) => s.trim());
+    const unknown = wanted.filter((w) => !ARMS.includes(w));
+    if (unknown.length) return `unknown arm(s): ${unknown.join(", ")}`;
     const boxes = [...document.querySelectorAll("input[type=checkbox]")]
-      .filter((i) => ["rag", "agent"].includes(i.parentElement.innerText.trim()));
-    if (boxes.length !== 2) return `expected 2 arm checkboxes, found ${boxes.length}`;
+      .filter((i) => ARMS.includes(i.parentElement.innerText.trim()));
+    if (boxes.length !== ARMS.length) return `expected ${ARMS.length} arm checkboxes, found ${boxes.length}`;
     for (const box of boxes) {
-      const mine = box.parentElement.innerText.trim() === want;
+      const mine = wanted.includes(box.parentElement.innerText.trim());
       if (box.checked !== mine) box.click();
     }
     return "ok";
@@ -242,8 +253,17 @@ async function download(page, file) {
     } else {
       if (subset !== "all") await setSubset(page, subset);
       if (arms !== "both") await setArms(page, arms);
+      if (smoke) {
+        await page.evaluate(() => {
+          const box = [...document.querySelectorAll("input[type=checkbox]")]
+            .find((i) => i.parentElement.innerText.includes("smoke run"));
+          if (!box) throw new Error("no smoke checkbox");
+          if (!box.checked) box.click();
+        });
+        await sleep(500);
+      }
 
-      log(`  eval — ${subset} questions, ${arms === "both" ? "both arms" : `${arms} only`}`);
+      log(`  eval — ${subset} questions, ${arms === "both" ? "rag + agent" : arms}`);
       await clickButton(page, "run eval");
       await sleep(5000);
       const ran = await waitFor(page, "eval", (s) => s.text.includes("Results") && !s.busy, EVAL_TIMEOUT_MS);

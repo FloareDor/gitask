@@ -8,7 +8,7 @@ import { embedText } from "@/lib/embedder";
 import { VectorStore } from "@/lib/vectorStore";
 import { getGeminiKeyScope, getLLMStatus, initLLM } from "@/lib/llm";
 import { GEMINI_MODEL } from "@/lib/geminiModel";
-import type { Arm } from "@/lib/eval/arms";
+import { ALL_ARMS, type Arm } from "@/lib/eval/arms";
 import {
   buildExport,
   runEvalForRepo,
@@ -273,7 +273,7 @@ export default function EvalPage() {
             <div style={styles.label}>
               arms
               <div style={styles.checkRow}>
-                {(["rag", "agent"] as Arm[]).map((arm) => (
+                {ALL_ARMS.map((arm) => (
                   <label key={arm} style={styles.check}>
                     <input
                       type="checkbox"

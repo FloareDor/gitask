@@ -12,7 +12,13 @@ import type { GenerationConfig } from "@google/generative-ai";
  * users") — it still shows up in ListModels but 404s on generateContent, so a
  * naive availability check passes and the actual call fails.
  */
-export const GEMINI_MODEL = "gemini-3.8-flash";
+export const GEMINI_MODEL = process.env.NEXT_PUBLIC_GEMINI_MODEL || "gemini-3.8-flash";
+
+// The override exists for targeted re-runs that must match an earlier run's
+// model (Phase 5 and the search-only ablation ran on gemini-3.6-flash while
+// 3.8 was down). It changes every arm and the judge together, so the
+// one-model guarantee above still holds. Set it when starting `npm run dev`;
+// Next inlines NEXT_PUBLIC_* at startup.
 
 /**
  * The shape we need out of `usageMetadata`. Declared structurally because the

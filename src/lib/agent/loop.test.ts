@@ -227,3 +227,61 @@ describe("runAgent", () => {
 		expect(answer.tokensOut).toBe(60);
 	});
 });
+
+describe("runAgent — search-only tool set", () => {
+	const LONG = "x".repeat(1_500);
+
+	it("offers only semantic_search and refuses any other tool", async () => {
+		const provider = scriptedProvider([
+			{ text: "", toolCalls: [call("grep", { pattern: "signToken" })] },
+			{ text: "Tokens are signed in src/auth.ts:1-3." },
+		]);
+
+		const events = await collect(
+			runAgent("where are tokens signed?", store, { provider, toolSet: "search_only" })
+		);
+
+		expect(provider.calls[0].options.tools.map((t) => t.name)).toEqual(["semantic_search"]);
+		const result = events.find((e) => e.type === "tool_result");
+		expect(result?.type === "tool_result" && result.isError).toBe(true);
+		expect(result?.type === "tool_result" && result.text).toContain("not available");
+		// A refused call must not count against the context budget.
+		expect(answerOf(events).toolBytes).toBe(0);
+	});
+
+	it("shows search hits at the RAG arm's snippet size, not the full agent's", async () => {
+		store.insert([{
+			id: "b",
+			filePath: "src/long.ts",
+			language: "typescript",
+			nodeType: "function_declaration",
+			name: "longFn",
+			code: LONG,
+			startLine: 1,
+			endLine: 40,
+			embedding: new Array(384).fill(0.5),
+		}]);
+		const script = () => scriptedProvider([
+			{ text: "", toolCalls: [call("semantic_search", { query: "long function" })] },
+			{ text: "See src/long.ts:1-40." },
+		]);
+		const longest = async (toolSet: "full" | "search_only") => {
+			const events = await collect(runAgent("q", store, { provider: script(), toolSet }));
+			const result = events.find((e) => e.type === "tool_result");
+			if (result?.type !== "tool_result") throw new Error("no tool result");
+			return Math.max(...JSON.parse(result.text.split("\n[truncated")[0]).map((h: { snippet: string }) => h.snippet.length));
+		};
+
+		// clip() appends a one-character ellipsis.
+		expect(await longest("full")).toBeLessThanOrEqual(401);
+		expect(await longest("search_only")).toBe(LONG.length);
+	});
+
+	it("leaves the full agent's system prompt unchanged", async () => {
+		const provider = scriptedProvider([{ text: "Nothing to cite here src/auth.ts:1-3." }]);
+		await collect(runAgent("q", store, { provider }));
+		const system = provider.calls[0].options.system;
+		expect(system).toContain("Locate code first with semantic_search or find_definition.");
+		expect(system).toContain("Opening a file is not a reason to cite it.");
+	});
+});
