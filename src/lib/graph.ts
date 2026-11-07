@@ -179,6 +179,23 @@ function visit(cursor: any, language: string, imports: Set<string>, definitions:
 	}
 }
 
+/**
+ * The name child of a declaration node.
+ *
+ * Which node type carries the name is grammar-dependent in ways that are easy
+ * to get wrong: tree-sitter-javascript names a class with `identifier`, but
+ * tree-sitter-typescript uses `type_identifier` for the same construct, so a
+ * list that only looked for `identifier` silently missed every TypeScript
+ * class. Passing the acceptable types explicitly keeps that decision visible
+ * at each call site.
+ */
+function findNamedChild(node: SyntaxNode, types: readonly string[]): string | undefined {
+	return node.children?.find((c: SyntaxNode) => types.includes(c.type))?.text;
+}
+
+/** Declaration names are either plain identifiers or type identifiers. */
+const NAME_NODE_TYPES = ["identifier", "type_identifier"] as const;
+
 function extractJsTs(node: SyntaxNode, imports: Set<string>, definitions: Set<string>) {
 	if (node.type === "import_statement") {
 		// import ... from "source"
@@ -199,11 +216,18 @@ function extractJsTs(node: SyntaxNode, imports: Set<string>, definitions: Set<st
 		}
 	} else if (
 		node.type === "function_declaration" ||
+		node.type === "generator_function_declaration" ||
 		node.type === "class_declaration" ||
+		node.type === "abstract_class_declaration" || // TS
+		node.type === "interface_declaration" ||      // TS
+		node.type === "type_alias_declaration" ||     // TS
+		node.type === "enum_declaration" ||           // TS
 		node.type === "variable_declarator" // const x = ...
 	) {
-		const nameNode = node.children.find((c: SyntaxNode) => c.type === "identifier");
-		if (nameNode?.text) definitions.add(nameNode.text);
+		// `type_identifier` covers the TypeScript grammar, where classes,
+		// interfaces and type aliases all carry their name as one.
+		const name = findNamedChild(node, NAME_NODE_TYPES);
+		if (name) definitions.add(name);
 	}
 }
 
@@ -232,9 +256,24 @@ function extractGo(node: SyntaxNode, imports: Set<string>, definitions: Set<stri
 	if (node.type === "import_spec") {
 		const path = node.children.find((c: SyntaxNode) => c.type === "interpreted_string_literal");
 		if (path?.text) imports.add(stripQuotes(path.text));
-	} else if (node.type === "function_declaration" || node.type === "type_declaration") {
-		const nameNode = node.children.find((c: SyntaxNode) => c.type === "identifier");
-		if (nameNode?.text) definitions.add(nameNode.text);
+	} else if (node.type === "function_declaration") {
+		const name = findNamedChild(node, ["identifier"]);
+		if (name) definitions.add(name);
+	} else if (node.type === "method_declaration") {
+		// A method's name is a field_identifier, sitting between the receiver
+		// and the parameter list.
+		const name = findNamedChild(node, ["field_identifier"]);
+		if (name) definitions.add(name);
+	} else if (node.type === "type_declaration") {
+		// `type Server struct{...}` parses as type_declaration → type_spec →
+		// type_identifier, with no identifier directly under the declaration —
+		// so looking for one there found nothing and no Go type was ever
+		// recorded. A grouped `type ( A int; B int )` holds several type_specs.
+		for (const spec of node.children ?? []) {
+			if (spec.type !== "type_spec" && spec.type !== "type_alias") continue;
+			const name = findNamedChild(spec, ["type_identifier"]);
+			if (name) definitions.add(name);
+		}
 	}
 }
 
@@ -254,13 +293,27 @@ function extractCpp(node: SyntaxNode, imports: Set<string>, definitions: Set<str
 	if (node.type === "preproc_include") {
 		const path = node.children.find((c: SyntaxNode) => c.type === "string_literal" || c.type === "system_lib_string");
 		if (path?.text) imports.add(stripQuotes(path.text, true));
-	} else if (node.type === "function_definition" || node.type === "class_specifier") {
-		// Declarators are nested in C++, this is a "best effort" top-level check
-		const declarator = node.children.find((c: SyntaxNode) => c.type === "function_declarator");
-		if (declarator) {
-			const name = declarator.children.find((c: SyntaxNode) => c.type === "identifier");
-			if (name?.text) definitions.add(name.text);
-		}
+	} else if (node.type === "class_specifier" || node.type === "struct_specifier") {
+		// A class has no function_declarator, so searching for one — as this
+		// did — could never name a class. The name is a type_identifier child.
+		const name = findNamedChild(node, ["type_identifier"]);
+		if (name) definitions.add(name);
+	} else if (node.type === "function_definition") {
+		// Declarators nest: `int *make(int)` wraps the function_declarator in a
+		// pointer_declarator, so the identifier is two levels down. Walking the
+		// chain is what findNameInDeclarator already does for the symbol pass.
+		//
+		// The walk has to start at the declarator, not at the definition: a
+		// `MyType foo()` has its return type as the first child, and that is a
+		// type_identifier the walk would happily return as the name.
+		const declarator = node.children?.find(
+			(c: SyntaxNode) =>
+				c.type === "function_declarator" ||
+				c.type === "pointer_declarator" ||
+				c.type === "reference_declarator"
+		);
+		const name = declarator ? findNameInDeclarator(declarator) : null;
+		if (name) definitions.add(name);
 	}
 }
 
