@@ -197,7 +197,8 @@ function firstMatchingLine(store: VectorStore, path: string, symbol: string): Gr
 }
 
 /** Wrong paths are the model's most common mistake, so point it at near misses. */
-function missingFileMessage(store: VectorStore, path: string): string {
+/** Shared with the navigation tools so a bad path reads the same everywhere. */
+export function missingFileMessage(store: VectorStore, path: string): string {
 	const base = path.split("/").pop() ?? path;
 	const near = Object.keys(store.getFiles())
 		.filter((p) => p.endsWith(`/${base}`) || p === base)

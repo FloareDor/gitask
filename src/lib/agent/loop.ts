@@ -11,7 +11,14 @@ import { recordAgent } from "../metrics";
 import type { VectorStore } from "../vectorStore";
 import { parseCitations, type Citation } from "./citations";
 import type { AgentMessage, ProviderReply, ToolCall, ToolProvider } from "./provider";
-import { TOOL_NAMES, TOOL_SCHEMAS, TOOL_SETS, runTool, type ToolSet } from "./schemas";
+import {
+	ALL_TOOL_NAMES,
+	TOOL_SETS,
+	runTool,
+	schemasForToolSet,
+	type RunToolOptions,
+	type ToolSet,
+} from "./schemas";
 import { TOOL_LIMITS, ToolError } from "./types";
 
 export const DEFAULT_MAX_STEPS = 12;
@@ -71,6 +78,21 @@ function workingRules(toolSet: ToolSet, maxSteps: number): string[] {
 			"- Your only tool is semantic_search. Each result gives a file path, a line range, and the code in that range.",
 			"- Never describe code you have not seen in a search result.",
 			"- Follow the trail. If the answer depends on what another function does, search for it by name.",
+			`- Stop as soon as you can answer. You have at most ${maxSteps} turns of tool calls.`,
+			"- If a result says it was truncated, you are not seeing everything. Narrow your query rather than assuming.",
+		];
+	}
+	// The nav rules are the full rules plus the two habits the interface exists
+	// to encourage: work file-first, and check the neighbours before committing
+	// to a symbol. Everything else is identical, so the arms stay comparable.
+	if (toolSet === "nav") {
+		return [
+			"- Locate code first with semantic_search or find_definition. Use grep for exact strings like config keys or error messages.",
+			"- semantic_search returns files, not loose snippets. Work one file at a time: look at what matched in it and at the neighbouring symbols listed beside the matches.",
+			"- Before you settle on a function, check the other symbols in its file. A file often holds several similarly named functions and only one of them answers the question.",
+			"- Call list_symbols on an unfamiliar file before read_file. The outline is cheap and usually tells you exactly which lines to read.",
+			"- Read a file before describing it. Never describe code you have not seen in a tool result.",
+			"- Follow the trail. If the answer depends on what another function does, go look at it.",
 			`- Stop as soon as you can answer. You have at most ${maxSteps} turns of tool calls.`,
 			"- If a result says it was truncated, you are not seeing everything. Narrow your query rather than assuming.",
 		];
@@ -149,11 +171,17 @@ export async function* runAgent(
 	} = options;
 
 	const allowed = new Set(TOOL_SETS[toolSet]);
-	const schemas = TOOL_SCHEMAS.filter((s) => allowed.has(s.name));
+	const schemas = schemasForToolSet(toolSet);
 	// Without read_file, search results are the only view of the code, so they
-	// show as much of each chunk as the RAG arm's context does.
-	const runOptions =
-		toolSet === "search_only" ? { snippetChars: TOOL_LIMITS.MAX_SNIPPET_CHARS_SEARCH_ONLY } : {};
+	// show as much of each chunk as the RAG arm's context does. The nav arm
+	// keeps the default snippet size — it has read_file, and the extra bytes it
+	// spends go on the neighbour sketch instead.
+	const runOptions: RunToolOptions =
+		toolSet === "search_only"
+			? { snippetChars: TOOL_LIMITS.MAX_SNIPPET_CHARS_SEARCH_ONLY }
+			: toolSet === "nav"
+				? { groupByFile: true }
+				: {};
 
 	const startedAt = Date.now();
 	const system = buildSystemPrompt(repo, maxSteps, toolSet);
@@ -220,7 +248,7 @@ export async function* runAgent(
 					try {
 						// The model only saw the allowed schemas, but nothing stops it naming
 						// another tool. Running it anyway would quietly void the ablation.
-						if (TOOL_NAMES.includes(call.name) && !allowed.has(call.name)) {
+						if (ALL_TOOL_NAMES.includes(call.name) && !allowed.has(call.name)) {
 							throw new ToolError(
 								`Tool "${call.name}" is not available. Available: ${[...allowed].join(", ")}.`
 							);

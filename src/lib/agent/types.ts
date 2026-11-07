@@ -41,6 +41,17 @@ export const TOOL_LIMITS = {
 	MAX_SNIPPET_CHARS_SEARCH_ONLY: 2_000,
 	/** Definition sites returned by one find_definition call. */
 	MAX_DEFINITIONS: 10,
+	/** Symbols listed by one list_symbols call. */
+	MAX_OUTLINE_SYMBOLS: 60,
+	/**
+	 * Sibling symbols shown beside a file's search hits.
+	 *
+	 * Deliberately small. The sketch exists to tell the model that neighbours
+	 * exist and what they are called, not to inline the file — past about a
+	 * dozen it stops being a hint and starts being the outline, which
+	 * list_symbols already provides on demand.
+	 */
+	MAX_SIBLING_SYMBOLS: 12,
 } as const;
 
 /**

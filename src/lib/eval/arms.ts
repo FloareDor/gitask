@@ -23,11 +23,31 @@ import type { EvalQuestion } from "./types";
  * `agent_search` is the full agent loop restricted to semantic_search: an
  * iterative RAG with the agent's budget and prompt. It exists to split the
  * agent's gain over RAG into "from looping" and "from exact tools".
+ *
+ * `agent_nav` is the same loop with the file-centered interface: identical
+ * retriever, identical budget, identical five tools, plus list_symbols and
+ * search results grouped under their file. The three agent arms therefore
+ * sweep one axis each — looping, exact tools, presentation — against the same
+ * RAG baseline.
  */
-export type Arm = "rag" | "agent" | "agent_search";
+export type Arm = "rag" | "agent" | "agent_search" | "agent_nav";
 
 /** Every arm, in display order. */
-export const ALL_ARMS: Arm[] = ["rag", "agent", "agent_search"];
+export const ALL_ARMS: Arm[] = ["rag", "agent", "agent_search", "agent_nav"];
+
+/** The tool set each agent arm runs. */
+const TOOL_SET_BY_ARM: Record<string, ToolSet> = {
+	agent: "full",
+	agent_search: "search_only",
+	agent_nav: "nav",
+};
+
+/** The inverse, so a run records the arm its tool set belongs to. */
+const ARM_BY_TOOL_SET: Record<ToolSet, Arm> = {
+	full: "agent",
+	search_only: "agent_search",
+	nav: "agent_nav",
+};
 
 /** Arms that run the agent loop, and so carry steps, traces and stop reasons. */
 export const isAgentArm = (arm: Arm) => arm !== "rag";
@@ -174,7 +194,7 @@ export async function runAgentArm(
 ): Promise<ArmRun> {
 	const started = performance.now();
 	const run: ArmRun = {
-		arm: toolSet === "search_only" ? "agent_search" : "agent",
+		arm: ARM_BY_TOOL_SET[toolSet],
 		answer: "",
 		citations: [],
 		tokensIn: 0,
@@ -243,5 +263,5 @@ export function runArm(
 	options: ArmOptions
 ): Promise<ArmRun> {
 	if (arm === "rag") return runRagArm(store, question, options);
-	return runAgentArm(store, question, options, arm === "agent_search" ? "search_only" : "full");
+	return runAgentArm(store, question, options, TOOL_SET_BY_ARM[arm] ?? "full");
 }
