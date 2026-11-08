@@ -54,3 +54,6 @@ smoke-eval*.png
 
 # Recorded agent demos - large media, regenerate with scripts/record-agent-demo.js
 demo/
+
+# Interview notes, eval dumps, scratch writing - local only
+context/
