@@ -57,3 +57,7 @@ demo/
 
 # Interview notes, eval dumps, scratch writing - local only
 context/
+
+# Python bytecode
+__pycache__/
+*.pyc

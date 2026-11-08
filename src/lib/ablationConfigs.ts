@@ -123,6 +123,42 @@ export const searchNoGraphExpansion: AblationSearchFn = async (store, queryEmbed
 	return rerank(chunks, candidates, queryEmbedding, maxFused).slice(0, limit);
 };
 
+/** BM25 over the chunk text and nothing else — the lexical baseline. */
+export const searchBm25Only: AblationSearchFn = async (store, _queryEmbedding, queryText, limit = 5) => {
+	const chunks = store.getAll();
+	const sparseScores = await bm25Search(chunks, queryText, { limit: COARSE_CANDIDATES });
+	return toResults(chunks, [...sparseScores.entries()].sort((a, b) => b[1] - a[1]).slice(0, limit));
+};
+
+/**
+ * Brute-force float32 cosine over every chunk. Not a gitask path — it is the
+ * ceiling the Hamming coarse pass is trying to approximate.
+ */
+export const searchDenseExact: AblationSearchFn = (store, queryEmbedding, _queryText, limit = 5) => {
+	const chunks = store.getAll();
+	const scored: [string, number][] = chunks.map((chunk) => [chunk.id, cosineSimilarity(queryEmbedding, chunk.embedding)]);
+	return toResults(chunks, scored.sort((a, b) => b[1] - a[1]).slice(0, limit));
+};
+
+/** Hamming coarse retrieval and BM25 fused with RRF, taken in fused order — no graph hop, no rerank. */
+export const searchDenseBm25Rrf: AblationSearchFn = async (store, queryEmbedding, queryText, limit = 5) => {
+	const chunks = store.getAll();
+	const vectorScores = vectorSearch(chunks, queryEmbedding, COARSE_CANDIDATES, store.getAllBinaries());
+	const sparseScores = await bm25Search(chunks, queryText, { limit: COARSE_CANDIDATES });
+	const fused = reciprocalRankFusion([vectorScores, sparseScores], RRF_K);
+	return toResults(chunks, [...fused.entries()].sort((a, b) => b[1] - a[1]).slice(0, limit));
+};
+
+function toResults(chunks: EmbeddedChunk[], ranked: [string, number][]): SearchResult[] {
+	const chunkMap = new Map(chunks.map((chunk) => [chunk.id, chunk]));
+	const results: SearchResult[] = [];
+	for (const [id, score] of ranked) {
+		const chunk = chunkMap.get(id);
+		if (chunk) results.push({ chunk, score, embedding: chunk.embedding });
+	}
+	return results;
+}
+
 function rerank(
 	chunks: EmbeddedChunk[],
 	candidates: [string, number][],
