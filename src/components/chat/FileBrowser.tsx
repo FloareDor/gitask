@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useRef, useCallback } from "react";
+import { useGT } from "gt-next";
 import AstTreeView from "@/components/AstTreeView";
 import IndexBrowser from "@/components/IndexBrowser";
 import type { AstNode } from "@/lib/indexer";
@@ -25,6 +26,7 @@ export function FileBrowser({
 	onTabChange,
 	onClose,
 }: FileBrowserProps) {
+	const gt = useGT();
 	const [width, setWidth] = useState(400);
 	const isDragging = useRef(false);
 	const startX = useRef(0);
@@ -70,7 +72,7 @@ export function FileBrowser({
 						cursor: "col-resize", zIndex: 10,
 						background: "transparent",
 					}}
-					title="Drag to resize"
+					title={gt("Drag to resize")}
 				/>
 			)}
 
@@ -80,13 +82,13 @@ export function FileBrowser({
 						onClick={() => onTabChange("tree")}
 						style={{ fontSize: "11px", fontFamily: "var(--font-mono)", background: "transparent", border: "none", cursor: "pointer", color: fileBrowserTab === "tree" ? "#16a34a" : "var(--text-on-dark-muted)", borderBottom: fileBrowserTab === "tree" ? "2px solid #16a34a" : "2px solid transparent", padding: "4px 0" }}
 					>
-						File Tree
+						{gt("File Tree")}
 					</button>
 					<button
 						onClick={() => onTabChange("chunks")}
 						style={{ fontSize: "11px", fontFamily: "var(--font-mono)", background: "transparent", border: "none", cursor: "pointer", color: fileBrowserTab === "chunks" ? "#16a34a" : "var(--text-on-dark-muted)", borderBottom: fileBrowserTab === "chunks" ? "2px solid #16a34a" : "2px solid transparent", padding: "4px 0" }}
 					>
-						Index
+						{gt("Index")}
 					</button>
 				</div>
 				<button

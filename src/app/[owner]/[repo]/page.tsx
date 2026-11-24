@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import { useGT, useMessages } from "gt-next";
 import { indexRepository, IndexAbortError, type IndexProgress, type AstNode } from "@/lib/indexer";
 import { VectorStore } from "@/lib/vectorStore";
 import { exposeAgentTools } from "@/lib/agent/devtools";
@@ -50,6 +51,10 @@ export default function RepoPage({
 }: {
 	params: Promise<{ owner: string; repo: string }>;
 }) {
+	const gt = useGT();
+	// Decodes msg()-declared strings from src/lib at render time. The raw value
+	// stays in state so the English-keyword matchers below stay locale-independent.
+	const m = useMessages();
 	const router = useRouter();
 	const searchParams = useSearchParams();
 	// Optional ?ref=<branch|tag|sha> pins the index to a specific commit (used by evals).
@@ -289,7 +294,7 @@ export default function RepoPage({
 			localStorage.setItem(chatStorageKey, JSON.stringify({ activeChatId, sessions: chatSessions }));
 		} catch (e) {
 			console.warn("Failed to persist chat sessions to localStorage:", e);
-			setToastMessage("Couldn't save chat history. Your browser storage may be full.");
+			setToastMessage(gt("Couldn't save chat history. Your browser storage may be full."));
 		}
 	}, [chatStorageKey, chatSessions, activeChatId]);
 
@@ -320,7 +325,7 @@ export default function RepoPage({
 		const handleVisibilityChange = () => {
 			if (document.visibilityState === "visible" && completedWhileHiddenRef.current) {
 				completedWhileHiddenRef.current = false;
-				setToastMessage("Indexing complete. You can ask questions now.");
+				setToastMessage(gt("Indexing complete. You can ask questions now."));
 			}
 		};
 		document.addEventListener("visibilitychange", handleVisibilityChange);
@@ -377,7 +382,7 @@ export default function RepoPage({
 					if (typeof Notification !== "undefined" && Notification.permission === "granted") {
 						try {
 							new Notification("GitAsk", {
-								body: `Indexing complete for ${owner}/${repo}. You can ask questions now.`,
+								body: gt("Indexing complete for {repo}. You can ask questions now.", { repo: `${owner}/${repo}` }),
 							});
 						} catch { /* ignore */ }
 					}
@@ -453,7 +458,7 @@ export default function RepoPage({
 				setRepoStale(isStale);
 				if (isStale && !staleNoticeShownRef.current) {
 					staleNoticeShownRef.current = true;
-					setToastMessage("Repository changed on GitHub. Re-index for fresh context.");
+					setToastMessage(gt("Repository changed on GitHub. Re-index for fresh context."));
 				}
 				if (!isStale) staleNoticeShownRef.current = false;
 			} catch (e) {
@@ -461,7 +466,7 @@ export default function RepoPage({
 				console.warn("Stale context check failed:", e);
 				if (consecutiveFailures >= MAX_CONSECUTIVE_FAILURES && !stalePollWarnShown && !cancelled) {
 					stalePollWarnShown = true;
-					setToastMessage("Can't reach GitHub right now. Update checks are paused.");
+					setToastMessage(gt("Can't reach GitHub right now. Update checks are paused."));
 				}
 			}
 		};
@@ -483,7 +488,7 @@ export default function RepoPage({
 		const nextToken = tokenDraft.trim();
 		if (nextToken === token) return;
 		setToken(nextToken);
-		setToastMessage(nextToken ? "GitHub token applied. Re-indexing..." : "GitHub token removed. Re-indexing...");
+		setToastMessage(nextToken ? gt("GitHub token applied. Re-indexing...") : gt("GitHub token removed. Re-indexing..."));
 	}, [tokenDraft, token]);
 
 	const handleToggleSources = useCallback((messageId: string) => {
@@ -510,7 +515,7 @@ export default function RepoPage({
 		);
 		setContextChunks([]);
 		setContextMeta(null);
-		setToastMessage("Chat cleared.");
+		setToastMessage(gt("Chat cleared."));
 	}, [activeChatId]);
 
 	const handleCreateChat = useCallback(() => {
@@ -541,9 +546,10 @@ export default function RepoPage({
 		const current = chatSessions.find((session) => session.chat_id === chatId);
 		if (!current) return;
 		const isLastChat = chatSessions.length <= 1;
+		const chatTitle = current?.title ?? gt("this chat");
 		const confirmMessage = isLastChat
-			? `Delete "${current?.title ?? "this chat"}"? A new empty chat will be created and indexed files will be kept.`
-			: `Delete "${current?.title ?? "this chat"}"?`;
+			? gt('Delete "{title}"? A new empty chat will be created and indexed files will be kept.', { title: chatTitle })
+			: gt('Delete "{title}"?', { title: chatTitle });
 		const confirmed = typeof window === "undefined" || window.confirm(confirmMessage);
 		if (!confirmed) return;
 
@@ -617,7 +623,7 @@ export default function RepoPage({
 	const handleDeleteEmbeddings = useCallback(async () => {
 		if (!owner || !repo) return;
 		const confirmed = typeof window !== "undefined" && window.confirm(
-			`Delete stored embeddings for ${owner}/${repo}? You will be returned to the home page.`
+			gt("Delete stored embeddings for {repo}? You will be returned to the home page.", { repo: `${owner}/${repo}` })
 		);
 		if (!confirmed) return;
 		try {
@@ -632,7 +638,7 @@ export default function RepoPage({
 			router.push("/");
 		} catch (err) {
 			console.error("Failed to delete embeddings:", err);
-			setToastMessage("Failed to delete embeddings.");
+			setToastMessage(gt("Failed to delete embeddings."));
 		}
 	}, [owner, repo, router, chatStorageKey]);
 
@@ -786,8 +792,8 @@ export default function RepoPage({
 						...m,
 						retrieval: {
 							variants: phase.kind === "expanding" ? [] : phase.variants,
-							loadingPhase: phase.kind === "expanding" ? "expanding queries"
-								: phase.kind === "refining" ? "Refining" : "searching",
+							loadingPhase: phase.kind === "expanding" ? gt("expanding queries")
+								: phase.kind === "refining" ? gt("Refining") : gt("searching"),
 							completedCount: phase.kind === "searching" ? phase.completed : undefined,
 						},
 					}));
@@ -802,9 +808,9 @@ export default function RepoPage({
 				setMessages((prev) => prev.map((m) => m.id !== placeholderMessageId ? m : {
 					...m,
 					content: [
-						"Blocked. Some code in this repo looks like it's trying to hijack the AI.",
-						injectionScan.signals.length > 0 ? `Suspicious patterns: ${injectionScan.signals.join(", ")}.` : "",
-						"Try asking about a specific file or symbol instead.",
+						gt("Blocked. Some code in this repo looks like it's trying to hijack the AI."),
+						injectionScan.signals.length > 0 ? gt("Suspicious patterns: {patterns}.", { patterns: injectionScan.signals.join(", ") }) : "",
+						gt("Try asking about a specific file or symbol instead."),
 					].filter(Boolean).join("\n"),
 					safety: { blocked: true, reason: "prompt_injection_risk", signals: injectionScan.signals },
 				}));
@@ -820,9 +826,9 @@ export default function RepoPage({
 			if (assembled.ungrounded) {
 				const missingLabel = assembled.missingTerms.slice(0, 5).map((term) => `"${term}"`).join(", ");
 				const groundedFallback = [
-					"I couldn't find enough relevant code to answer this confidently.",
-					missingLabel ? `Couldn't find: ${missingLabel}.` : "",
-					!queryExpansionEnabled && llmProvider !== "mlc" ? "Try turning on multi-query (in the ››› menu) or ask with a specific file or function name." : "Try asking with a specific file or function name.",
+					gt("I couldn't find enough relevant code to answer this confidently."),
+					missingLabel ? gt("Couldn't find: {terms}.", { terms: missingLabel }) : "",
+					!queryExpansionEnabled && llmProvider !== "mlc" ? gt("Try turning on multi-query (in the ››› menu) or ask with a specific file or function name.") : gt("Try asking with a specific file or function name."),
 				].filter(Boolean).join("\n");
 				setMessages((prev) => prev.map((m) => m.id !== placeholderMessageId ? m : {
 					...m,
@@ -1108,7 +1114,7 @@ ${context}`,
 						zIndex: 1000, fontFamily: "var(--font-display)", color: "var(--text-on-dark)",
 					}}
 				>
-					{toastMessage}
+					{m(toastMessage)}
 					{shouldSuggestGitHubToken(toastMessage) && (
 						<>
 							<br />
@@ -1118,7 +1124,7 @@ ${context}`,
 								rel="noopener noreferrer"
 								style={{ color: "var(--text-on-dark)", textDecoration: "underline", textUnderlineOffset: "2px" }}
 							>
-								Get a token
+								{gt("Get a token")}
 							</a>
 						</>
 					)}

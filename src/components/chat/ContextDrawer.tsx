@@ -1,5 +1,7 @@
 "use client";
 
+import { useGT } from "gt-next";
+
 import type { ContextChunk } from "@/app/[owner]/[repo]/types";
 
 interface ContextMeta {
@@ -19,6 +21,8 @@ interface ContextDrawerProps {
 }
 
 export function ContextDrawer({ contextChunks, contextMeta, isMobile, onClose }: ContextDrawerProps) {
+	const gt = useGT();
+
 	return (
 		<div style={{
 			maxHeight: 320, overflow: "auto", borderTop: "2px solid var(--border-dark)", background: "var(--bg-app)", padding: "16px 24px", flexShrink: 0,
@@ -26,13 +30,23 @@ export function ContextDrawer({ contextChunks, contextMeta, isMobile, onClose }:
 		}}>
 			<div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
 				<h3 style={{ fontSize: "12px", fontWeight: 700, color: "var(--text-on-dark-muted)", textTransform: "uppercase", letterSpacing: "0.08em", fontFamily: "var(--font-display)", margin: 0 }}>
-					Retrieved Context ({contextChunks.length} chunks)
+					{gt("Retrieved Context ({count} chunks)", { count: contextChunks.length })}
 				</h3>
 				<button onClick={onClose} style={{ background: "transparent", border: "none", color: "var(--text-on-dark-muted)", cursor: "pointer", fontSize: "16px" }}>✕</button>
 			</div>
 			{contextMeta && contextMeta.compactionStage !== "none" && (
 				<div style={{ fontSize: "11px", color: "#d97706", background: "rgba(217,119,6,0.08)", padding: "8px 10px", border: "2px solid rgba(217,119,6,0.3)", marginBottom: "8px" }}>
-					⚠ LLM context compacted ({contextMeta.compactionStage}): {contextMeta.totalChars} chars / ~{contextMeta.estimatedTokens.toLocaleString()} tokens → {contextMeta.maxChars.toLocaleString()} chars / {contextMeta.maxTokens.toLocaleString()} token budget
+					⚠{" "}
+					{gt(
+						"LLM context compacted ({stage}): {chars} chars / ~{tokens} tokens → {maxChars} chars / {maxTokens} token budget",
+						{
+							stage: contextMeta.compactionStage,
+							chars: contextMeta.totalChars,
+							tokens: contextMeta.estimatedTokens.toLocaleString(),
+							maxChars: contextMeta.maxChars.toLocaleString(),
+							maxTokens: contextMeta.maxTokens.toLocaleString(),
+						}
+					)}
 				</div>
 			)}
 			{contextChunks.map((chunk, i) => (

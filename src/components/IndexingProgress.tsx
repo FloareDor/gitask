@@ -1,5 +1,7 @@
 "use client";
 
+import { useGT } from "gt-next";
+
 interface IndexingProgressProps {
   step: string;
   progress: number;        // 0–100
@@ -15,6 +17,8 @@ export function IndexingProgress({
   totalFiles,
   currentFile,
 }: IndexingProgressProps) {
+  const gt = useGT();
+
   const pct = Math.min(100, Math.max(0, Math.round(progress)));
 
   return (
@@ -36,7 +40,7 @@ export function IndexingProgress({
           textTransform: "uppercase",
           letterSpacing: "0.05em",
         }}>
-          Indexing
+          {gt("Indexing")}
         </span>
         <span style={{
           fontFamily: "var(--font-mono)",
@@ -98,7 +102,7 @@ export function IndexingProgress({
           color: "var(--text-muted)",
           marginTop: 4,
         }}>
-          {filesProcessed} / {totalFiles} files
+          {gt("{done} / {total} files", { done: filesProcessed, total: totalFiles })}
         </p>
       )}
     </div>

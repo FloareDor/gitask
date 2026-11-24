@@ -1,6 +1,7 @@
 "use client";
 
 import { useRef, useState, useEffect } from "react";
+import { useGT, useMessages } from "gt-next";
 import { ModelSettings } from "@/components/ModelSettings";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { agentModeBlockedReason, LLM_CONFIG_CHANGED_EVENT, type LLMStatus } from "@/lib/llm";
@@ -8,11 +9,12 @@ import type { AnswerMode, Message } from "@/app/[owner]/[repo]/types";
 
 const PROJECT_REPO_URL = "https://github.com/FloareDor/gitask";
 
-const ANSWER_MODES: Array<{ value: AnswerMode; label: string; title: string }> = [
-	{ value: "rag", label: "rag", title: "One hybrid search, then answer" },
-	{ value: "agent", label: "agent", title: "Investigate with tools, then answer (Gemini, your key)" },
-	// "auto" is deliberately not offered yet — it still answers as rag, and a
-	// button that does nothing is worse than no button. Add it back with the router.
+// "auto" is deliberately not offered yet — it still answers as rag, and a
+// button that does nothing is worse than no button. Add it back with the router.
+// `label` is the technical mode id and stays untranslated; `title` is prose.
+const ANSWER_MODE_VALUES: Array<{ value: AnswerMode; label: string }> = [
+	{ value: "rag", label: "rag" },
+	{ value: "agent", label: "agent" },
 ];
 
 const overflowItemStyle: React.CSSProperties = {
@@ -83,6 +85,15 @@ export function RepoHeader({
 	onShowDiagram,
 	onAnswerModeChange,
 }: RepoHeaderProps) {
+	const gt = useGT();
+	const m = useMessages();
+	const answerModes = ANSWER_MODE_VALUES.map((mode) => ({
+		...mode,
+		title:
+			mode.value === "agent"
+				? gt("Investigate with tools, then answer (Gemini, your key)")
+				: gt("One hybrid search, then answer"),
+	}));
 	const overflowRef = useRef<HTMLDivElement>(null);
 	const [showOverflow, setShowOverflow] = useState(false);
 
@@ -126,7 +137,7 @@ export function RepoHeader({
 					<button
 						onClick={onExpandSidebar}
 						style={{ background: "transparent", border: "none", color: "var(--text-on-dark-muted)", cursor: "pointer", fontSize: "14px", padding: "4px 6px", flexShrink: 0 }}
-						title="Expand sidebar"
+						title={gt("Expand sidebar")}
 					>
 						→
 					</button>
@@ -143,22 +154,22 @@ export function RepoHeader({
 						className="chat-nav-stale"
 						style={{ fontFamily: "var(--font-mono)", fontSize: "11px", color: "#d97706", padding: "2px 8px", border: "1px solid #d97706", background: "rgba(217,119,6,0.08)", cursor: "pointer", flexShrink: 0 }}
 						onClick={onReindex}
-						title="Repository changed on GitHub. Click to re-index."
+						title={gt("Repository changed on GitHub. Click to re-index.")}
 					>
-						stale — re-index
+						{gt("stale — re-index")}
 					</span>
 				)}
 			</div>
 			<div style={{ display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
 				{isIndexed && (
-					<div className="mode-switch" role="group" aria-label="Answer mode">
-						{ANSWER_MODES.map(({ value, label, title }) => {
+					<div className="mode-switch" role="group" aria-label={gt("Answer mode")}>
+						{answerModes.map(({ value, label, title }) => {
 							const blocked = value === "agent" ? agentBlocked : null;
 							return (
 								<button
 									key={value}
 									type="button"
-									title={blocked ?? title}
+									title={blocked ? m(blocked) : title}
 									disabled={isGenerating || blocked !== null}
 									aria-pressed={answerMode === value}
 									className={`mode-switch-btn${answerMode === value ? " mode-switch-btn--active" : ""}`}
@@ -173,15 +184,15 @@ export function RepoHeader({
 				<div style={{
 					width: 8, height: 8, borderRadius: "50%", flexShrink: 0,
 					background: llmStatus === "ready" ? "#16a34a" : llmStatus === "generating" ? "#d97706" : llmStatus === "loading" ? "#3b82f6" : "var(--text-on-dark-muted)",
-				}} className={llmStatus === "loading" ? "pulse" : undefined} title={`LLM: ${llmStatus}`} />
+				}} className={llmStatus === "loading" ? "pulse" : undefined} title={gt("LLM: {status}", { status: llmStatus })} />
 				<ModelSettings />
 				<ThemeToggle />
 				<div ref={overflowRef} style={{ position: "relative" }}>
 					<button
 						style={{ fontSize: "16px", padding: "4px 10px", lineHeight: 1, background: "transparent", border: "1px solid var(--border-dark)", color: "var(--text-on-dark-secondary)", cursor: "pointer" }}
 						onClick={() => setShowOverflow(v => !v)}
-						title="More options"
-						aria-label="More options"
+						title={gt("More options")}
+						aria-label={gt("More options")}
 					>
 						⋯
 					</button>
@@ -194,24 +205,24 @@ export function RepoHeader({
 							zIndex: 30, minWidth: "200px",
 						}}>
 							<button style={overflowItemStyle} onClick={() => { onToggleTokenInput(); setShowOverflow(false); }}>
-								GH Token
+								{gt("GH Token")}
 							</button>
 							{isIndexed && (
 								<button style={overflowItemStyle} onClick={() => { onToggleFileBrowser(); setShowOverflow(false); }}>
-									{fileBrowserOpen ? "Hide files" : "Browse files"}
+									{fileBrowserOpen ? gt("Hide files") : gt("Browse files")}
 								</button>
 							)}
 							{isIndexed && (
 								<button style={overflowItemStyle} onClick={() => { onToggleContext(); setShowOverflow(false); }}>
-									{showContext ? "Hide context" : "View context"}
+									{showContext ? gt("Hide context") : gt("View context")}
 								</button>
 							)}
 							<button
 								style={{ ...overflowItemStyle, color: coveEnabled ? "#16a34a" : "var(--text-on-dark)" }}
 								onClick={onToggleCove}
-								title="Chain-of-Verification (adds ~2-4s latency)"
+								title={gt("Chain-of-Verification (adds ~2-4s latency)")}
 							>
-								CoVE {coveEnabled ? "on" : "off"}
+								CoVE {coveEnabled ? gt("on") : gt("off")}
 							</button>
 							<button
 								style={{
@@ -221,32 +232,32 @@ export function RepoHeader({
 									cursor: isLocalProvider ? "default" : "pointer",
 								}}
 								onClick={isLocalProvider ? undefined : onToggleQueryExpansion}
-								title={isLocalProvider ? "not available with local model" : "expand each query into multiple variants for broader retrieval"}
+								title={isLocalProvider ? gt("not available with local model") : gt("expand each query into multiple variants for broader retrieval")}
 							>
-								multi-query {isLocalProvider ? "—" : queryExpansionEnabled ? "on" : "off"}
+								multi-query {isLocalProvider ? "—" : queryExpansionEnabled ? gt("on") : gt("off")}
 							</button>
 							{isIndexed && (
 								<button style={overflowItemStyle} onClick={() => { onReindex(); setShowOverflow(false); }}>
-									Re-index
+									{gt("Re-index")}
 								</button>
 							)}
 							{messages.length > 0 && (
 								<button style={overflowItemStyle} onClick={() => { onClearChat(); setShowOverflow(false); }} disabled={isGenerating}>
-									Clear chat
+									{gt("Clear chat")}
 								</button>
 							)}
 							<div style={{ height: "1px", background: "var(--border-dark)", margin: "4px 0" }} />
 							{owner && repo && (
 								<button style={{ ...overflowItemStyle, color: "#dc2626" }} onClick={() => { onDeleteEmbeddings(); setShowOverflow(false); }}>
-									Delete embeddings
+									{gt("Delete embeddings")}
 								</button>
 							)}
 							<div style={{ height: "1px", background: "var(--border-dark)", margin: "4px 0" }} />
 							<a href="/metrics" style={{ ...overflowItemStyle, textDecoration: "none", color: "var(--text-on-dark-secondary)", display: "flex" }}>
-								Metrics
+								{gt("Metrics")}
 							</a>
 							<a href={PROJECT_REPO_URL} target="_blank" rel="noopener noreferrer" style={{ ...overflowItemStyle, textDecoration: "none", color: "var(--text-on-dark-secondary)", display: "flex" }}>
-								Star on GitHub
+								{gt("Star on GitHub")}
 							</a>
 						</div>
 					)}
@@ -257,7 +268,7 @@ export function RepoHeader({
 						onClick={onToggleFileBrowser}
 						style={{ padding: "6px 12px", border: "2px solid var(--border-dark)", background: "transparent", color: "var(--text-on-dark-secondary)", cursor: "pointer", fontSize: "12px", fontFamily: "var(--font-mono)" }}
 					>
-						{fileBrowserOpen ? "Hide files" : "Browse files"}
+						{fileBrowserOpen ? gt("Hide files") : gt("Browse files")}
 					</button>
 				)}
 			</div>

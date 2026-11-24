@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo } from "react";
+import { useGT } from "gt-next";
 import type { AstNode } from "@/lib/indexer";
 
 interface AstTreeViewProps {
@@ -203,6 +204,7 @@ function AstFileNode({ file, depth }: { file: FileNode; depth: number }) {
 /* ── Main component ── */
 
 export default function AstTreeView({ astNodes, textChunkCounts }: AstTreeViewProps) {
+	const gt = useGT();
 	const tree = useMemo(
 		() => buildTree(astNodes, textChunkCounts),
 		[astNodes, textChunkCounts],
@@ -216,11 +218,11 @@ export default function AstTreeView({ astNodes, textChunkCounts }: AstTreeViewPr
 		<div className="ast-tree-container ast-tree-single fade-in">
 			<div className="ast-column">
 				<div className="ast-column-header">
-					<h3>Code Structure (AST)</h3>
+					<h3>{gt("Code Structure (AST)")}</h3>
 					<span className="ast-column-subtitle">
-						{totalSymbols} symbols detected
-						{doneSymbols > 0 && ` · ${doneSymbols} embedded`}
-						{embeddingSymbols > 0 && ` · ${embeddingSymbols} embedding`}
+						{gt("{count} symbols detected", { count: totalSymbols })}
+						{doneSymbols > 0 && ` · ${gt("{count} embedded", { count: doneSymbols })}`}
+						{embeddingSymbols > 0 && ` · ${gt("{count} embedding", { count: embeddingSymbols })}`}
 					</span>
 				</div>
 				<div className="ast-column-body">

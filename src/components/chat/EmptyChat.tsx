@@ -1,11 +1,6 @@
 "use client";
 
-const STARTER_SUGGESTIONS = [
-	"What does this project do?",
-	"Walk me through the main data flow",
-	"What are the key entry points?",
-	"How is error handling structured?",
-];
+import { T, useGT } from "gt-next";
 
 interface EmptyChatProps {
 	owner: string;
@@ -14,6 +9,14 @@ interface EmptyChatProps {
 }
 
 export function EmptyChat({ owner, repo, onSelectSuggestion }: EmptyChatProps) {
+	const gt = useGT();
+	const starterSuggestions = [
+		gt("What does this project do?"),
+		gt("Walk me through the main data flow"),
+		gt("What are the key entry points?"),
+		gt("How is error handling structured?"),
+	];
+
 	return (
 		<div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", flex: 1, gap: 24, textAlign: "center" }}>
 			<div>
@@ -21,11 +24,11 @@ export function EmptyChat({ owner, repo, onSelectSuggestion }: EmptyChatProps) {
 					{owner}/{repo}
 				</span>
 				<h2 style={{ fontFamily: "var(--font-display)", fontWeight: 800, fontSize: "clamp(1.3rem, 3vw, 2rem)", color: "var(--text-on-dark)", letterSpacing: "-0.02em", margin: 0 }}>
-					What do you want to know?
+					<T>What do you want to know?</T>
 				</h2>
 			</div>
 			<div style={{ display: "flex", flexWrap: "wrap", gap: 10, justifyContent: "center", maxWidth: 560 }}>
-				{STARTER_SUGGESTIONS.map(suggestion => (
+				{starterSuggestions.map(suggestion => (
 					<button
 						key={suggestion}
 						onClick={() => onSelectSuggestion(suggestion)}

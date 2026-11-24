@@ -61,3 +61,6 @@ context/
 # Python bytecode
 __pycache__/
 *.pyc
+
+# General Translation generated translation files
+public/_gt/

@@ -1,6 +1,7 @@
 "use client";
 
 import { memo, useState } from "react";
+import { useGT } from "gt-next";
 import type { MessageAgentState } from "@/app/[owner]/[repo]/types";
 
 /** `{ pattern: "def ", glob: "*.py" }` → `pattern: "def ", glob: "*.py"` */
@@ -14,12 +15,6 @@ function formatBytes(bytes: number): string {
 	return bytes < 1024 ? `${bytes}B` : `${(bytes / 1024).toFixed(1)}KB`;
 }
 
-const STOP_REASON_LABEL: Record<string, string> = {
-	answered: "answered",
-	step_cap: "hit step cap",
-	context_budget: "hit context budget",
-};
-
 interface AgentTraceProps {
 	agent: MessageAgentState;
 	/** The run is still going, so the last row may have no result yet. */
@@ -27,6 +22,12 @@ interface AgentTraceProps {
 }
 
 export const AgentTrace = memo(function AgentTrace({ agent, isLive }: AgentTraceProps) {
+	const gt = useGT();
+	const stopReasonLabel: Record<string, string> = {
+		answered: gt("answered"),
+		step_cap: gt("hit step cap"),
+		context_budget: gt("hit context budget"),
+	};
 	const [expanded, setExpanded] = useState(true);
 	const [openRows, setOpenRows] = useState<Set<string>>(new Set());
 
@@ -41,10 +42,15 @@ export const AgentTrace = memo(function AgentTrace({ agent, isLive }: AgentTrace
 		});
 	};
 
+	const stepCount = agent.totalSteps ?? agent.steps.length;
 	const summary = [
-		`${agent.totalSteps ?? agent.steps.length} step${(agent.totalSteps ?? agent.steps.length) === 1 ? "" : "s"}`,
+		stepCount === 1
+			? gt("{count} step", { count: stepCount })
+			: gt("{count} steps", { count: stepCount }),
 		agent.toolBytes != null ? formatBytes(agent.toolBytes) : null,
-		agent.tokensIn != null ? `${agent.tokensIn + (agent.tokensOut ?? 0)} tok` : null,
+		agent.tokensIn != null
+			? gt("{count} tok", { count: agent.tokensIn + (agent.tokensOut ?? 0) })
+			: null,
 		agent.elapsedMs != null ? `${(agent.elapsedMs / 1000).toFixed(1)}s` : null,
 	].filter(Boolean).join(" · ");
 
@@ -61,7 +67,7 @@ export const AgentTrace = memo(function AgentTrace({ agent, isLive }: AgentTrace
 					style={{ transform: expanded ? "rotate(90deg)" : "rotate(0deg)" }}
 					aria-hidden="true"
 				>▸</span>
-				{isLive ? "investigating…" : `trace — ${summary}`}
+				{isLive ? gt("investigating…") : gt("trace — {summary}", { summary })}
 			</button>
 
 			{expanded && (
@@ -88,10 +94,10 @@ export const AgentTrace = memo(function AgentTrace({ agent, isLive }: AgentTrace
 									<span className="agent-trace-tool">{step.tool}</span>
 									<span className="agent-trace-args">{formatArgs(step.args)}</span>
 									<span className="agent-trace-meta">
-										{pending && <span className="agent-trace-pending">running…</span>}
-										{step.duplicate && <span className="agent-trace-flag">repeat</span>}
-										{step.isError && <span className="agent-trace-flag agent-trace-flag--error">error</span>}
-										{step.truncated && <span className="agent-trace-flag">truncated</span>}
+										{pending && <span className="agent-trace-pending">{gt("running…")}</span>}
+										{step.duplicate && <span className="agent-trace-flag">{gt("repeat")}</span>}
+										{step.isError && <span className="agent-trace-flag agent-trace-flag--error">{gt("error")}</span>}
+										{step.truncated && <span className="agent-trace-flag">{gt("truncated")}</span>}
 										{step.bytes != null && step.bytes > 0 && <span>{formatBytes(step.bytes)}</span>}
 										{step.elapsedMs != null && <span>{step.elapsedMs}ms</span>}
 									</span>
@@ -105,7 +111,10 @@ export const AgentTrace = memo(function AgentTrace({ agent, isLive }: AgentTrace
 
 					{!isLive && agent.stopReason && agent.stopReason !== "answered" && (
 						<div className="agent-trace-stop">
-							⚠ {STOP_REASON_LABEL[agent.stopReason]} — the answer may be incomplete
+							⚠{" "}
+							{gt("{reason} — the answer may be incomplete", {
+								reason: stopReasonLabel[agent.stopReason],
+							})}
 						</div>
 					)}
 				</div>

@@ -1,8 +1,10 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useGT } from "gt-next";
 
 export function ThemeToggle() {
+  const gt = useGT();
   const [theme, setTheme] = useState<"dark" | "light">("light");
 
   useEffect(() => {
@@ -34,7 +36,7 @@ export function ThemeToggle() {
   return (
     <button
       onClick={toggle}
-      title={`Switch to ${theme === "dark" ? "light" : "dark"} mode`}
+      title={theme === "dark" ? gt("Switch to light mode") : gt("Switch to dark mode")}
       style={{
         display: "flex",
         alignItems: "center",

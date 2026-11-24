@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { useGT } from "gt-next";
 import type { EmbeddedChunk } from "@/lib/embedder";
 
 interface IndexBrowserProps {
@@ -51,6 +52,7 @@ const NODE_TYPE_LABELS: Record<string, string> = {
 };
 
 export default function IndexBrowser({ chunks }: IndexBrowserProps) {
+	const gt = useGT();
 	const fileGroups = useMemo(() => buildFileTree(chunks), [chunks]);
 	const [expandedFiles, setExpandedFiles] = useState<Set<string>>(() => {
 		// Expand first 5 files by default for quick browsing
@@ -112,7 +114,7 @@ export default function IndexBrowser({ chunks }: IndexBrowserProps) {
 							margin: "4px 0 0 0",
 						}}
 					>
-						{totalFiles} files · {totalChunks} chunks
+						{gt("{files} files · {chunks} chunks", { files: totalFiles, chunks: totalChunks })}
 					</p>
 				</div>
 				<div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
@@ -122,7 +124,7 @@ export default function IndexBrowser({ chunks }: IndexBrowserProps) {
 						style={{ fontSize: "11px", padding: "2px 6px" }}
 						onClick={expandAll}
 					>
-						Expand all
+						{gt("Expand all")}
 					</button>
 					<button
 						type="button"
@@ -130,7 +132,7 @@ export default function IndexBrowser({ chunks }: IndexBrowserProps) {
 						style={{ fontSize: "11px", padding: "2px 6px" }}
 						onClick={collapseAll}
 					>
-						Collapse
+						{gt("Collapse")}
 					</button>
 				</div>
 			</div>
