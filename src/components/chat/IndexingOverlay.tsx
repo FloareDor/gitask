@@ -1,5 +1,10 @@
 "use client";
 
+import { T, useGT } from "gt-next";
+
+/** The string-translation function returned by `useGT()`. */
+type GTFunction = ReturnType<typeof useGT>;
+
 import { useState } from "react";
 import type { IndexProgress } from "@/lib/indexer";
 
@@ -19,7 +24,7 @@ function formatBytes(bytes: number): string {
 	return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-function friendlyErrorMessage(raw: string): string {
+function friendlyErrorMessage(raw: string, gt: GTFunction): string {
 	const lower = raw.toLowerCase();
 	const isRateLimit =
 		lower.includes("retrydelay") ||
@@ -37,9 +42,12 @@ function friendlyErrorMessage(raw: string): string {
 	const delay = delayMatch?.[1];
 
 	if (delay) {
-		return `API rate limit hit. too many requests at once. retry in ${delay} and it should work fine.`;
+		return gt(
+			"API rate limit hit. too many requests at once. retry in {delay} and it should work fine.",
+			{ delay }
+		);
 	}
-	return "API rate limit hit. too many requests at once. wait a moment and retry.";
+	return gt("API rate limit hit. too many requests at once. wait a moment and retry.");
 }
 
 // ── Doodle SVGs ──────────────────────────────────────────────────────────────
@@ -189,16 +197,17 @@ export function IndexingOverlay({
 	isError,
 	isCancelling,
 }: IndexingOverlayProps) {
+	const gt = useGT();
 	const [showDetails, setShowDetails] = useState(false);
 
 	if (isError && indexProgress?.message) {
 		return (
 			<div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}>
 				<div style={{ border: "2px solid #dc2626", padding: "24px 28px", background: "var(--bg-card-dark)", maxWidth: 420, width: "100%", boxShadow: "4px 4px 0 #dc2626" }}>
-					<p style={{ fontWeight: 700, color: "#dc2626", fontFamily: "var(--font-display)", margin: "0 0 8px 0" }}>Something went wrong</p>
-					<p style={{ fontSize: "13px", color: "var(--text-on-dark-secondary)", marginBottom: 16, lineHeight: 1.5 }}>{friendlyErrorMessage(indexProgress.message)}</p>
+					<p style={{ fontWeight: 700, color: "#dc2626", fontFamily: "var(--font-display)", margin: "0 0 8px 0" }}><T>Something went wrong</T></p>
+					<p style={{ fontSize: "13px", color: "var(--text-on-dark-secondary)", marginBottom: 16, lineHeight: 1.5 }}>{friendlyErrorMessage(indexProgress.message, gt)}</p>
 					<button onClick={onRetry} style={{ background: "#0a0a0a", color: "#f5f5f0", border: "2px solid #f5f5f0", padding: "10px 20px", cursor: "pointer", fontWeight: 700, fontSize: "13px" }}>
-						Retry
+						{gt("Retry")}
 					</button>
 				</div>
 			</div>
@@ -224,9 +233,9 @@ export function IndexingOverlay({
 				fontFamily: "var(--font-mono)",
 				letterSpacing: "0.02em",
 			}}
-			title="Stop indexing and return home"
+			title={gt("Stop indexing and return home")}
 		>
-			{isCancelling ? "Cancelling…" : "Cancel indexing"}
+			{isCancelling ? gt("Cancelling…") : gt("Cancel indexing")}
 		</button>
 	) : null;
 
@@ -236,7 +245,7 @@ export function IndexingOverlay({
 				<div style={{ border: "2px solid var(--border-dark)", padding: "28px 32px", background: "var(--bg-card-dark)", maxWidth: 420, width: "100%", boxShadow: "var(--shadow-card-dark)" }}>
 					<div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
 						<span style={{ fontFamily: "var(--font-display)", fontWeight: 700, fontSize: "0.9rem", textTransform: "uppercase", letterSpacing: "0.05em", color: "var(--text-on-dark)" }}>
-							Indexing
+							{gt("Indexing")}
 						</span>
 						<span style={{ fontFamily: "var(--font-mono)", fontWeight: 700, fontSize: "1.1rem", color: "#16a34a" }}>
 							{progressPercent}%
@@ -246,7 +255,7 @@ export function IndexingOverlay({
 						<div style={{ height: "100%", background: "#16a34a", width: `${progressPercent}%`, transition: "width 0.3s" }} />
 					</div>
 					<p style={{ fontSize: "0.85rem", color: "var(--text-on-dark-secondary)", marginBottom: 0 }}>
-						{isCancelling ? "Stopping…" : (indexProgress?.message ?? "Starting...")}
+						{isCancelling ? gt("Stopping…") : (indexProgress?.message ?? gt("Starting..."))}
 					</p>
 					{indexProgress?.estimatedSizeBytes != null && indexProgress.estimatedSizeBytes > 0 && (
 						<p style={{ fontFamily: "var(--font-mono)", fontSize: "0.72rem", color: "var(--text-on-dark-muted)", margin: "4px 0 0 0" }}>
@@ -255,7 +264,7 @@ export function IndexingOverlay({
 					)}
 					{timeRemaining && !isCancelling && (
 						<p style={{ fontFamily: "var(--font-mono)", fontSize: "0.72rem", color: "var(--text-on-dark-muted)", margin: "4px 0 0 0" }}>
-							{timeRemaining} remaining
+							{gt("{time} remaining", { time: timeRemaining })}
 						</p>
 					)}
 					{cancelButton}
@@ -368,7 +377,7 @@ export function IndexingOverlay({
 									letterSpacing: "-0.01em",
 								}}
 							>
-								Sit back &amp; relax
+								<T>Sit back &amp; relax</T>
 							</span>
 							<BouncingDots />
 						</div>
@@ -382,12 +391,14 @@ export function IndexingOverlay({
 								marginBottom: 20,
 							}}
 						>
-							indexing your repo. big codebases can take a few minutes.
-							<br />
-							<span style={{ color: "#16a34a", fontWeight: 600 }}>
-								you can leave this tab in the background
-							</span>{" "}
-							and come back when it&apos;s done!
+							<T>
+								indexing your repo. big codebases can take a few minutes.
+								<br />
+								<span style={{ color: "#16a34a", fontWeight: 600 }}>
+									you can leave this tab in the background
+								</span>{" "}
+								and come back when it&apos;s done!
+							</T>
 						</p>
 
 						{/* Progress bar (always visible, no label) */}
@@ -437,14 +448,16 @@ export function IndexingOverlay({
 							>
 								<path d="M3 2 L7 5 L3 8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
 							</svg>
-							{showDetails ? "hide details" : `${progressPercent}% · show details`}
+							{showDetails
+								? gt("hide details")
+								: gt("{percent}% · show details", { percent: progressPercent })}
 						</button>
 
 						{/* Expandable details */}
 						{showDetails && (
 							<div style={{ marginTop: 10, display: "flex", flexDirection: "column", gap: 4 }}>
 								<p style={{ fontSize: "0.78rem", color: "var(--text-on-dark-secondary)", margin: 0, lineHeight: 1.5, fontFamily: "var(--font-mono)" }}>
-									{isCancelling ? "Stopping…" : (indexProgress?.message ?? "Starting…")}
+									{isCancelling ? gt("Stopping…") : (indexProgress?.message ?? gt("Starting…"))}
 								</p>
 								<div style={{ display: "flex", gap: 14, flexWrap: "wrap" }}>
 									{indexProgress?.estimatedSizeBytes != null && indexProgress.estimatedSizeBytes > 0 && (
@@ -454,7 +467,7 @@ export function IndexingOverlay({
 									)}
 									{timeRemaining && !isCancelling && (
 										<span style={{ fontFamily: "var(--font-mono)", fontSize: "0.68rem", color: "var(--text-on-dark-muted)" }}>
-											{timeRemaining} remaining
+											{gt("{time} remaining", { time: timeRemaining })}
 										</span>
 									)}
 								</div>

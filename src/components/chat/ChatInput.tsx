@@ -1,5 +1,7 @@
 "use client";
 
+import { useGT } from "gt-next";
+
 interface ChatInputProps {
 	input: string;
 	isIndexed: boolean;
@@ -21,6 +23,8 @@ export function ChatInput({
 	onSend,
 	onKeyDown,
 }: ChatInputProps) {
+	const gt = useGT();
+
 	return (
 		<form
 			onSubmit={(e) => { e.preventDefault(); onSend(); }}
@@ -31,7 +35,11 @@ export function ChatInput({
 				value={input}
 				onChange={e => onChange(e.target.value)}
 				onKeyDown={onKeyDown}
-				placeholder={isIndexed ? `Ask about ${owner}/${repo}...` : "hold up until I index the repo..."}
+				placeholder={
+					isIndexed
+						? gt("Ask about {repo}...", { repo: `${owner}/${repo}` })
+						: gt("hold up until I index the repo...")
+				}
 				disabled={!isIndexed || isGenerating}
 				rows={1}
 				id="chat-input"

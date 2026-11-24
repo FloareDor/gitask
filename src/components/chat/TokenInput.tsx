@@ -1,5 +1,7 @@
 "use client";
 
+import { T, useGT } from "gt-next";
+
 interface TokenInputProps {
 	tokenDraft: string;
 	tokenChanged: boolean;
@@ -8,13 +10,15 @@ interface TokenInputProps {
 }
 
 export function TokenInput({ tokenDraft, tokenChanged, onChange, onApply }: TokenInputProps) {
+	const gt = useGT();
+
 	return (
 		<div style={{ padding: "8px 20px 10px", borderBottom: "2px solid var(--border-dark)", background: "var(--bg-app)", flexShrink: 0 }}>
 			<div style={{ display: "flex", gap: "8px" }}>
 				<input
 					className="input"
 					type="password"
-					placeholder="GitHub Personal Access Token (required for private repos)"
+					placeholder={gt("GitHub Personal Access Token (required for private repos)")}
 					value={tokenDraft}
 					onChange={(e) => onChange(e.target.value)}
 					onKeyDown={(e) => {
@@ -31,18 +35,18 @@ export function TokenInput({ tokenDraft, tokenChanged, onChange, onApply }: Toke
 					onClick={onApply}
 					disabled={!tokenChanged}
 				>
-					Apply
+					{gt("Apply")}
 				</button>
 			</div>
 			<div style={{ marginTop: "5px", fontSize: "11px", color: "var(--text-on-dark-secondary)" }}>
-				Don't have one?{" "}
+				<T>Don&apos;t have one?</T>{" "}
 				<a
 					href="https://github.com/settings/tokens/new?scopes=repo&description=GitAsk"
 					target="_blank"
 					rel="noopener noreferrer"
 					style={{ color: "var(--text-on-dark-secondary)", textDecoration: "underline", textUnderlineOffset: "2px" }}
 				>
-					Get a GitHub token
+					{gt("Get a GitHub token")}
 				</a>
 			</div>
 		</div>

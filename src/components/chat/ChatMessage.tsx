@@ -1,6 +1,7 @@
 "use client";
 
 import { memo, useMemo, useState, useRef, useEffect, useCallback } from "react";
+import { useGT } from "gt-next";
 import ReactMarkdown from "react-markdown";
 import type { Components } from "react-markdown";
 import type { Message } from "@/app/[owner]/[repo]/types";
@@ -57,6 +58,7 @@ export const ChatMessage = memo(function ChatMessage({
 	const [editText, setEditText] = useState(msg.content);
 
 	const [vizStatus, setVizStatus] = useState<"idle" | "loading" | "error">("idle");
+	const gt = useGT();
 	const [copied, setCopied] = useState(false);
 	const editRef = useRef<HTMLTextAreaElement>(null);
 	const diagramRef = useRef<HTMLDivElement>(null);
@@ -148,7 +150,7 @@ export const ChatMessage = memo(function ChatMessage({
 
 	// Stable random word for the "no phase yet" gap (LLM queued but not streaming).
 	const idleWordRef = useRef(
-		["cooking", "brewing", "generating", "working on it", "writing", "penning down my thoughts", "hol' up", "let me cook", "let me cook", "hol' up"][
+		[gt("cooking"), gt("brewing"), gt("generating"), gt("working on it"), gt("writing"), gt("penning down my thoughts"), gt("hol' up"), gt("let me cook"), gt("let me cook"), gt("hol' up")][
 			Math.floor(Math.random() * 5)
 		]
 	);
@@ -171,7 +173,7 @@ export const ChatMessage = memo(function ChatMessage({
 			{/* Role label */}
 			<div className={`chat-role-label ${isUser ? "chat-role-label--user" : "chat-role-label--assistant"}`}>
 				{isUser ? (
-					<span>you</span>
+					<span>{gt("you")}</span>
 				) : (
 					<>
 						{isStreaming && !showThinking && <span className="chat-live-dot" aria-hidden="true" />}
@@ -179,7 +181,7 @@ export const ChatMessage = memo(function ChatMessage({
 							<span
 								className="chat-role-gitviz"
 								onClick={() => { void handleViz(); }}
-								title="Visualize as diagram"
+								title={gt("Visualize as diagram")}
 							>
 								<span className="chat-role-gitviz-default">✦ gitask</span>
 								<span className="chat-role-gitviz-hover">✦ gitviz</span>
@@ -193,7 +195,7 @@ export const ChatMessage = memo(function ChatMessage({
 
 			{msg.safety?.blocked && (
 				<div className="chat-safety-block">
-					⚠ {msg.safety.reason ?? "Message blocked for safety"}
+					⚠ {msg.safety.reason ?? gt("Message blocked for safety")}
 				</div>
 			)}
 
@@ -204,7 +206,7 @@ export const ChatMessage = memo(function ChatMessage({
 							<button
 								type="button"
 								onClick={handleEditStart}
-								title="Edit & resend"
+								title={gt("Edit & resend")}
 								className="chat-edit-btn"
 							>
 								<svg width="12" height="12" viewBox="0 0 16 16" fill="none" aria-hidden="true">
@@ -222,13 +224,13 @@ export const ChatMessage = memo(function ChatMessage({
 									onKeyDown={handleEditKeyDown}
 								/>
 								<div className="chat-edit-actions">
-									<span className="chat-edit-hint">↵ send &nbsp;·&nbsp; esc cancel</span>
+									<span className="chat-edit-hint">↵ {gt("send")} &nbsp;·&nbsp; esc {gt("cancel")}</span>
 									<div className="chat-edit-actions-btns">
 										<button type="button" className="chat-edit-cancel" onClick={handleEditCancel}>
-											Cancel
+											{gt("Cancel")}
 										</button>
 										<button type="button" className="chat-edit-save" onClick={handleEditSave}>
-											Send
+											{gt("Send")}
 										</button>
 									</div>
 								</div>
@@ -267,7 +269,7 @@ export const ChatMessage = memo(function ChatMessage({
 			{!msg.safety?.blocked && !isUser && msg.thinking && (
 				<details className="chat-model-thinking">
 					<summary className="chat-model-thinking-summary">
-						{isStreaming && !msg.content ? "thinking…" : "thought process"}
+						{isStreaming && !msg.content ? gt("thinking…") : gt("thought process")}
 					</summary>
 					<div className="chat-model-thinking-content">{msg.thinking}</div>
 				</details>
@@ -319,18 +321,18 @@ export const ChatMessage = memo(function ChatMessage({
 					<button
 						className="chat-msg-action-btn chat-msg-action-btn--viz-corner"
 						onClick={() => { void handleViz(); }}
-						title="Visualize as diagram"
+						title={gt("Visualize as diagram")}
 						disabled={vizStatus === "loading"}
 					>
-						{vizStatus === "loading" ? "viz..." : "viz"}
+						{vizStatus === "loading" ? gt("viz...") : gt("viz")}
 					</button>
 				</div>
 			)}
 
 			{!msg.safety?.blocked && !isUser && !isStreaming && (
 				<div className="chat-msg-actions">
-					<button className="chat-msg-action-btn" onClick={handleCopy} title="Copy message">
-						{copied ? "copied" : "copy"}
+					<button className="chat-msg-action-btn" onClick={handleCopy} title={gt("Copy message")}>
+						{copied ? gt("copied") : gt("copy")}
 					</button>
 				</div>
 			)}
@@ -339,11 +341,11 @@ export const ChatMessage = memo(function ChatMessage({
 		{!isUser && msg.diagramStatus === "loading" && (
 			<div className="diagram-status">
 				<div className="diagram-status-spinner" />
-				<span className="diagram-status-text">generating diagram...</span>
+				<span className="diagram-status-text">{gt("generating diagram...")}</span>
 			</div>
 		)}
 		{!isUser && msg.diagramStatus === "error" && (
-			<div className="diagram-error-status">diagram generation failed</div>
+			<div className="diagram-error-status">{gt("diagram generation failed")}</div>
 		)}
 
 		{msg.citations && msg.citations.length > 0 && (
@@ -360,7 +362,11 @@ export const ChatMessage = memo(function ChatMessage({
 							style={{ transform: sourcesExpanded ? "rotate(90deg)" : "rotate(0deg)" }}
 							aria-hidden="true"
 						>▸</span>
-						{sourcesExpanded ? "hide sources" : `${msg.citations.length} source${msg.citations.length !== 1 ? "s" : ""}`}
+						{sourcesExpanded
+							? gt("hide sources")
+							: msg.citations.length === 1
+								? gt("{count} source", { count: msg.citations.length })
+								: gt("{count} sources", { count: msg.citations.length })}
 					</button>
 					{sourcesExpanded && (
 						<div id={sourcesPanelId} className="chat-sources-list">
@@ -396,7 +402,7 @@ export const ChatMessage = memo(function ChatMessage({
 			</div>
 		)}
 		{!isUser && vizStatus === "error" && (
-			<div className="diagram-error-status">could not extract a diagram from this message</div>
+			<div className="diagram-error-status">{gt("could not extract a diagram from this message")}</div>
 		)}
 		</>
 	);

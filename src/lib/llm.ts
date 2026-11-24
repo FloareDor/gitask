@@ -5,6 +5,7 @@
  * Cloud BYOK keys can be stored encrypted (vault) or plain local (fallback).
  */
 
+import { msg as gtMsg } from "gt-next";
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import { getGeminiVault } from "./gemini-vault";
 import { getGroqVault } from "./groq-vault";
@@ -54,7 +55,7 @@ export interface ChatMessage {
 	content: string;
 }
 
-const VAULT_LOCKED_MSG = "Your API key is locked. Open LLM Settings and unlock it to continue.";
+const VAULT_LOCKED_MSG = gtMsg("Your API key is locked. Open LLM Settings and unlock it to continue.");
 
 /**
  * Fired when LLM settings change. Anything whose enabled state depends on the
@@ -87,13 +88,13 @@ function normalizeGeminiError(err: unknown): Error {
 		lower.includes("unauthorized")
 	) {
 		return new Error(
-			"Gemini API key is invalid. Open LLM Settings and update your key."
+			gtMsg("Gemini API key is invalid. Open LLM Settings and update your key.")
 		);
 	}
 
 	if (lower.includes("permission") || lower.includes("forbidden")) {
 		return new Error(
-			"Gemini access denied. Check your API key in LLM Settings."
+			gtMsg("Gemini access denied. Check your API key in LLM Settings.")
 		);
 	}
 
@@ -115,7 +116,7 @@ function normalizeGroqError(err: unknown): Error {
 		lower.includes("invalid_api_key")
 	) {
 		return new Error(
-			"Groq API key is invalid. Open LLM Settings and update your key."
+			gtMsg("Groq API key is invalid. Open LLM Settings and update your key.")
 		);
 	}
 
@@ -125,13 +126,13 @@ function normalizeGroqError(err: unknown): Error {
 		lower.includes("too many requests")
 	) {
 		return new Error(
-			"Groq rate limit hit. Wait a moment and try again."
+			gtMsg("Groq rate limit hit. Wait a moment and try again.")
 		);
 	}
 
 	if (lower.includes("permission") || lower.includes("forbidden")) {
 		return new Error(
-			"Groq access denied. Check your API key in LLM Settings."
+			gtMsg("Groq access denied. Check your API key in LLM Settings.")
 		);
 	}
 
@@ -148,11 +149,11 @@ function normalizeMLCInitError(err: unknown): Error {
 		lower.includes("adapter")
 	) {
 		return new Error(
-			"Local model isn't supported in this browser. Switch to Gemini or Groq in LLM Settings."
+			gtMsg("Local model isn't supported in this browser. Switch to Gemini or Groq in LLM Settings.")
 		);
 	}
 	return new Error(
-		`Local model failed to load: ${message}. Try switching to Gemini or Groq in LLM Settings.`
+		gtMsg("Local model failed to load: {error}. Try switching to Gemini or Groq in LLM Settings.", { error: message })
 	);
 }
 
@@ -862,7 +863,7 @@ function geminiKeyAccess(): { ok: true; scope: GeminiKeyScope } | { ok: false; r
 	if (storageMode === "local") {
 		const localKey = getGeminiLocalApiKey();
 		if (!localKey) {
-			return { ok: false, reason: "Add your Gemini API key in LLM Settings to use agent mode." };
+			return { ok: false, reason: gtMsg("Add your Gemini API key in LLM Settings to use agent mode.") };
 		}
 		return { ok: true, scope: (fn) => fn(localKey) };
 	}
@@ -873,7 +874,7 @@ function geminiKeyAccess(): { ok: true; scope: GeminiKeyScope } | { ok: false; r
 			ok: false,
 			reason: vault?.getState() === "locked"
 				? VAULT_LOCKED_MSG
-				: "Agent mode needs your own Gemini key. Add one in LLM Settings.",
+				: gtMsg("Agent mode needs your own Gemini key. Add one in LLM Settings."),
 		};
 	}
 	// withKey keeps the decrypted key inside the callback — never store it.

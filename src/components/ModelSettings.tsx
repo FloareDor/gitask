@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { T, useGT, useMessages } from "gt-next";
 import {
 	getLLMConfig,
 	setLLMConfig,
@@ -27,6 +28,8 @@ import {
 } from "byok-vault";
 
 export function ModelSettings() {
+	const gt = useGT();
+	const m = useMessages();
 	const [isOpen, setIsOpen] = useState(false);
 	const [config, setConfig] = useState<LLMConfig>({ provider: "mlc" });
 	const [reloading, setReloading] = useState(false);
@@ -117,7 +120,7 @@ export function ModelSettings() {
 	const handleMigrate = async () => {
 		if (!config.apiKey || migratePassphrase.length < 8 || !vault) return;
 		setReloading(true);
-		setStatusMsg("Migrating key to vault...");
+		setStatusMsg(gt("Migrating key to vault..."));
 		try {
 			await vault.importKey(config.apiKey, migratePassphrase);
 			const { apiKey: _omit, ...safe } = config;
@@ -130,7 +133,7 @@ export function ModelSettings() {
 			console.error(e);
 			setStatusMsg(
 				e instanceof BYOKVaultError && e.code === "WRONG_PASSPHRASE"
-					? "Wrong passphrase, try again."
+					? gt("Wrong passphrase, try again.")
 					: getUserMessage(e)
 			);
 		} finally {
@@ -141,7 +144,7 @@ export function ModelSettings() {
 	const handleUnlock = async () => {
 		if (!vault || passphraseInput.length < 8) return;
 		setReloading(true);
-		setStatusMsg("Unlocking...");
+		setStatusMsg(gt("Unlocking..."));
 		try {
 			await vault.unlock(passphraseInput, { session: "tab" });
 			setPassphraseInput("");
@@ -150,7 +153,7 @@ export function ModelSettings() {
 			console.error(e);
 			setStatusMsg(
 				e instanceof BYOKVaultError && e.code === "WRONG_PASSPHRASE"
-					? "Wrong passphrase, try again."
+					? gt("Wrong passphrase, try again.")
 					: getUserMessage(e)
 			);
 		} finally {
@@ -161,7 +164,7 @@ export function ModelSettings() {
 	const handleUnlockWithPasskey = async () => {
 		if (!vault) return;
 		setReloading(true);
-		setStatusMsg("Unlocking with fingerprint...");
+		setStatusMsg(gt("Unlocking with fingerprint..."));
 		try {
 			await vault.unlockWithPasskey({ session: "tab" });
 			await reloadLLM((msg) => setStatusMsg(msg));
@@ -215,7 +218,7 @@ export function ModelSettings() {
 
 	const handleSave = async () => {
 		setReloading(true);
-		setStatusMsg("Initializing...");
+		setStatusMsg(gt("Initializing..."));
 		let clearLocalKeyAfterSuccess = false;
 		try {
 			if (isCloudProvider) {
@@ -267,7 +270,7 @@ export function ModelSettings() {
 			console.error(e);
 			setStatusMsg(
 				e instanceof BYOKVaultError && e.code === "WRONG_PASSPHRASE"
-					? "Wrong passphrase, try again."
+					? gt("Wrong passphrase, try again.")
 					: getUserMessage(e)
 			);
 		} finally {
@@ -294,7 +297,7 @@ export function ModelSettings() {
 				<button
 					onClick={() => setIsOpen(true)}
 					style={styles.settingsBtn}
-					aria-label="Model settings"
+					aria-label={gt("Model settings")}
 				>
 					<span style={{ ...styles.dot, background: dotColor }} />
 					{badge}
@@ -313,7 +316,7 @@ export function ModelSettings() {
 							<button
 								onClick={() => setIsOpen(false)}
 								style={styles.closeBtn}
-								aria-label="Close"
+								aria-label={gt("Close")}
 							>
 								×
 							</button>
@@ -323,7 +326,7 @@ export function ModelSettings() {
 						<div style={styles.sheetBody}>
 							{/* Provider section */}
 							<div style={{ marginBottom: 24 }}>
-								<p style={styles.sectionLabel}>provider</p>
+								<p style={styles.sectionLabel}>{gt("provider")}</p>
 
 								<div
 									style={{
@@ -387,13 +390,13 @@ export function ModelSettings() {
 
 								<p style={styles.hint}>
 									{config.provider === "mlc" ? (
-										<>runs in your browser via{" "}
+										<T>runs in your browser via{" "}
 											<a href="https://github.com/mlc-ai/web-llm" target="_blank" rel="noopener noreferrer" style={{ color: "var(--accent)" }}>web-llm</a>
-											{" "}(private, offline, no API key needed)</>
+											{" "}(private, offline, no API key needed)</T>
 									) : config.provider === "groq" ? (
-										"groq cloud, very fast, no download. needs your API key"
+										gt("groq cloud, very fast, no download. needs your API key")
 									) : (
-										"google cloud, fast, no download. needs your API key"
+										gt("google cloud, fast, no download. needs your API key")
 									)}
 								</p>
 							</div>
@@ -402,7 +405,7 @@ export function ModelSettings() {
 							{config.provider === "mlc" && (
 								<div style={{ marginBottom: 24 }}>
 									<div style={styles.sectionDivider} />
-									<p style={styles.sectionLabel}>local model</p>
+									<p style={styles.sectionLabel}>{gt("local model")}</p>
 									{MLC_MODELS.map((model) => {
 										const isSelected = (config.mlcModelId ?? MLC_MODELS[0].id) === model.id;
 										const isDownloaded = downloadedModels.includes(model.id);
@@ -437,7 +440,7 @@ export function ModelSettings() {
 															color: isSelected ? "rgba(216,200,255,0.9)" : "#a78bfa",
 															border: isSelected ? "1px solid rgba(168,139,250,0.3)" : "1px solid rgba(168,139,250,0.2)",
 														}}>
-															thinks
+															{gt("thinks")}
 														</span>
 													)}
 												</div>
@@ -446,7 +449,7 @@ export function ModelSettings() {
 														...styles.mlcModelMetaText,
 														color: isSelected ? "rgba(255,255,255,0.5)" : "var(--page-text-dim)",
 													}}>
-														{model.vram} download
+														{gt("{size} download", { size: model.vram })}
 													</span>
 													{isDownloaded && (
 														<span style={{
@@ -456,7 +459,7 @@ export function ModelSettings() {
 															alignItems: "center",
 															gap: 4,
 														}}>
-															<span style={{ fontSize: 7, lineHeight: 1 }}>●</span> cached
+															<span style={{ fontSize: 7, lineHeight: 1 }}>●</span> {gt("cached")}
 														</span>
 													)}
 												</div>
@@ -467,7 +470,7 @@ export function ModelSettings() {
 									{/* Manage downloaded models */}
 									{downloadedModels.length > 0 && (
 										<details style={{ marginTop: 16 }}>
-											<summary style={styles.manageLabel}>manage downloads</summary>
+											<summary style={styles.manageLabel}>{gt("manage downloads")}</summary>
 											<div style={{ marginTop: 10, display: "flex", flexDirection: "column", gap: 6 }}>
 												{downloadedModels.map((id) => {
 													const info = MLC_MODELS.find((m) => m.id === id);
@@ -480,7 +483,7 @@ export function ModelSettings() {
 																disabled={deletingModel === id}
 																onClick={() => handleDeleteModel(id)}
 															>
-																{deletingModel === id ? "deleting..." : "delete"}
+																{deletingModel === id ? gt("deleting...") : gt("delete")}
 															</button>
 														</div>
 													);
@@ -497,17 +500,17 @@ export function ModelSettings() {
 									<div style={styles.sectionDivider} />
 
 									{hasDefaultKey && (
-										<p style={styles.hint}>a shared {activeProviderLabel} key is set up. add your own key for better rate limits.</p>
+										<p style={styles.hint}>{gt("a shared {provider} key is set up. add your own key for better rate limits.", { provider: activeProviderLabel })}</p>
 									)}
 
 									<div style={styles.field}>
 										<div style={styles.switchInlineRow}>
-											<span style={styles.label}>byok-vault bypass</span>
+											<span style={styles.label}>{gt("byok-vault bypass")}</span>
 											<button
 												type="button"
 												role="switch"
 												aria-checked={bypassEnabled}
-												aria-label="Toggle BYOK vault bypass"
+												aria-label={gt("Toggle BYOK vault bypass")}
 												style={{
 													...styles.switchBtn,
 													...(bypassEnabled ? styles.switchBtnOn : {}),
@@ -535,11 +538,12 @@ export function ModelSettings() {
 													...(!vaultSupported ? styles.switchStateDisabled : {}),
 												}}
 											>
-												{bypassEnabled ? "ON" : "OFF"}
+												{bypassEnabled ? gt("ON") : gt("OFF")}
 											</span>
 										</div>
 										{!bypassEnabled ? (
 											<p style={styles.hint}>
+												<T>
 												stored encrypted with{" "}
 												<a
 													href="https://www.npmjs.com/package/byok-vault"
@@ -550,25 +554,26 @@ export function ModelSettings() {
 													byok-vault
 												</a>
 												.
+											</T>
 											</p>
 										) : (
 											<p style={styles.warningHint}>
-												local fallback stores your {activeProviderLabel} key in browser localStorage (less secure).
+												{gt("local fallback stores your {provider} key in browser localStorage (less secure).", { provider: activeProviderLabel })}
 											</p>
 										)}
 										{!vaultSupported && (
 											<p style={styles.warningHint}>
-												encrypted vault is not available in this browser. bypass is forced on.
+												<T>encrypted vault is not available in this browser. bypass is forced on.</T>
 											</p>
 										)}
 									</div>
 
 									{storageMode === "vault" && needsMigration && (
 										<div style={styles.field}>
-											<label style={styles.label}>secure your existing key</label>
+											<label style={styles.label}>{gt("secure your existing key")}</label>
 											<input
 												type="password"
-												placeholder="passphrase (min 8 chars)"
+												placeholder={gt("passphrase (min 8 chars)")}
 												value={migratePassphrase}
 												onChange={(e) => setMigratePassphrase(e.target.value)}
 												style={styles.input}
@@ -578,7 +583,7 @@ export function ModelSettings() {
 												style={styles.saveBtn}
 												disabled={reloading || migratePassphrase.length < 8}
 											>
-												{reloading ? "saving..." : "migrate"}
+												{reloading ? gt("saving...") : gt("migrate")}
 											</button>
 										</div>
 									)}
@@ -591,11 +596,11 @@ export function ModelSettings() {
 												rel="noopener noreferrer"
 												style={styles.accentLink}
 											>
-												{config.provider === "groq" ? "get a Groq API key →" : "get a free API key →"}
+												{config.provider === "groq" ? gt("get a Groq API key →") : gt("get a free API key →")}
 											</a>
 											<input
 												type="password"
-												placeholder="paste API key"
+												placeholder={gt("paste API key")}
 												value={apiKeyInput}
 												onChange={(e) => setApiKeyInput(e.target.value)}
 												style={styles.input}
@@ -603,7 +608,7 @@ export function ModelSettings() {
 											{!passkeySupported && (
 												<input
 													type="password"
-													placeholder="passphrase to encrypt it (min 8 chars)"
+													placeholder={gt("passphrase to encrypt it (min 8 chars)")}
 													value={passphraseInput}
 													onChange={(e) => setPassphraseInput(e.target.value)}
 													style={styles.input}
@@ -620,20 +625,20 @@ export function ModelSettings() {
 												rel="noopener noreferrer"
 												style={styles.accentLink}
 											>
-												{config.provider === "groq" ? "get a Groq API key →" : "get a free API key →"}
+												{config.provider === "groq" ? gt("get a Groq API key →") : gt("get a free API key →")}
 											</a>
 											<input
 												type="password"
-												placeholder={hasLocalKey ? "replace local API key (optional)" : "paste API key"}
+												placeholder={hasLocalKey ? gt("replace local API key (optional)") : gt("paste API key")}
 												value={apiKeyInput}
 												onChange={(e) => setApiKeyInput(e.target.value)}
 												style={styles.input}
 											/>
 											{hasLocalKey && (
 												<div style={{ display: "flex", gap: 8 }}>
-													<p style={{ ...styles.hint, color: "var(--success)", flex: 1 }}>local key saved</p>
+													<p style={{ ...styles.hint, color: "var(--success)", flex: 1 }}>{gt("local key saved")}</p>
 													<button onClick={() => handleResetKeys("local")} style={styles.ghostBtn}>
-														remove key
+														{gt("remove key")}
 													</button>
 												</div>
 											)}
@@ -644,13 +649,13 @@ export function ModelSettings() {
 										<div style={styles.field}>
 											{isPasskeyEnrolled ? (
 												<button onClick={handleUnlockWithPasskey} style={styles.saveBtn} disabled={reloading}>
-													{reloading ? "unlocking..." : "unlock with fingerprint"}
+													{reloading ? gt("unlocking...") : gt("unlock with fingerprint")}
 												</button>
 											) : (
 												<>
 													<input
 														type="password"
-														placeholder="passphrase"
+														placeholder={gt("passphrase")}
 														value={passphraseInput}
 														onChange={(e) => setPassphraseInput(e.target.value)}
 														style={styles.input}
@@ -660,7 +665,7 @@ export function ModelSettings() {
 														style={styles.saveBtn}
 														disabled={reloading || passphraseInput.length < 8}
 													>
-														{reloading ? "unlocking..." : "unlock"}
+														{reloading ? gt("unlocking...") : gt("unlock")}
 													</button>
 												</>
 											)}
@@ -669,10 +674,10 @@ export function ModelSettings() {
 
 									{storageMode === "vault" && vaultState === "unlocked" && (
 										<div style={styles.field}>
-											<p style={{ ...styles.hint, color: "var(--success)" }}>key saved</p>
+											<p style={{ ...styles.hint, color: "var(--success)" }}>{gt("key saved")}</p>
 											<div style={{ display: "flex", gap: 8 }}>
-												<button onClick={handleLock} style={styles.ghostBtn}>lock</button>
-												<button onClick={() => handleResetKeys("vault")} style={styles.ghostBtn}>remove key</button>
+												<button onClick={handleLock} style={styles.ghostBtn}>{gt("lock")}</button>
+												<button onClick={() => handleResetKeys("vault")} style={styles.ghostBtn}>{gt("remove key")}</button>
 											</div>
 										</div>
 									)}
@@ -681,14 +686,14 @@ export function ModelSettings() {
 
 							{reloading && (
 								<div style={styles.progressBlock}>
-									<p style={styles.status}>{statusMsg || "Initializing..."}</p>
+									<p style={styles.status}>{statusMsg ? m(statusMsg) : gt("Initializing...")}</p>
 									{config.provider === "mlc" && (
 										<button
 											style={styles.cancelBtn}
 											onClick={handleCancelMLCInit}
 											disabled={isCancelling}
 										>
-											{isCancelling ? "cancelling..." : "cancel & clear download"}
+											{isCancelling ? gt("cancelling...") : gt("cancel & clear download")}
 										</button>
 									)}
 								</div>
@@ -704,7 +709,7 @@ export function ModelSettings() {
 								}}
 								disabled={reloading || !canSave}
 							>
-								{reloading ? "saving..." : "save"}
+								{reloading ? gt("saving...") : gt("save")}
 							</button>
 
 							<details style={{ marginTop: 24 }}>
@@ -716,7 +721,7 @@ export function ModelSettings() {
 									userSelect: "none",
 									marginBottom: 12,
 								}}>
-									Advanced
+									{gt("Advanced")}
 								</summary>
 								<div style={{ marginTop: 12 }}>
 									<button
@@ -724,7 +729,7 @@ export function ModelSettings() {
 										style={styles.ghostBtn}
 										disabled={reloading}
 									>
-										cancel
+										{gt("cancel")}
 									</button>
 								</div>
 							</details>

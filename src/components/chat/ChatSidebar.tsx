@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useGT } from "gt-next";
 import AstTreeView from "@/components/AstTreeView";
 import type { ChatSession } from "@/app/[owner]/[repo]/types";
 import type { IndexProgress, AstNode } from "@/lib/indexer";
@@ -50,6 +51,7 @@ export function ChatSidebar({
 	onCancelIndexing,
 	isCancellingIndex,
 }: ChatSidebarProps) {
+	const gt = useGT();
 	const [interactiveChatId, setInteractiveChatId] = useState<string | null>(null);
 
 	return (
@@ -67,11 +69,11 @@ export function ChatSidebar({
 			<div style={{ padding: "16px", overflowY: "auto", flex: 1 }}>
 				{/* Index status */}
 				<div style={{ marginBottom: 16 }}>
-					<p style={{ fontFamily: "var(--font-mono)", fontSize: "10px", textTransform: "uppercase", letterSpacing: "0.08em", color: "var(--text-on-dark-muted)", marginBottom: 8, margin: "0 0 8px 0" }}>Status</p>
-					{!isIndexed && !indexProgress && <span style={{ fontSize: "12px", color: "var(--text-on-dark-muted)" }}>Not indexed</span>}
+					<p style={{ fontFamily: "var(--font-mono)", fontSize: "10px", textTransform: "uppercase", letterSpacing: "0.08em", color: "var(--text-on-dark-muted)", marginBottom: 8, margin: "0 0 8px 0" }}>{gt("Status")}</p>
+					{!isIndexed && !indexProgress && <span style={{ fontSize: "12px", color: "var(--text-on-dark-muted)" }}>{gt("Not indexed")}</span>}
 					{isIndexing && (
 						<div>
-							<span style={{ fontSize: "12px", color: "#d97706", display: "block", marginBottom: 6 }}>● Indexing...</span>
+							<span style={{ fontSize: "12px", color: "#d97706", display: "block", marginBottom: 6 }}>● {gt("Indexing...")}</span>
 							<div style={{ height: 4, background: "var(--bg-glass)", marginBottom: 6 }}>
 								<div style={{ height: "100%", background: "#16a34a", width: `${progressPercent}%`, transition: "width 0.3s" }} />
 							</div>
@@ -80,7 +82,7 @@ export function ChatSidebar({
 							</span>
 							{timeRemaining && (
 								<span style={{ fontFamily: "var(--font-mono)", fontSize: "10px", color: "var(--text-on-dark-muted)", display: "block", marginTop: 4 }}>
-									{timeRemaining} remaining
+									{gt("{time} remaining", { time: timeRemaining })}
 								</span>
 							)}
 							{typeof Notification !== "undefined" && notificationPermission === "default" && (
@@ -88,9 +90,9 @@ export function ChatSidebar({
 									type="button"
 									style={{ marginTop: 8, fontSize: "10px", padding: "2px 6px", background: "transparent", border: "1px solid var(--border-dark)", color: "var(--text-on-dark-muted)", cursor: "pointer", fontFamily: "var(--font-mono)" }}
 									onClick={onRequestNotification}
-									title="Get a system notification when indexing completes"
+									title={gt("Get a system notification when indexing completes")}
 								>
-									Notify when ready
+									{gt("Notify when ready")}
 								</button>
 							)}
 							{onCancelIndexing && (
@@ -99,24 +101,24 @@ export function ChatSidebar({
 									style={{ marginTop: 8, fontSize: "10px", padding: "2px 6px", background: "transparent", border: "1px solid var(--border-dark)", color: "var(--text-on-dark-muted)", cursor: isCancellingIndex ? "default" : "pointer", fontFamily: "var(--font-mono)", display: "block" }}
 									onClick={onCancelIndexing}
 									disabled={isCancellingIndex}
-									title="Stop indexing and return home"
+									title={gt("Stop indexing and return home")}
 								>
-									{isCancellingIndex ? "Cancelling…" : "Cancel indexing"}
+									{isCancellingIndex ? gt("Cancelling…") : gt("Cancel indexing")}
 								</button>
 							)}
 						</div>
 					)}
-					{isIndexed && <span style={{ fontSize: "12px", color: "#16a34a" }}>● Indexed</span>}
-					{indexingFailed && <span style={{ fontSize: "12px", color: "#dc2626" }}>● Error</span>}
+					{isIndexed && <span style={{ fontSize: "12px", color: "#16a34a" }}>● {gt("Indexed")}</span>}
+					{indexingFailed && <span style={{ fontSize: "12px", color: "#dc2626" }}>● {gt("Error")}</span>}
 				</div>
 
 				{/* Stats */}
 				{isIndexed && (
 					<div style={{ marginBottom: 16 }}>
-						<p style={{ fontFamily: "var(--font-mono)", fontSize: "10px", textTransform: "uppercase", letterSpacing: "0.08em", color: "var(--text-on-dark-muted)", marginBottom: 8, margin: "0 0 8px 0" }}>Index</p>
+						<p style={{ fontFamily: "var(--font-mono)", fontSize: "10px", textTransform: "uppercase", letterSpacing: "0.08em", color: "var(--text-on-dark-muted)", marginBottom: 8, margin: "0 0 8px 0" }}>{gt("Index")}</p>
 						<div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
 							<div style={{ display: "flex", justifyContent: "space-between" }}>
-								<span style={{ fontSize: "11px", color: "var(--text-on-dark-muted)" }}>Chunks</span>
+								<span style={{ fontSize: "11px", color: "var(--text-on-dark-muted)" }}>{gt("Chunks")}</span>
 								<span style={{ fontFamily: "var(--font-mono)", fontSize: "11px", color: "var(--text-on-dark-secondary)" }}>{chunkCount}</span>
 							</div>
 						</div>
@@ -126,7 +128,7 @@ export function ChatSidebar({
 				{/* Chat sessions list */}
 				{orderedChatSessions.length > 0 && (
 					<div>
-						<p style={{ fontFamily: "var(--font-mono)", fontSize: "10px", textTransform: "uppercase", letterSpacing: "0.08em", color: "var(--text-on-dark-muted)", marginBottom: 8, margin: "0 0 8px 0" }}>Chats</p>
+						<p style={{ fontFamily: "var(--font-mono)", fontSize: "10px", textTransform: "uppercase", letterSpacing: "0.08em", color: "var(--text-on-dark-muted)", marginBottom: 8, margin: "0 0 8px 0" }}>{gt("Chats")}</p>
 						<div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
 							{orderedChatSessions.map((session) => {
 								const isActive = activeChatId === session.chat_id;
@@ -173,8 +175,8 @@ export function ChatSidebar({
 												event.stopPropagation();
 												onDeleteChat(session.chat_id);
 											}}
-											aria-label={`Delete ${session.title}`}
-											title={`Delete ${session.title}`}
+											aria-label={gt("Delete {title}", { title: session.title })}
+											title={gt("Delete {title}", { title: session.title })}
 											style={{
 												flexShrink: 0,
 												padding: "4px 8px",
@@ -191,7 +193,7 @@ export function ChatSidebar({
 												transition: "opacity 0.16s ease, background 0.16s ease, color 0.16s ease",
 											}}
 										>
-											Del
+											{gt("Del")}
 										</button>
 									</div>
 								);
@@ -200,7 +202,7 @@ export function ChatSidebar({
 								onClick={onCreateChat}
 								style={{ textAlign: "left", background: "transparent", border: "1px solid var(--border-dark)", padding: "6px 8px", cursor: "pointer", color: "var(--text-on-dark-muted)", fontSize: "11px", fontFamily: "var(--font-mono)" }}
 							>
-								+ New chat
+								+ {gt("New chat")}
 							</button>
 						</div>
 					</div>
@@ -209,7 +211,7 @@ export function ChatSidebar({
 				{/* AST tree during indexing */}
 				{isIndexing && astNodes.length > 0 && (
 					<div style={{ marginTop: 16 }}>
-						<p style={{ fontFamily: "var(--font-mono)", fontSize: "10px", textTransform: "uppercase", letterSpacing: "0.08em", color: "var(--text-on-dark-muted)", marginBottom: 8, margin: "0 0 8px 0" }}>Files</p>
+						<p style={{ fontFamily: "var(--font-mono)", fontSize: "10px", textTransform: "uppercase", letterSpacing: "0.08em", color: "var(--text-on-dark-muted)", marginBottom: 8, margin: "0 0 8px 0" }}>{gt("Files")}</p>
 						<AstTreeView astNodes={astNodes} textChunkCounts={textChunkCounts} />
 					</div>
 				)}
